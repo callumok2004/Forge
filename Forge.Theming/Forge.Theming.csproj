@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<RootNamespace>Forge.Theming</RootNamespace>
+	</PropertyGroup>
+
+	<ItemGroup>
+	</ItemGroup>
+</Project>

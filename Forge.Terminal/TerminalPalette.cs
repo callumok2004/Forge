@@ -1,0 +1,43 @@
+namespace Forge.Terminal;
+
+public static class TerminalPalette
+{
+	private static readonly int[] Base16 =
+	[
+		Rgb(0x1E, 0x1E, 0x1E),
+		Rgb(0xF1, 0x4C, 0x4C),
+		Rgb(0x23, 0xD1, 0x8B),
+		Rgb(0xF5, 0xF5, 0x43),
+		Rgb(0x3B, 0x8E, 0xEA),
+		Rgb(0xD6, 0x70, 0xD6),
+		Rgb(0x29, 0xB8, 0xDB),
+		Rgb(0xE5, 0xE5, 0xE5),
+		Rgb(0x66, 0x66, 0x66),
+		Rgb(0xF1, 0x4C, 0x4C),
+		Rgb(0x23, 0xD1, 0x8B),
+		Rgb(0xF5, 0xF5, 0x43),
+		Rgb(0x3B, 0x8E, 0xEA),
+		Rgb(0xD6, 0x70, 0xD6),
+		Rgb(0x29, 0xB8, 0xDB),
+		Rgb(0xE5, 0xE5, 0xE5),
+	];
+
+	private static readonly int[] CubeLevels = [0x00, 0x5F, 0x87, 0xAF, 0xD7, 0xFF];
+
+	public static int Ansi(int index) => Base16[index & 15];
+
+	public static int Indexed(int index) {
+		if (index < 16) return Base16[index];
+
+		if (index < 232) {
+			int value = index - 16;
+			return Rgb(CubeLevels[value / 36 % 6], CubeLevels[value / 6 % 6], CubeLevels[value % 6]);
+		}
+
+		int grey = 8 + ((index - 232) * 10);
+		return Rgb(grey, grey, grey);
+	}
+
+	private static int Rgb(int red, int green, int blue) =>
+		unchecked((int)0xFF000000) | (red << 16) | (green << 8) | blue;
+}

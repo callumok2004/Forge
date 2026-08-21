@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<RootNamespace>Forge.Commands</RootNamespace>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Forge.Search\Forge.Search.csproj" />
+		<ProjectReference Include="..\Forge.UI.Controls\Forge.UI.Controls.csproj" />
+	</ItemGroup>
+</Project>

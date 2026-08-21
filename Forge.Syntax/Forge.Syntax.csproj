@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<RootNamespace>Forge.Syntax</RootNamespace>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<Content Include="Assets\*.json" CopyToOutputDirectory="PreserveNewest" />
+		<Content Include="Grammars\*.json" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Forge.Text\Forge.Text.csproj" />
+		<ProjectReference Include="..\Forge.Theming\Forge.Theming.csproj" />
+	</ItemGroup>
+</Project>

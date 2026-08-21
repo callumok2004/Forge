@@ -1,0 +1,10 @@
+{
+	"name": "merge-conflict",
+	"publisher": "forge",
+	"displayName": "Merge Conflict",
+	"description": "Accept current, incoming or both sides of a git merge conflict.",
+	"version": "1.0.0",
+	"activationEvents": [
+		"*"
+	]
+}

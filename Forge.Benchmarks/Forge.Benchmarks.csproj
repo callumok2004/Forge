@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<RootNamespace>Forge.Benchmarks</RootNamespace>
+		<OutputType>Exe</OutputType>
+		<IsPackable>false</IsPackable>
+		<Optimize>true</Optimize>
+		<ServerGarbageCollection>false</ServerGarbageCollection>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="BenchmarkDotNet" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Forge.Text\Forge.Text.csproj" />
+	</ItemGroup>
+</Project>

@@ -1,0 +1,10 @@
+{
+	"name": "trailing-spaces",
+	"publisher": "forge",
+	"displayName": "Trailing Spaces",
+	"description": "Highlights and trims trailing whitespace.",
+	"version": "1.0.0",
+	"activationEvents": [
+		"*"
+	]
+}

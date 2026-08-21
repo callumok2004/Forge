@@ -1,0 +1,179 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "build",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"type": "process",
+			"command": "dotnet",
+			"args": [
+				"build",
+				"${workspaceFolder}/Forge.slnx",
+				"-c",
+				"Debug",
+				"-v",
+				"minimal",
+				"/consoleloggerparameters:NoSummary"
+			],
+			"problemMatcher": "$msCompile",
+			"presentation": {
+				"reveal": "silent",
+				"clear": true
+			}
+		},
+		{
+			"label": "build (release)",
+			"type": "process",
+			"command": "dotnet",
+			"args": [
+				"build",
+				"${workspaceFolder}/Forge.slnx",
+				"-c",
+				"Release",
+				"-v",
+				"minimal",
+				"/consoleloggerparameters:NoSummary"
+			],
+			"problemMatcher": "$msCompile",
+			"presentation": {
+				"reveal": "silent",
+				"clear": true
+			}
+		},
+		{
+			"label": "rebuild",
+			"type": "process",
+			"command": "dotnet",
+			"args": [
+				"build",
+				"${workspaceFolder}/Forge.slnx",
+				"-c",
+				"Debug",
+				"--no-incremental",
+				"-v",
+				"minimal"
+			],
+			"problemMatcher": "$msCompile"
+		},
+		{
+			"label": "clean",
+			"type": "process",
+			"command": "dotnet",
+			"args": [
+				"clean",
+				"${workspaceFolder}/Forge.slnx"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "test",
+			"detail": "xunit.v3 test projects are self-running executables; 'dotnet run' drives them directly.",
+			"group": {
+				"kind": "test",
+				"isDefault": true
+			},
+			"type": "process",
+			"command": "dotnet",
+			"args": [
+				"run",
+				"--project",
+				"${workspaceFolder}/Forge.Tests/Forge.Tests.csproj",
+				"-c",
+				"Debug"
+			],
+			"problemMatcher": "$msCompile",
+			"presentation": {
+				"reveal": "always",
+				"clear": true
+			}
+		},
+		{
+			"label": "bench",
+			"detail": "Run all benchmarks. Release only - never trust a Debug benchmark.",
+			"type": "process",
+			"command": "dotnet",
+			"args": [
+				"run",
+				"-c",
+				"Release",
+				"--project",
+				"${workspaceFolder}/Forge.Benchmarks/Forge.Benchmarks.csproj",
+				"--",
+				"--filter",
+				"*"
+			],
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"clear": true
+			}
+		},
+		{
+			"label": "bench (pick)",
+			"detail": "Run one benchmark class or method by filter.",
+			"type": "process",
+			"command": "dotnet",
+			"args": [
+				"run",
+				"-c",
+				"Release",
+				"--project",
+				"${workspaceFolder}/Forge.Benchmarks/Forge.Benchmarks.csproj",
+				"--",
+				"--filter",
+				"*${input:benchFilter}*"
+			],
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"clear": true
+			}
+		},
+		{
+			"label": "run",
+			"dependsOn": "build",
+			"type": "process",
+			"command": "dotnet",
+			"args": [
+				"run",
+				"-c",
+				"Debug",
+				"--project",
+				"${workspaceFolder}/Forge.App/Forge.App.csproj"
+			],
+			"problemMatcher": "$msCompile"
+		},
+		{
+			"label": "publish (aot)",
+			"detail": "Native AOT publish of Forge.App - this is the build that has to hit the startup budget.",
+			"type": "process",
+			"command": "dotnet",
+			"args": [
+				"publish",
+				"${workspaceFolder}/Forge.App/Forge.App.csproj",
+				"-c",
+				"Release",
+				"-r",
+				"win-x64",
+				"-p:PublishAot=true",
+				"-o",
+				"${workspaceFolder}/artifacts/publish"
+			],
+			"problemMatcher": "$msCompile",
+			"presentation": {
+				"reveal": "always"
+			}
+		}
+	],
+	"inputs": [
+		{
+			"id": "benchFilter",
+			"type": "promptString",
+			"description": "Benchmark filter (e.g. PieceTree, Insert, TextLoader)",
+			"default": "PieceTree"
+		}
+	]
+}

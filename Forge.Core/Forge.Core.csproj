@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<RootNamespace>Forge.Core</RootNamespace>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="CommunityToolkit.HighPerformance" />
+		<PackageReference Include="CommunityToolkit.Diagnostics" />
+		<PackageReference Include="System.IO.Hashing" />
+	</ItemGroup>
+</Project>

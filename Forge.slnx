@@ -1,0 +1,75 @@
+<Solution>
+  <Folder Name="/1. Foundation/">
+    <Project Path="Forge.Common/Forge.Common.csproj" />
+    <Project Path="Forge.Core/Forge.Core.csproj" />
+    <Project Path="Forge.Text/Forge.Text.csproj">
+      <Platform Project="x64" />
+    </Project>
+  </Folder>
+  <Folder Name="/2. Presentation/">
+    <Project Path="Forge.Render/Forge.Render.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="Forge.Theming/Forge.Theming.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="Forge.UI/Forge.UI.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="Forge.UI.Controls/Forge.UI.Controls.csproj">
+      <Platform Project="x64" />
+    </Project>
+  </Folder>
+  <Folder Name="/3. Editing/">
+    <Project Path="Forge.Commands/Forge.Commands.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="Forge.Editor/Forge.Editor.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="Forge.Syntax/Forge.Syntax.csproj">
+      <Platform Project="x64" />
+    </Project>
+  </Folder>
+  <Folder Name="/4. Services/">
+    <Project Path="Forge.VSCode/Forge.VSCode.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="Forge.Extensions/Forge.Extensions.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="Forge.Git/Forge.Git.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="Forge.Language/Forge.Language.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="Forge.Search/Forge.Search.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="Forge.Terminal/Forge.Terminal.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="Forge.Workspace/Forge.Workspace.csproj">
+      <Platform Project="x64" />
+    </Project>
+  </Folder>
+  <Folder Name="/5. Shell/">
+    <Project Path="Forge.Shell/Forge.Shell.csproj">
+      <Platform Project="x64" />
+    </Project>
+  </Folder>
+  <Folder Name="/6. Executables/">
+    <Project Path="Forge.App/Forge.App.csproj">
+      <Platform Project="x64" />
+    </Project>
+  </Folder>
+  <Folder Name="/7. Quality/">
+    <Project Path="Forge.Benchmarks/Forge.Benchmarks.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="Forge.Tests/Forge.Tests.csproj">
+      <Platform Project="x64" />
+    </Project>
+  </Folder>
+</Solution>

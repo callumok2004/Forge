@@ -1,0 +1,10 @@
+{
+	"name": "discord",
+	"publisher": "forge",
+	"displayName": "Discord Presence",
+	"description": "Shows the file you are editing as Discord rich presence.",
+	"version": "1.0.0",
+	"activationEvents": [
+		"*"
+	]
+}

@@ -1,0 +1,1023 @@
+[
+	{
+		"id": "bat",
+		"name": "Batch",
+		"scopeName": "source.batchfile",
+		"file": "bat.tmLanguage.json",
+		"extensions": [
+			".bat",
+			".cmd"
+		],
+		"filenames": [],
+		"lineComment": "@REM"
+	},
+	{
+		"id": "bibtex",
+		"name": "BibTeX",
+		"scopeName": "text.bibtex",
+		"file": "bibtex.tmLanguage.json",
+		"extensions": [
+			".bib"
+		],
+		"filenames": []
+	},
+	{
+		"id": "c",
+		"name": "C",
+		"scopeName": "source.c",
+		"file": "c.tmLanguage.json",
+		"extensions": [
+			".c",
+			".i"
+		],
+		"filenames": []
+	},
+	{
+		"id": "clojure",
+		"name": "Clojure",
+		"scopeName": "source.clojure",
+		"file": "clojure.tmLanguage.json",
+		"extensions": [
+			".clj",
+			".cljs",
+			".cljc",
+			".cljx",
+			".clojure",
+			".edn"
+		],
+		"filenames": [],
+		"lineComment": ";;"
+	},
+	{
+		"id": "coffeescript",
+		"name": "CoffeeScript",
+		"scopeName": "source.coffee",
+		"file": "coffeescript.tmLanguage.json",
+		"extensions": [
+			".coffee",
+			".cson",
+			".iced"
+		],
+		"filenames": [],
+		"lineComment": "#",
+		"blockCommentStart": "###",
+		"blockCommentEnd": "###"
+	},
+	{
+		"id": "cpp",
+		"name": "C++",
+		"scopeName": "source.cpp",
+		"file": "cpp.tmLanguage.json",
+		"extensions": [
+			".cpp",
+			".cppm",
+			".cc",
+			".ccm",
+			".cxx",
+			".cxxm",
+			".c++",
+			".c++m",
+			".hpp",
+			".hh",
+			".hxx",
+			".h++",
+			".h",
+			".ii",
+			".ino",
+			".inl",
+			".ipp",
+			".ixx",
+			".tpp",
+			".txx",
+			".hpp.in",
+			".h.in"
+		],
+		"filenames": []
+	},
+	{
+		"id": "csharp",
+		"name": "C#",
+		"scopeName": "source.cs",
+		"file": "csharp.tmLanguage.json",
+		"extensions": [
+			".cs",
+			".csx",
+			".cake"
+		],
+		"filenames": []
+	},
+	{
+		"id": "css",
+		"name": "CSS",
+		"scopeName": "source.css",
+		"file": "css.tmLanguage.json",
+		"extensions": [
+			".css"
+		],
+		"filenames": []
+	},
+	{
+		"id": "cuda-cpp",
+		"name": "CUDA C++",
+		"scopeName": "source.cuda-cpp",
+		"file": "cuda-cpp.tmLanguage.json",
+		"extensions": [
+			".cu",
+			".cuh"
+		],
+		"filenames": []
+	},
+	{
+		"id": "dart",
+		"name": "Dart",
+		"scopeName": "source.dart",
+		"file": "dart.tmLanguage.json",
+		"extensions": [
+			".dart"
+		],
+		"filenames": []
+	},
+	{
+		"id": "diff",
+		"name": "Diff",
+		"scopeName": "source.diff",
+		"file": "diff.tmLanguage.json",
+		"extensions": [
+			".diff",
+			".patch",
+			".rej"
+		],
+		"filenames": [],
+		"lineComment": "#",
+		"blockCommentStart": "#",
+		"blockCommentEnd": " "
+	},
+	{
+		"id": "dockercompose",
+		"name": "Compose",
+		"scopeName": "source.yaml",
+		"file": "dockercompose.tmLanguage.json",
+		"extensions": [],
+		"filenames": [],
+		"lineComment": "#"
+	},
+	{
+		"id": "dockerfile",
+		"name": "Docker",
+		"scopeName": "source.dockerfile",
+		"file": "dockerfile.tmLanguage.json",
+		"extensions": [
+			".dockerfile",
+			".containerfile"
+		],
+		"filenames": [
+			"Dockerfile",
+			"Containerfile"
+		],
+		"lineComment": "#"
+	},
+	{
+		"id": "dotenv",
+		"name": "Dotenv",
+		"scopeName": "source.dotenv",
+		"file": "dotenv.tmLanguage.json",
+		"extensions": [
+			".env"
+		],
+		"filenames": [
+			".env",
+			".flaskenv",
+			"user-dirs.dirs"
+		],
+		"lineComment": "#"
+	},
+	{
+		"id": "fsharp",
+		"name": "F#",
+		"scopeName": "source.fsharp",
+		"file": "fsharp.tmLanguage.json",
+		"extensions": [
+			".fs",
+			".fsi",
+			".fsx",
+			".fsscript"
+		],
+		"filenames": []
+	},
+	{
+		"id": "git-commit",
+		"name": "Git Commit Message",
+		"scopeName": "text.git-commit",
+		"file": "git-commit.tmLanguage.json",
+		"extensions": [],
+		"filenames": [
+			"COMMIT_EDITMSG",
+			"MERGE_MSG"
+		],
+		"lineComment": "#",
+		"blockCommentStart": "#",
+		"blockCommentEnd": " "
+	},
+	{
+		"id": "git-rebase",
+		"name": "Git Rebase Message",
+		"scopeName": "text.git-rebase",
+		"file": "git-rebase.tmLanguage.json",
+		"extensions": [],
+		"filenames": [
+			"git-rebase-todo"
+		],
+		"lineComment": "#",
+		"blockCommentStart": "#",
+		"blockCommentEnd": " "
+	},
+	{
+		"id": "go",
+		"name": "Go",
+		"scopeName": "source.go",
+		"file": "go.tmLanguage.json",
+		"extensions": [
+			".go"
+		],
+		"filenames": []
+	},
+	{
+		"id": "groovy",
+		"name": "Groovy",
+		"scopeName": "source.groovy",
+		"file": "groovy.tmLanguage.json",
+		"extensions": [
+			".groovy",
+			".gvy",
+			".gradle",
+			".jenkinsfile",
+			".nf"
+		],
+		"filenames": [
+			"Jenkinsfile"
+		]
+	},
+	{
+		"id": "handlebars",
+		"name": "Handlebars",
+		"scopeName": "text.html.handlebars",
+		"file": "handlebars.tmLanguage.json",
+		"extensions": [
+			".handlebars",
+			".hbs",
+			".hjs"
+		],
+		"filenames": [],
+		"blockCommentStart": "{{!--",
+		"blockCommentEnd": "--}}"
+	},
+	{
+		"id": "hlsl",
+		"name": "HLSL",
+		"scopeName": "source.hlsl",
+		"file": "hlsl.tmLanguage.json",
+		"extensions": [
+			".hlsl",
+			".hlsli",
+			".fx",
+			".fxh",
+			".vsh",
+			".psh",
+			".cginc",
+			".compute"
+		],
+		"filenames": []
+	},
+	{
+		"id": "html",
+		"name": "HTML",
+		"scopeName": "text.html.derivative",
+		"file": "html.tmLanguage.json",
+		"extensions": [
+			".html",
+			".htm",
+			".shtml",
+			".xhtml",
+			".xht",
+			".mdoc",
+			".jsp",
+			".asp",
+			".aspx",
+			".jshtm",
+			".volt",
+			".ejs",
+			".rhtml"
+		],
+		"filenames": [],
+		"blockCommentStart": "<!--",
+		"blockCommentEnd": "-->"
+	},
+	{
+		"id": "ignore",
+		"name": "Ignore",
+		"scopeName": "source.ignore",
+		"file": "ignore.tmLanguage.json",
+		"extensions": [
+			".gitignore_global",
+			".gitignore",
+			".git-blame-ignore-revs"
+		],
+		"filenames": [],
+		"lineComment": "#"
+	},
+	{
+		"id": "ini",
+		"name": "Ini",
+		"scopeName": "source.ini",
+		"file": "ini.tmLanguage.json",
+		"extensions": [
+			".ini"
+		],
+		"filenames": [],
+		"lineComment": ";",
+		"blockCommentStart": ";",
+		"blockCommentEnd": " "
+	},
+	{
+		"id": "jade",
+		"name": "Pug",
+		"scopeName": "text.pug",
+		"file": "jade.tmLanguage.json",
+		"extensions": [
+			".pug",
+			".jade"
+		],
+		"filenames": []
+	},
+	{
+		"id": "java",
+		"name": "Java",
+		"scopeName": "source.java",
+		"file": "java.tmLanguage.json",
+		"extensions": [
+			".java",
+			".jav"
+		],
+		"filenames": []
+	},
+	{
+		"id": "javascript",
+		"name": "JavaScript",
+		"scopeName": "source.js",
+		"file": "javascript.tmLanguage.json",
+		"extensions": [
+			".js",
+			".es6",
+			".mjs",
+			".cjs",
+			".pac"
+		],
+		"filenames": [
+			"jakefile"
+		]
+	},
+	{
+		"id": "javascriptreact",
+		"name": "JavaScript JSX",
+		"scopeName": "source.js.jsx",
+		"file": "javascriptreact.tmLanguage.json",
+		"extensions": [
+			".jsx"
+		],
+		"filenames": []
+	},
+	{
+		"id": "json",
+		"name": "JSON",
+		"scopeName": "source.json",
+		"file": "json.tmLanguage.json",
+		"extensions": [
+			".json",
+			".bowerrc",
+			".jscsrc",
+			".webmanifest",
+			".js.map",
+			".css.map",
+			".ts.map",
+			".har",
+			".jslintrc",
+			".jsonld",
+			".geojson",
+			".ipynb",
+			".vuerc"
+		],
+		"filenames": [
+			"composer.lock",
+			".watchmanconfig"
+		]
+	},
+	{
+		"id": "jsonc",
+		"name": "JSON with Comments",
+		"scopeName": "source.json.comments",
+		"file": "jsonc.tmLanguage.json",
+		"extensions": [
+			".jsonc",
+			".eslintrc",
+			".eslintrc.json",
+			".jsfmtrc",
+			".jshintrc",
+			".swcrc",
+			".hintrc",
+			".babelrc",
+			".toolset.jsonc"
+		],
+		"filenames": [
+			"babel.config.json",
+			"bun.lock",
+			".babelrc.json",
+			".ember-cli",
+			"typedoc.json"
+		]
+	},
+	{
+		"id": "jsonl",
+		"name": "JSON Lines",
+		"scopeName": "source.json.lines",
+		"file": "jsonl.tmLanguage.json",
+		"extensions": [
+			".jsonl",
+			".ndjson"
+		],
+		"filenames": []
+	},
+	{
+		"id": "julia",
+		"name": "Julia",
+		"scopeName": "source.julia",
+		"file": "julia.tmLanguage.json",
+		"extensions": [
+			".jl"
+		],
+		"filenames": [],
+		"lineComment": "#",
+		"blockCommentStart": "#=",
+		"blockCommentEnd": "=#"
+	},
+	{
+		"id": "latex",
+		"name": "LaTeX",
+		"scopeName": "text.tex.latex",
+		"file": "latex.tmLanguage.json",
+		"extensions": [
+			".tex",
+			".ltx",
+			".ctx"
+		],
+		"filenames": [],
+		"lineComment": "%"
+	},
+	{
+		"id": "less",
+		"name": "Less",
+		"scopeName": "source.css.less",
+		"file": "less.tmLanguage.json",
+		"extensions": [
+			".less"
+		],
+		"filenames": []
+	},
+	{
+		"id": "log",
+		"name": "Log",
+		"scopeName": "text.log",
+		"file": "log.tmLanguage.json",
+		"extensions": [
+			".log",
+			"*.log.?"
+		],
+		"filenames": []
+	},
+	{
+		"id": "lua",
+		"name": "Lua",
+		"scopeName": "source.lua",
+		"file": "lua.tmLanguage.json",
+		"extensions": [
+			".lua"
+		],
+		"filenames": [],
+		"lineComment": "--",
+		"blockCommentStart": "--[[",
+		"blockCommentEnd": "]]"
+	},
+	{
+		"id": "makefile",
+		"name": "Makefile",
+		"scopeName": "source.makefile",
+		"file": "makefile.tmLanguage.json",
+		"extensions": [
+			".mak",
+			".mk"
+		],
+		"filenames": [
+			"Makefile",
+			"makefile",
+			"GNUmakefile",
+			"OCamlMakefile"
+		]
+	},
+	{
+		"id": "markdown",
+		"name": "Markdown",
+		"scopeName": "text.html.markdown",
+		"file": "markdown.tmLanguage.json",
+		"extensions": [
+			".md",
+			".mkd",
+			".mkdn",
+			".mdwn",
+			".mdown",
+			".markdown",
+			".markdn",
+			".mdtxt",
+			".mdtext",
+			".litcoffee",
+			".ron",
+			".ronn",
+			".workbook"
+		],
+		"filenames": [],
+		"blockCommentStart": "<!--",
+		"blockCommentEnd": "-->"
+	},
+	{
+		"id": "objective-c",
+		"name": "Objective-C",
+		"scopeName": "source.objc",
+		"file": "objective-c.tmLanguage.json",
+		"extensions": [
+			".m"
+		],
+		"filenames": []
+	},
+	{
+		"id": "objective-cpp",
+		"name": "Objective-C++",
+		"scopeName": "source.objcpp",
+		"file": "objective-cpp.tmLanguage.json",
+		"extensions": [
+			".mm"
+		],
+		"filenames": []
+	},
+	{
+		"id": "perl",
+		"name": "Perl",
+		"scopeName": "source.perl",
+		"file": "perl.tmLanguage.json",
+		"extensions": [
+			".pl",
+			".pm",
+			".pod",
+			".t",
+			".PL",
+			".psgi"
+		],
+		"filenames": [],
+		"lineComment": "#"
+	},
+	{
+		"id": "php",
+		"name": "PHP",
+		"scopeName": "text.html.php",
+		"file": "php.tmLanguage.json",
+		"extensions": [
+			".php",
+			".php4",
+			".php5",
+			".phtml",
+			".ctp"
+		],
+		"filenames": []
+	},
+	{
+		"id": "powershell",
+		"name": "PowerShell",
+		"scopeName": "source.powershell",
+		"file": "powershell.tmLanguage.json",
+		"extensions": [
+			".ps1",
+			".psm1",
+			".psd1",
+			".pssc",
+			".psrc"
+		],
+		"filenames": [],
+		"lineComment": "#",
+		"blockCommentStart": "<#",
+		"blockCommentEnd": "#>"
+	},
+	{
+		"id": "properties",
+		"name": "Properties",
+		"scopeName": "source.ini",
+		"file": "properties.tmLanguage.json",
+		"extensions": [
+			".conf",
+			".properties",
+			".cfg",
+			".directory",
+			".gitattributes",
+			".gitconfig",
+			".gitmodules",
+			".editorconfig",
+			".repo"
+		],
+		"filenames": [
+			"gitconfig"
+		],
+		"lineComment": "#",
+		"blockCommentStart": "#",
+		"blockCommentEnd": " "
+	},
+	{
+		"id": "python",
+		"name": "Python",
+		"scopeName": "source.python",
+		"file": "python.tmLanguage.json",
+		"extensions": [
+			".py",
+			".rpy",
+			".pyw",
+			".cpy",
+			".gyp",
+			".gypi",
+			".pyi",
+			".ipy",
+			".pyt"
+		],
+		"filenames": [
+			"SConstruct",
+			"SConscript"
+		],
+		"lineComment": "#",
+		"blockCommentStart": "\"\"\"",
+		"blockCommentEnd": "\"\"\""
+	},
+	{
+		"id": "r",
+		"name": "R",
+		"scopeName": "source.r",
+		"file": "r.tmLanguage.json",
+		"extensions": [
+			".R",
+			".Rhistory",
+			".Rprofile",
+			".rt"
+		],
+		"filenames": [],
+		"lineComment": "#"
+	},
+	{
+		"id": "raku",
+		"name": "Raku",
+		"scopeName": "source.perl.6",
+		"file": "raku.tmLanguage.json",
+		"extensions": [
+			".raku",
+			".rakumod",
+			".rakutest",
+			".rakudoc",
+			".nqp",
+			".p6",
+			".pl6",
+			".pm6"
+		],
+		"filenames": [],
+		"lineComment": "#"
+	},
+	{
+		"id": "razor",
+		"name": "Razor",
+		"scopeName": "text.html.cshtml",
+		"file": "razor.tmLanguage.json",
+		"extensions": [
+			".cshtml",
+			".razor"
+		],
+		"filenames": [],
+		"blockCommentStart": "<!--",
+		"blockCommentEnd": "-->"
+	},
+	{
+		"id": "restructuredtext",
+		"name": "reStructuredText",
+		"scopeName": "source.rst",
+		"file": "restructuredtext.tmLanguage.json",
+		"extensions": [
+			".rst"
+		],
+		"filenames": [],
+		"lineComment": ".."
+	},
+	{
+		"id": "ruby",
+		"name": "Ruby",
+		"scopeName": "source.ruby",
+		"file": "ruby.tmLanguage.json",
+		"extensions": [
+			".rb",
+			".rbx",
+			".rjs",
+			".gemspec",
+			".rake",
+			".ru",
+			".erb",
+			".podspec",
+			".rbi"
+		],
+		"filenames": [
+			"rakefile",
+			"gemfile",
+			"guardfile",
+			"podfile",
+			"capfile",
+			"cheffile",
+			"hobofile",
+			"vagrantfile",
+			"appraisals",
+			"rantfile",
+			"berksfile",
+			"berksfile.lock",
+			"thorfile",
+			"puppetfile",
+			"dangerfile",
+			"brewfile",
+			"fastfile",
+			"appfile",
+			"deliverfile",
+			"matchfile",
+			"scanfile",
+			"snapfile",
+			"gymfile"
+		],
+		"lineComment": "#",
+		"blockCommentStart": "=begin",
+		"blockCommentEnd": "=end"
+	},
+	{
+		"id": "rust",
+		"name": "Rust",
+		"scopeName": "source.rust",
+		"file": "rust.tmLanguage.json",
+		"extensions": [
+			".rs"
+		],
+		"filenames": []
+	},
+	{
+		"id": "scss",
+		"name": "SCSS",
+		"scopeName": "source.css.scss",
+		"file": "scss.tmLanguage.json",
+		"extensions": [
+			".scss"
+		],
+		"filenames": []
+	},
+	{
+		"id": "shaderlab",
+		"name": "ShaderLab",
+		"scopeName": "source.shaderlab",
+		"file": "shaderlab.tmLanguage.json",
+		"extensions": [
+			".shader"
+		],
+		"filenames": []
+	},
+	{
+		"id": "shellscript",
+		"name": "Shell Script",
+		"scopeName": "source.shell",
+		"file": "shellscript.tmLanguage.json",
+		"extensions": [
+			".sh",
+			".bash",
+			".bashrc",
+			".bash_aliases",
+			".bash_profile",
+			".bash_login",
+			".ebuild",
+			".eclass",
+			".profile",
+			".bash_logout",
+			".xprofile",
+			".xsession",
+			".xsessionrc",
+			".Xsession",
+			".zsh",
+			".zshrc",
+			".zprofile",
+			".zlogin",
+			".zlogout",
+			".zshenv",
+			".zsh-theme",
+			".fish",
+			".ksh",
+			".csh",
+			".cshrc",
+			".tcshrc",
+			".yashrc",
+			".yash_profile"
+		],
+		"filenames": [
+			"APKBUILD",
+			"PKGBUILD",
+			".envrc",
+			".hushlogin",
+			"zshrc",
+			"zshenv",
+			"zlogin",
+			"zprofile",
+			"zlogout",
+			"bashrc_Apple_Terminal",
+			"zshrc_Apple_Terminal"
+		],
+		"lineComment": "#"
+	},
+	{
+		"id": "sql",
+		"name": "MS SQL",
+		"scopeName": "source.sql",
+		"file": "sql.tmLanguage.json",
+		"extensions": [
+			".sql",
+			".dsql"
+		],
+		"filenames": [],
+		"lineComment": "--"
+	},
+	{
+		"id": "swift",
+		"name": "Swift",
+		"scopeName": "source.swift",
+		"file": "swift.tmLanguage.json",
+		"extensions": [
+			".swift"
+		],
+		"filenames": []
+	},
+	{
+		"id": "tex",
+		"name": "TeX",
+		"scopeName": "text.tex",
+		"file": "tex.tmLanguage.json",
+		"extensions": [
+			".sty",
+			".cls",
+			".bbx",
+			".cbx"
+		],
+		"filenames": [],
+		"lineComment": "%"
+	},
+	{
+		"id": "typescript",
+		"name": "TypeScript",
+		"scopeName": "source.ts",
+		"file": "typescript.tmLanguage.json",
+		"extensions": [
+			".ts",
+			".cts",
+			".mts"
+		],
+		"filenames": []
+	},
+	{
+		"id": "typescriptreact",
+		"name": "TypeScript JSX",
+		"scopeName": "source.tsx",
+		"file": "typescriptreact.tmLanguage.json",
+		"extensions": [
+			".tsx"
+		],
+		"filenames": []
+	},
+	{
+		"id": "vb",
+		"name": "Visual Basic",
+		"scopeName": "source.asp.vb.net",
+		"file": "vb.tmLanguage.json",
+		"extensions": [
+			".vb",
+			".brs",
+			".vbs",
+			".bas",
+			".vba"
+		],
+		"filenames": [],
+		"lineComment": "'"
+	},
+	{
+		"id": "xml",
+		"name": "XML",
+		"scopeName": "text.xml",
+		"file": "xml.tmLanguage.json",
+		"extensions": [
+			".xml",
+			".xsd",
+			".ascx",
+			".atom",
+			".axml",
+			".axaml",
+			".bpmn",
+			".cpt",
+			".csl",
+			".csproj",
+			".csproj.user",
+			".dita",
+			".ditamap",
+			".dtd",
+			".ent",
+			".mod",
+			".dtml",
+			".fsproj",
+			".fxml",
+			".iml",
+			".isml",
+			".jmx",
+			".launch",
+			".menu",
+			".mxml",
+			".nuspec",
+			".opml",
+			".owl",
+			".proj",
+			".props",
+			".pt",
+			".publishsettings",
+			".pubxml",
+			".pubxml.user",
+			".rbxlx",
+			".rbxmx",
+			".rdf",
+			".rng",
+			".rss",
+			".shproj",
+			".slnx",
+			".storyboard",
+			".svg",
+			".targets",
+			".tld",
+			".tmx",
+			".vbproj",
+			".vbproj.user",
+			".vcxproj",
+			".vcxproj.filters",
+			".wixproj",
+			".wsdl",
+			".wxi",
+			".wxl",
+			".wxs",
+			".xaml",
+			".xbl",
+			".xib",
+			".xlf",
+			".xliff",
+			".xpdl",
+			".xul",
+			".xoml"
+		],
+		"filenames": [],
+		"blockCommentStart": "<!--",
+		"blockCommentEnd": "-->"
+	},
+	{
+		"id": "xsl",
+		"name": "XSL",
+		"scopeName": "text.xml.xsl",
+		"file": "xsl.tmLanguage.json",
+		"extensions": [
+			".xsl",
+			".xslt"
+		],
+		"filenames": [],
+		"blockCommentStart": "<!--",
+		"blockCommentEnd": "-->"
+	},
+	{
+		"id": "yaml",
+		"name": "YAML",
+		"scopeName": "source.yaml",
+		"file": "yaml.tmLanguage.json",
+		"extensions": [
+			".yaml",
+			".yml",
+			".eyaml",
+			".eyml",
+			".cff",
+			".yaml-tmlanguage",
+			".yaml-tmpreferences",
+			".yaml-tmtheme",
+			".winget"
+		],
+		"filenames": [],
+		"lineComment": "#"
+	}
+]

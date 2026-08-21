@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<RootNamespace>Forge.UI</RootNamespace>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Forge.UI.Controls\Forge.UI.Controls.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Vortice.Win32" />
+	</ItemGroup>
+</Project>

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<OutputType>WinExe</OutputType>
+		<RootNamespace>Forge.App</RootNamespace>
+		<AssemblyName>Forge</AssemblyName>
+		<ApplicationManifest>app.manifest</ApplicationManifest>
+		<ApplicationIcon>Assets\forge.ico</ApplicationIcon>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(PublishAot)'=='true'">
+		<StackTraceSupport>false</StackTraceSupport>
+		<IlcOptimizationPreference>Speed</IlcOptimizationPreference>
+		<IlcFoldIdenticalMethodBodies>true</IlcFoldIdenticalMethodBodies>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Forge.Shell\Forge.Shell.csproj" />
+	</ItemGroup>
+</Project>

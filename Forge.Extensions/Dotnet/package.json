@@ -1,0 +1,13 @@
+{
+	"name": "dotnet",
+	"publisher": "forge",
+	"displayName": ".NET",
+	"description": "C# language support, build tasks and the Roslyn language server.",
+	"version": "1.0.0",
+	"activationEvents": [
+		"workspaceContains:**/*.sln",
+		"workspaceContains:**/*.csproj",
+		"onLanguage:csharp",
+		"onCommand:dotnet."
+	]
+}

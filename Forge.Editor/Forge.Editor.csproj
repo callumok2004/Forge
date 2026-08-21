@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<RootNamespace>Forge.Editor</RootNamespace>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Forge.Common\Forge.Common.csproj" />
+		<ProjectReference Include="..\Forge.Syntax\Forge.Syntax.csproj" />
+	</ItemGroup>
+</Project>

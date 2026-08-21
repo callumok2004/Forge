@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<RootNamespace>Forge.VSCode</RootNamespace>
+		<BunVersion>1.4.0</BunVersion>
+		<BunDirectory>$(MSBuildThisFileDirectory)..\third-party\bun\</BunDirectory>
+		<BunExecutable>$(BunDirectory)bun.exe</BunExecutable>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Forge.Language\Forge.Language.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Content Include="Runtime\*.js" CopyToOutputDirectory="PreserveNewest" Link="ExtensionHost\%(Filename)%(Extension)" />
+	</ItemGroup>
+
+	<Target Name="AcquireBun" BeforeTargets="BeforeBuild" Condition="!Exists('$(BunExecutable)')">
+		<MakeDir Directories="$(BunDirectory)" />
+		<Message Importance="high" Text="Downloading bun $(BunVersion) for the extension host..." />
+		<Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;$ErrorActionPreference='Stop'; $zip=Join-Path $env:TEMP 'forge-bun.zip'; Invoke-WebRequest -Uri 'https://github.com/oven-sh/bun/releases/download/bun-v$(BunVersion)/bun-windows-x64.zip' -OutFile $zip; $out=Join-Path $env:TEMP 'forge-bun'; Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue; Expand-Archive -Path $zip -DestinationPath $out; Copy-Item (Join-Path $out 'bun-windows-x64\bun.exe') '$(BunExecutable)' -Force&quot;" />
+	</Target>
+
+	<ItemGroup>
+		<Content Include="$(BunExecutable)" CopyToOutputDirectory="PreserveNewest" Link="ExtensionHost\bun.exe" Visible="false" />
+	</ItemGroup>
+</Project>

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<RootNamespace>Forge.Shell</RootNamespace>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Forge.Render\Forge.Render.csproj" />
+		<ProjectReference Include="..\Forge.Git\Forge.Git.csproj" />
+		<ProjectReference Include="..\Forge.Terminal\Forge.Terminal.csproj" />
+		<ProjectReference Include="..\Forge.Extensions\Forge.Extensions.csproj" />
+		<ProjectReference Include="..\Forge.UI\Forge.UI.csproj" />
+		<ProjectReference Include="..\Forge.VSCode\Forge.VSCode.csproj" />
+	</ItemGroup>
+</Project>

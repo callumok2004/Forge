@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<RootNamespace>Forge.Extensions</RootNamespace>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Forge.Language\Forge.Language.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Include="Dotnet\package.json" CopyToOutputDirectory="PreserveNewest" Link="Extensions\Dotnet\package.json" />
+		<None Include="Discord\package.json" CopyToOutputDirectory="PreserveNewest" Link="Extensions\Discord\package.json" />
+		<None Include="TrailingSpaces\package.json" CopyToOutputDirectory="PreserveNewest" Link="Extensions\TrailingSpaces\package.json" />
+		<None Include="MergeConflict\package.json" CopyToOutputDirectory="PreserveNewest" Link="Extensions\MergeConflict\package.json" />
+		<None Include="IndentRainbow\package.json" CopyToOutputDirectory="PreserveNewest" Link="Extensions\IndentRainbow\package.json" />
+		<None Include="Discord\discord-languages.json" CopyToOutputDirectory="PreserveNewest" Link="Extensions\Discord\discord-languages.json" />
+	</ItemGroup>
+</Project>

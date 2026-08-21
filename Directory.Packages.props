@@ -1,0 +1,26 @@
+<Project>
+	<PropertyGroup>
+		<ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+		<CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageVersion Include="CommunityToolkit.HighPerformance" Version="8.4.2" />
+		<PackageVersion Include="CommunityToolkit.Diagnostics" Version="8.4.2" />
+		<PackageVersion Include="System.IO.Hashing" Version="10.0.11" />
+
+		<PackageVersion Include="Vortice.Direct2D1" Version="3.8.3" />
+		<PackageVersion Include="Vortice.Direct3D11" Version="3.8.3" />
+		<PackageVersion Include="Vortice.DXGI" Version="3.8.3" />
+		<PackageVersion Include="Vortice.Win32" Version="2.5.0" />
+
+		<PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="9.0.11" />
+		<PackageVersion Include="StreamJsonRpc" Version="2.25.29" />
+		<PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.4129.50" />
+
+		<PackageVersion Include="xunit.v3" Version="4.0.0" />
+		<PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
+		<PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+		<PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
+	</ItemGroup>
+</Project>

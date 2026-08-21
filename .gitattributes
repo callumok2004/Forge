@@ -1,0 +1,11 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Never normalise line endings in binaries
+*.exe binary
+*.dll binary
+*.ttf binary
+*.png binary
+*.jpg binary
+*.bgra binary
+*.zip binary

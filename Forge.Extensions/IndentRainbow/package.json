@@ -1,0 +1,10 @@
+{
+	"name": "indent-rainbow",
+	"publisher": "forge",
+	"displayName": "Indent Rainbow",
+	"description": "Colours indentation levels.",
+	"version": "1.0.0",
+	"activationEvents": [
+		"*"
+	]
+}
