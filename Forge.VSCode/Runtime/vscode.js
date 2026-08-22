@@ -317,8 +317,23 @@ const window = {
 	},
 
 	createWebviewPanel(viewType, title) {
-		return createWebview(`panel:${viewType}`, title);
+		return createWebview(`panel:${viewType}`, title, true);
 	},
+
+	withProgress(options, task) {
+		const title = options?.title;
+
+		if (title) send("window/progress", { title, state: "start" });
+
+		const progress = { report: value => send("window/progress", { title, state: "report", message: value?.message }) };
+		const token = { isCancellationRequested: false, onCancellationRequested: () => new Disposable() };
+
+		return Promise.resolve(task(progress, token)).finally(() => {
+			if (title) send("window/progress", { title, state: "end" });
+		});
+	},
+
+	showQuickPick: (items, options) => call("window/showQuickPick", { items, options: options ?? {} }),
 };
 
 const workspace = {
@@ -398,7 +413,7 @@ const extensions = {
 
 const webviews = new Map();
 
-function createWebview(id, title) {
+function createWebview(id, title, panel) {
 	const messages = new EventEmitter();
 
 	const webview = {
@@ -430,6 +445,17 @@ function createWebview(id, title) {
 		dispose: () => webviews.delete(id),
 	};
 
+	if (panel) {
+		view.viewColumn = 1;
+		view.active = true;
+		view.options = {};
+		view.onDidChangeViewState = forgeEvent(`webview.${id}.onDidChangeViewState`);
+		view.reveal = column => {
+			if (typeof column === "number") view.viewColumn = column;
+			send("webview/show", { id });
+		};
+	}
+
 	webviews.set(id, { view, messages });
 	return view;
 }
@@ -460,6 +486,10 @@ const api = {
 	env,
 	extensions,
 	ViewColumn: { Active: -1, Beside: -2, One: 1, Two: 2, Three: 3 },
+	ProgressLocation: { SourceControl: 1, Window: 10, Notification: 15 },
+	QuickPickItemKind: { Separator: -1, Default: 0 },
+	UIKind: { Desktop: 1, Web: 2 },
+	TextEditorRevealType: { Default: 0, InCenter: 1, InCenterIfOutsideViewport: 2, AtTop: 3 },
 	StatusBarAlignment: { Left: 1, Right: 2 },
 	DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
 	FileType: { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 },

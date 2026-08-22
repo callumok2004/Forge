@@ -18,5 +18,7 @@ public static class ForgeDllMain
 
 	[Dependency] public static IFrameStats Stats { get; private set; } = null!;
 
+	[Dependency] public static IAmbient Background { get; private set; } = NullAmbient.Instance;
+
 	public static void Link(IServiceCollection services) => services.AddSingleton<IFrameStats, FrameStats>();
 }

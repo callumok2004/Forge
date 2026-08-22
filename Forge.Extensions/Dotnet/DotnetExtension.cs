@@ -2,6 +2,7 @@ using System.Diagnostics;
 
 using Forge.Commands;
 using Forge.Common.Commands;
+using Forge.Common.Render;
 using Forge.Common.Extensions;
 using Forge.Core;
 using Forge.Extensions.Host;
@@ -551,21 +552,22 @@ public sealed class DotnetExtension : ForgeExtension
 			: $"{command} \"{target}\"";
 
 		Log(host, $"{command} {Path.GetFileName(target)}");
-		host.ShowPanel("Output");
-		host.Refresh();
 
 		MsBuildProblemMatcher matcher = new();
 		long started = Stopwatch.GetTimestamp();
+		AmbientSignal signal = command == "test" ? AmbientSignal.Tests : AmbientSignal.Build;
 
-		ProcessRunner.Run("dotnet", arguments, Path.GetDirectoryName(target),
+		Ambient.Begin(signal);
+
+		host.RunInTerminal($"dotnet {command}", $"dotnet {arguments}", Path.GetDirectoryName(target),
 			line => {
-				Log(host, line);
-
 				if (matcher.Read(line)) host.ReportProblems(matcher.Diagnostics);
 
 				host.Refresh();
 			},
 			exitCode => {
+				Ambient.End(signal);
+
 				TimeSpan elapsed = Stopwatch.GetElapsedTime(started);
 
 				Log(host, exitCode == 0

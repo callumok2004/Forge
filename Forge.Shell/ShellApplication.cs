@@ -121,6 +121,9 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		using Painter painter = new(device, fonts);
 
+		using Ambient ambient = new();
+		ambient.SetAccent(Theme.Accent);
+
 		using FileIconSet fileIcons = new(device.Factory,
 			Path.Combine(AppContext.BaseDirectory, "Assets"));
 
@@ -153,6 +156,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			repository.OnChanged(() => {
 				workbench.BranchName = repository.GetBranch() ?? workbench.BranchName;
 				workbench.TitleBar.BranchName = workbench.BranchName;
+				ambient.Pulse(AmbientSignal.Git, 0.85f);
 				window.Invalidate();
 			});
 
@@ -174,6 +178,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		workbench.QuickOpen.Attach(index);
 
 		index.OnUpdated(() => {
+			ambient.Pulse(AmbientSignal.Search, 0.55f);
 			workbench.QuickOpen.OnIndexUpdated();
 
 			if (workbench.QuickOpen.IsOpen) window.Invalidate(workbench.QuickOpen.Bounds);
@@ -185,10 +190,12 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		index.StartScan();
 
+		workbench.ActiveDocumentChanged += () => ApplyLanguageColor(ambient, fileIcons, workbench.ActiveFilePath);
+
 		OpenInitialFiles(workbench, args);
 		UpdateTitle(window, workbench, rootPath);
 
-		WireEvents(window, device, painter, fonts, settings, workbench, rootPath);
+		WireEvents(window, device, painter, fonts, settings, workbench, ambient, rootPath);
 
 		builder
 			.Publish<IAppWindow>(window)
@@ -197,7 +204,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			.Publish<IFileIconSet>(fileIcons)
 			.Publish<IPainter>(painter)
 			.Publish<IEditorHost>(workbench)
-			.Publish<IFileIndex>(index);
+			.Publish<IFileIndex>(index)
+			.Publish<IAmbient>(ambient);
 
 		if (workbench.Repository is { } published) builder.Publish(published);
 
@@ -257,8 +265,19 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		window.SetTitle(title);
 	}
 
+	private static void ApplyLanguageColor(IAmbient ambient, IFileIconSet icons, string? path) {
+		if (string.IsNullOrEmpty(path) || icons.IconForFile(Path.GetFileName(path)) is not { } icon) {
+			ambient.SetLanguageColor(default, 0f);
+			return;
+		}
+
+		Color dominant = icon.GetDominantColor();
+
+		ambient.SetLanguageColor(dominant, dominant.A > 0.05f ? 1f : 0f);
+	}
+
 	private static void WireEvents(AppWindow window, RenderDevice device, IPainter painter, FontSet fonts,
-		Settings settings, Workbench workbench, string rootPath) {
+		Settings settings, Workbench workbench, Ambient ambient, string rootPath) {
 		bool selecting = false;
 		bool draggingSplitter = false;
 		bool draggingPanel = false;
@@ -335,11 +354,28 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		const nuint caretTimerId = 1;
 		const nuint autoScrollTimerId = 2;
 		const nuint settleTimerId = 3;
+		const nuint ambientTimerId = 4;
+		const uint ambientIntervalMs = 16;
 		const uint autoScrollIntervalMs = 30;
 
 		window.StartTimer(caretTimerId, Math.Max(100u, AppWindow.CaretBlinkMs));
 
 		window.StartTimer(settleTimerId, 5000u);
+		window.StartTimer(ambientTimerId, ambientIntervalMs);
+
+		long ambientStamp = System.Diagnostics.Stopwatch.GetTimestamp();
+
+		void AmbientTick() {
+			long now = System.Diagnostics.Stopwatch.GetTimestamp();
+			float delta = (float)((now - ambientStamp) / (double)System.Diagnostics.Stopwatch.Frequency);
+			ambientStamp = now;
+
+			ambient.SetFocused(window.IsForeground());
+
+			if (ambient.Tick(delta)) ambient.Damage(window.Invalidate, device.Width, device.Height);
+
+			if (workbench.Panel.IsDirty) window.Invalidate(workbench.PanelRect(device.Width, device.Height));
+		}
 
 		void AutoScrollTick() {
 			if (workbench.ActiveView is not { } view) return;
@@ -376,6 +412,11 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		}
 
 		window.Events.Timer += id => {
+			if (id == ambientTimerId) {
+				AmbientTick();
+				return;
+			}
+
 			if (id == autoScrollTimerId) {
 				AutoScrollTick();
 				return;
@@ -575,6 +616,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 			workbench.UpdateBeforeFrame();
 
+			ambient.Prepare(device);
+
 			device.BeginDraw();
 
 			for (int pass = 0; pass < frameDamage.Count; pass++) {
@@ -589,6 +632,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 				try {
 					workbench.Render(painter, device.Width, device.Height);
+					ambient.Composite(device);
 				}
 				catch (Exception exception) {
 					painter.UnwindClips();
@@ -605,6 +649,11 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			}
 
 			device.EndDraw();
+
+			if (ambient.LastFailure is { } ambientFailure && ambientFailure != lastRenderFailure) {
+				lastRenderFailure = ambientFailure;
+				workbench.Panel.Output.Append($"Ambient background failed: {ambientFailure}");
+			}
 
 			if (device.LastFailure is { } failure && failure != lastRenderFailure) {
 				lastRenderFailure = failure;
@@ -713,6 +762,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		window.Events.MouseMove += (x, y) => {
 			LastMouseX = x;
 			LastMouseY = y;
+
+			ambient.SetPointer(x / MathF.Max(device.Width, 1f), y / MathF.Max(device.Height, 1f));
 
 			window.Cursor =
 				workbench.IsOverSplitter(x, device.Height, y) ? resizeWidthCursor :
@@ -1280,6 +1331,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		window.Events.CharacterTyped += character => {
 			if (character < ' ' || character == 0x7F || Win32.IsKeyDown(Win32.VkControl)) return;
+
+			ambient.Pulse(AmbientSignal.Typing, 0.6f);
 
 			if (workbench.Palette.IsOpen) {
 				workbench.Palette.Append(character);

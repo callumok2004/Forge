@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 
 using Forge.Commands;
 using Forge.Common.Commands;
+using Forge.Common.Render;
 
 namespace Forge.VSCode;
 
@@ -11,6 +12,7 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 	private readonly List<VSCodeExtension> _activated = [];
 
 	private NodeExtensionHost? _process;
+	private VSCodeExtension? _claude;
 
 	public IReadOnlyList<VSCodeExtension> Activated => _activated;
 
@@ -38,7 +40,11 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 
 		_process = process;
 
-		foreach (VSCodeExtension extension in found) Register(extension);
+		foreach (VSCodeExtension extension in found) {
+			if (IsClaudeIdentifier(extension.Identifier)) _claude = extension;
+
+			Register(extension);
+		}
 
 		_ = ActivateAllAsync(found);
 	}
@@ -110,11 +116,14 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 		"commands/execute" => Execute(parameters),
 		"window/showMessage" => ShowMessage(parameters),
 		"commands/list" => CommandList(),
+		"window/showQuickPick" => null,
 		_ => null,
 	};
 
 	private JsonNode? Execute(JsonNode? parameters) {
 		if (parameters?["id"]?.GetValue<string>() is not { } id) return null;
+
+		if (OwnedByClaude(id)) Ambient.Pulse(AmbientSignal.Claude, 0.9f);
 
 		if (_byCommand.ContainsKey(id)) {
 			Invoke(id);
@@ -141,8 +150,16 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 	private void OnNotification(string method, JsonNode? parameters) {
 		switch (method) {
 			case "output/append":
+				if (IsClaudeIdentifier(parameters?["name"]?.GetValue<string>())) {
+					Ambient.Pulse(AmbientSignal.Claude, 0.5f);
+				}
+
 				host.Channel(parameters?["name"]?.GetValue<string>() ?? "Extensions")
 					.Append((parameters?["value"]?.GetValue<string>() ?? string.Empty).TrimEnd('\n'));
+				break;
+
+			case "window/progress":
+				Progress(parameters);
 				break;
 
 			case "commands/register":
@@ -153,6 +170,31 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 				break;
 		}
 	}
+
+	private void Progress(JsonNode? parameters) {
+		string? title = parameters?["title"]?.GetValue<string>();
+		bool running = parameters?["state"]?.GetValue<string>() is not "end";
+
+		if (!IsClaudeIdentifier(title)) {
+			if (running) Ambient.Pulse(AmbientSignal.Notification, 0.6f);
+			return;
+		}
+
+		if (running) {
+			Ambient.Begin(AmbientSignal.Task);
+			Ambient.Begin(AmbientSignal.Claude);
+			return;
+		}
+
+		Ambient.End(AmbientSignal.Task);
+		Ambient.End(AmbientSignal.Claude);
+	}
+
+	private bool OwnedByClaude(string id) =>
+		_claude is not null && _byCommand.TryGetValue(id, out VSCodeExtension? owner) && ReferenceEquals(owner, _claude);
+
+	private static bool IsClaudeIdentifier(string? value) =>
+		value is not null && value.Contains("claude", StringComparison.OrdinalIgnoreCase);
 
 	private void Log(string line) => host.Channel("Extensions").Append(line);
 

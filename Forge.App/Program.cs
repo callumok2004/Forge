@@ -18,6 +18,7 @@ public static class Program
 			.WithAssembly("Forge.Git")
 			.WithAssembly("Forge.Language")
 			.WithAssembly("Forge.Extensions")
+			.WithAssembly("Forge.VSCode")
 			.WithAssemblyOf<ShellApplication>()
 			.Build()
 			.GetRequiredService<IForgeApplication>()

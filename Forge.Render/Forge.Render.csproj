@@ -12,6 +12,10 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<EmbeddedResource Include="Ambient\Ambient.hlsl" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<None Include="Assets\codicon.ttf" CopyToOutputDirectory="PreserveNewest" />
 		<None Include="Assets\forge-icon.bgra" CopyToOutputDirectory="PreserveNewest" />
 		<None Include="Assets\material-icons.map" CopyToOutputDirectory="PreserveNewest" />
@@ -22,6 +26,7 @@
 	<ItemGroup>
 		<PackageReference Include="Vortice.Direct2D1" />
 		<PackageReference Include="Vortice.Direct3D11" />
+		<PackageReference Include="Vortice.D3DCompiler" />
 		<PackageReference Include="Vortice.DXGI" />
 		<PackageReference Include="Vortice.Win32" />
 	</ItemGroup>

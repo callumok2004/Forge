@@ -1,4 +1,4 @@
-<Project>
+﻿<Project>
 	<PropertyGroup>
 		<ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
 		<CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
@@ -11,6 +11,7 @@
 
 		<PackageVersion Include="Vortice.Direct2D1" Version="3.8.3" />
 		<PackageVersion Include="Vortice.Direct3D11" Version="3.8.3" />
+		<PackageVersion Include="Vortice.D3DCompiler" Version="3.8.3" />
 		<PackageVersion Include="Vortice.DXGI" Version="3.8.3" />
 		<PackageVersion Include="Vortice.Win32" Version="2.5.0" />
 

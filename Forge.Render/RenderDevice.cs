@@ -76,6 +76,10 @@ public sealed class RenderDevice : IRenderDevice, IDisposable
 
 	public D2D.ID2D1Factory1 Factory => _d2dFactory;
 
+	internal ID3D11Device D3DDevice => _d3dDevice;
+
+	internal ID3D11DeviceContext D3DContext => _d3dContext;
+
 	public DWrite.IDWriteFactory DWriteFactory { get; private set; } = null!;
 
 	public float Dpi { get; private set; }

@@ -46,6 +46,8 @@ public sealed class FileIconSet : IFileIconSet, IDisposable
 
 	public long GetMapBytes() => _map?.ApproximateBytes ?? 0;
 
+	public IVectorIcon? IconForFile(string fileName) => ForFile(fileName);
+
 	public VectorIcon? ForFile(string fileName) {
 		if (_map is not { } map) return null;
 

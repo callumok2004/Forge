@@ -34,6 +34,41 @@ public sealed class VectorIcon : IVectorIcon, IDisposable
 		_viewBox = viewBox;
 		_minX = minX;
 		_minY = minY;
+		Dominant = LargestFill(shapes);
+	}
+
+	public Color Dominant { get; }
+
+	public Color GetDominantColor() => Dominant;
+
+	private static Color LargestFill(Shape[] shapes) {
+		Color dominant = new(0f, 0f, 0f, 0f);
+		float best = 0f;
+
+		foreach (Shape shape in shapes) {
+			if (shape.Fill.A < 0.05f) continue;
+
+			float area;
+
+			try {
+				area = MathF.Abs(shape.Geometry.ComputeArea()) * shape.Fill.A;
+			}
+			catch (SharpGen.Runtime.SharpGenException) {
+				continue;
+			}
+
+			float saturation = MathF.Max(shape.Fill.R, MathF.Max(shape.Fill.G, shape.Fill.B))
+				- MathF.Min(shape.Fill.R, MathF.Min(shape.Fill.G, shape.Fill.B));
+
+			area *= 0.35f + saturation;
+
+			if (area <= best) continue;
+
+			best = area;
+			dominant = shape.Fill;
+		}
+
+		return dominant;
 	}
 
 	public static VectorIcon? Load(D2D.ID2D1Factory1 factory, string filePath) {

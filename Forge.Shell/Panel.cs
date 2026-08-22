@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 using Forge.Commands;
 using Forge.Common.Commands;
 using Forge.Common.Render;
@@ -62,6 +64,7 @@ public sealed class Panel : IDisposable
 	private float _width;
 
 	private volatile bool _dirty;
+	private long _lastNotified;
 
 	public bool IsOpen { get; set; }
 
@@ -122,6 +125,17 @@ public sealed class Panel : IDisposable
 
 	public event Action? Changed;
 
+	private void NotifyCoalesced() {
+		long now = Stopwatch.GetTimestamp();
+		long previous = Interlocked.Read(ref _lastNotified);
+
+		if (Stopwatch.GetElapsedTime(previous, now).TotalMilliseconds < 15d) return;
+
+		if (Interlocked.CompareExchange(ref _lastNotified, now, previous) != previous) return;
+
+		Changed?.Invoke();
+	}
+
 	public IReadOnlyList<Problem> Problems => _problems;
 
 	public void SetProblems(IEnumerable<Problem> problems) => _problems = [.. problems];
@@ -174,7 +188,7 @@ public sealed class Panel : IDisposable
 
 		session.Changed += () => {
 			_dirty = true;
-			Changed?.Invoke();
+			NotifyCoalesced();
 		};
 
 		if (!session.Start(profile, WorkingDirectory, 80, 24)) {
@@ -188,6 +202,31 @@ public sealed class Panel : IDisposable
 		_terminals.Add(session);
 		_activeTerminal = _terminals.Count - 1;
 		IsProfileMenuOpen = false;
+	}
+
+	public void RunTask(string name, string commandLine, string? workingDirectory,
+		Action<string>? lines = null, Action<int>? finished = null) {
+		TerminalSession session = new() { History = History, LineObserver = lines, ExitObserver = finished };
+
+		session.Changed += () => {
+			_dirty = true;
+			NotifyCoalesced();
+		};
+
+		TerminalProfile task = new(name, Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe",
+			$"/c {commandLine}");
+
+		if (!session.Start(task, workingDirectory ?? WorkingDirectory, 120, 30)) {
+			Output.Append($"Failed to run {commandLine}.");
+			session.Dispose();
+			return;
+		}
+
+		_terminals.Add(session);
+		_activeTerminal = _terminals.Count - 1;
+		Show(PanelView.Terminal);
+		IsProfileMenuOpen = false;
+		_dirty = true;
 	}
 
 	public void ActivateTerminal(int index) {
@@ -204,6 +243,8 @@ public sealed class Panel : IDisposable
 
 		if (_terminals.Count == 0 && Active == PanelView.Terminal) IsOpen = false;
 	}
+
+	public bool IsDirty => _dirty;
 
 	public bool TakeDirty() {
 		bool dirty = _dirty;
@@ -356,7 +397,7 @@ public sealed class Panel : IDisposable
 
 	public void ScrollByWheel(int wheelDelta, float scale) {
 		if (Active == PanelView.Terminal) {
-			Terminal?.Screen.ScrollBy(-(wheelDelta / 120) * 3);
+			Terminal?.Screen.ScrollBy((wheelDelta / 120) * 3);
 			return;
 		}
 

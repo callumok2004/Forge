@@ -22,13 +22,17 @@ public sealed unsafe partial class ConPtyHost : IDisposable
 	private nint _attributes;
 
 	private Thread? _reader;
+	private Thread? _waiter;
 	private volatile bool _closing;
+	private volatile bool _exited;
 
 	public event Action<string>? Output;
 
 	public event Action? Exited;
 
 	public bool IsRunning => _process != 0 && !_closing;
+
+	public int ExitCode { get; private set; }
 
 	public bool Start(string command, string workingDirectory, int columns, int rows) {
 		if (!CreatePipe(out _readFromChild, out _output, 0, 0) ||
@@ -47,7 +51,32 @@ public sealed unsafe partial class ConPtyHost : IDisposable
 		};
 
 		_reader.Start();
+
+		_waiter = new Thread(WaitLoop) {
+			IsBackground = true,
+			Name = "Forge terminal waiter",
+		};
+
+		_waiter.Start();
 		return true;
+	}
+
+	private void WaitLoop() {
+		nint process = _process;
+
+		if (process == 0) return;
+
+		WaitForSingleObject(process, uint.MaxValue);
+
+		uint code;
+
+		if (GetExitCodeProcess(process, &code)) ExitCode = unchecked((int)code);
+
+		if (_exited) return;
+
+		_exited = true;
+
+		if (!_closing) Exited?.Invoke();
 	}
 
 	private bool StartProcess(string command, string workingDirectory) {
@@ -117,8 +146,24 @@ public sealed unsafe partial class ConPtyHost : IDisposable
 			}
 		}
 
+		if (_process != 0) {
+			uint code;
+			if (GetExitCodeProcess(_process, &code)) ExitCode = unchecked((int)code);
+		}
+
+		if (_exited) return;
+
+		_exited = true;
+
 		if (!_closing) Exited?.Invoke();
 	}
+
+	[LibraryImport(Kernel32, SetLastError = true)]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	private static partial bool GetExitCodeProcess(nint process, uint* exitCode);
+
+	[LibraryImport(Kernel32, SetLastError = true)]
+	private static partial uint WaitForSingleObject(nint handle, uint milliseconds);
 
 	private static int Pack(int columns, int rows) =>
 		(ushort)Math.Clamp(columns, 1, short.MaxValue) |
@@ -154,6 +199,8 @@ public sealed unsafe partial class ConPtyHost : IDisposable
 
 		_reader?.Join(250);
 		_reader = null;
+		_waiter?.Join(250);
+		_waiter = null;
 	}
 
 	#region Interop

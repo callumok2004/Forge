@@ -313,6 +313,9 @@ public static unsafe partial class Win32
 	[LibraryImport(Kernel32, EntryPoint = "GetModuleHandleW", StringMarshalling = StringMarshalling.Utf16)]
 	public static partial nint GetModuleHandle(string? moduleName);
 
+	[LibraryImport(User32)]
+	public static partial nint GetForegroundWindow();
+
 	public const int VkShift = 0x10;
 	public const int VkControl = 0x11;
 

@@ -159,6 +159,10 @@ internal sealed class RecordingHost : ICommandHost
 	public void ShowOutput(IOutputChannel channel) {
 	}
 
+	public void RunInTerminal(string name, string commandLine, string? workingDirectory,
+		Action<string>? lines, Action<int>? finished) {
+	}
+
 	public void SetStatusItem(string id, string icon, string text, string? commandId, bool rightAligned = false, int priority = 0) {
 	}
 

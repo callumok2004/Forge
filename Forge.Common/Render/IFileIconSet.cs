@@ -6,4 +6,6 @@ public interface IFileIconSet
 	long GetMapBytes();
 
 	void OnReady(Action handler);
+
+	IVectorIcon? IconForFile(string fileName);
 }

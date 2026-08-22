@@ -110,6 +110,8 @@ public sealed unsafe class AppWindow : IAppWindow, IDisposable
 
 	public nint Handle { get; private set; }
 
+	public bool IsForeground() => Handle != 0 && Win32.GetForegroundWindow() == Handle;
+
 	public nint GetHandle() => Handle;
 
 	public uint GetDpi() => Dpi;

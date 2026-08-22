@@ -3,7 +3,10 @@ using Forge.Theming;
 
 namespace Forge.Common.Render;
 
-public interface IVectorIcon;
+public interface IVectorIcon
+{
+	Theming.Color GetDominantColor();
+}
 
 public interface IImage
 {

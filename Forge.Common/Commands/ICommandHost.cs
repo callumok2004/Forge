@@ -28,6 +28,8 @@ public interface ICommandHost
 	void ShowPanel(string view);
 	void ShowOutput(IOutputChannel channel);
 
+	void RunInTerminal(string name, string commandLine, string? workingDirectory, Action<string>? lines, Action<int>? finished);
+
 	void SetStatusItem(string id, string icon, string text, string? commandId, bool rightAligned = false, int priority = 0);
 	void RemoveStatusItem(string id);
 
