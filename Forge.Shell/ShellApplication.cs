@@ -181,6 +181,17 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		debugger.Attach(rootPath, UserData.BreakpointsPath);
 
+		WorkspaceMemory memory = WorkspaceMemory.Load(rootPath);
+
+		if (memory.DebugConfiguration is { Length: > 0 } remembered) {
+			foreach (DebugConfiguration configuration in debugger.GetConfigurations()) {
+				if (!string.Equals(configuration.Name, remembered, StringComparison.Ordinal)) continue;
+
+				debugger.SelectConfiguration(remembered);
+				break;
+			}
+		}
+
 		debugger.ContextProvider = () => new ResolverContext(rootPath) {
 			File = workbench.ActiveFilePath,
 			LineNumber = (workbench.ActiveView?.CaretLine ?? 0) + 1,
@@ -312,6 +323,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		workbench.ActiveDocumentChanged += () => ApplyLanguageColor(ambient, fileIcons, workbench.ActiveFilePath);
 
+		RestoreWorkspace(workbench, memory);
 		OpenInitialFiles(workbench, args);
 		UpdateTitle(window, workbench, rootPath);
 
@@ -347,8 +359,50 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			workbench.ExtensionHost?.UnloadAll();
 
 			window.CaptureState().Save(UserData.WindowStatePath);
+			CaptureWorkspace(workbench, debugger, memory);
+			memory.Save();
 			settings.Save();
 		}
+	}
+
+	private static void RestoreWorkspace(Workbench workbench, WorkspaceMemory memory) {
+		workbench.ShowSidebar = memory.ShowSidebar;
+
+		if (memory.SidebarWidth >= Metrics.SidebarMinWidth) workbench.Sidebar.Width = memory.SidebarWidth;
+
+		if (Enum.TryParse(memory.SidebarView, out ActivityView view)) {
+			workbench.Sidebar.View = view;
+			workbench.ActivityBar.Active = view;
+		}
+
+		if (memory.PanelHeight > 0f) workbench.Panel.Height = memory.PanelHeight;
+
+		if (memory.PanelOpen && Enum.TryParse(memory.PanelView, out PanelView panel)) {
+			workbench.Panel.Show(panel);
+		}
+
+		foreach (string path in memory.OpenFiles) {
+			if (File.Exists(path)) workbench.OpenFile(path);
+		}
+
+		if (memory.ActiveFile is { Length: > 0 } active && File.Exists(active)) workbench.OpenFile(active);
+	}
+
+	private static void CaptureWorkspace(Workbench workbench, DebugService debugger, WorkspaceMemory memory) {
+		memory.OpenFiles.Clear();
+
+		foreach (Document document in workbench.Documents) {
+			if (document.Path is { Length: > 0 } path) memory.OpenFiles.Add(path);
+		}
+
+		memory.ActiveFile = workbench.ActiveFilePath;
+		memory.ShowSidebar = workbench.ShowSidebar;
+		memory.SidebarWidth = workbench.Sidebar.Width;
+		memory.SidebarView = workbench.Sidebar.View.ToString();
+		memory.PanelOpen = workbench.Panel.IsOpen;
+		memory.PanelView = workbench.Panel.Active.ToString();
+		memory.PanelHeight = workbench.Panel.Height;
+		memory.DebugConfiguration = debugger.GetSelectedConfiguration();
 	}
 
 	private static string ResolveWorkspaceRoot(string[] args) {

@@ -67,7 +67,7 @@ public static class Metrics
 	public const float TabGap = 4f;
 
 	public const float BreadcrumbHeight = 22f;
-	public const float StatusBarHeight = 22f;
+	public const float StatusBarHeight = 25f;
 	public const float MinimapWidth = 76f;
 
 	public const float CardMargin = 4f;

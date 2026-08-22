@@ -76,6 +76,7 @@ public sealed class TitleBar
 	private float _debugLeft;
 	private float _debugRight;
 	private float _debugSplit;
+	private float _actionsLeft;
 
 	public float DebugControlLeft => _debugLeft;
 
@@ -198,8 +199,8 @@ public sealed class TitleBar
 
 		DrawAppIcon(painter, centreY, scale);
 		DrawMenu(painter, centreY, scale);
-		DrawCommandCentre(painter, width, centreY, scale);
 		DrawActions(painter, width, centreY, height, scale);
+		DrawCommandCentre(painter, width, centreY, scale);
 		DrawCaptionButtons(painter, width, height, scale);
 	}
 
@@ -275,8 +276,11 @@ public sealed class TitleBar
 		float groupLeft = (windowWidth - groupWidth) / 2f;
 
 		float floor = _menuRight + (Metrics.Space8 * scale);
-		float ceiling = windowWidth - ((ButtonWidth * 3f + ActionWidth * 2f) * scale) - groupWidth -
-			(Metrics.Space8 * scale);
+		float actionsLeft = _actionsLeft > 0f
+			? _actionsLeft
+			: windowWidth - ((ButtonWidth * 3f + ActionWidth * 2f) * scale);
+
+		float ceiling = actionsLeft - groupWidth - (Metrics.Space8 * scale);
 
 		if (ceiling < floor) {
 			_centreLeft = _centreRight = _branchLeft = _branchRight = _accountLeft = _accountRight = 0f;
@@ -376,6 +380,8 @@ public sealed class TitleBar
 		float launchRight = DrawSessionControls(painter, layoutCentre - (action / 2f), centreY, scale);
 
 		DrawLaunchControl(painter, launchRight, centreY, height, scale);
+
+		_actionsLeft = _debugLeft > 0f ? _debugLeft : launchRight;
 
 		DrawAction(painter, Codicon.LayoutSidebarLeft, layoutCentre, centreY, height, action,
 			TitleBarPart.Layout, scale);

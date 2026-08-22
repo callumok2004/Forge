@@ -16,6 +16,8 @@ public static class UserData
 
 	public static string BreakpointsPath => Path.Combine(Directory, "breakpoints.json");
 
+	public static string WorkspacesDirectory => Path.Combine(Directory, "workspaces");
+
 	public static string DebuggersPath => Path.Combine(Directory, "debuggers");
 
 	public static string ExtensionsDirectory => Path.Combine(Directory, "extensions");
