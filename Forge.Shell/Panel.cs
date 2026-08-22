@@ -65,6 +65,7 @@ public sealed class Panel : IDisposable
 
 	private volatile bool _dirty;
 	private long _lastNotified;
+	private readonly Dictionary<TerminalSession, string> _taskNames = [];
 
 	public bool IsOpen { get; set; }
 
@@ -205,7 +206,14 @@ public sealed class Panel : IDisposable
 	}
 
 	public void RunTask(string name, string commandLine, string? workingDirectory,
-		Action<string>? lines = null, Action<int>? finished = null) {
+		Action<string>? lines = null, Action<int>? finished = null, bool dedicated = true) {
+		int reuse = dedicated ? IndexOfTask(name) : -1;
+
+		if (reuse >= 0) {
+			_terminals[reuse].Dispose();
+			_terminals.RemoveAt(reuse);
+		}
+
 		TerminalSession session = new() { History = History, LineObserver = lines, ExitObserver = finished };
 
 		session.Changed += () => {
@@ -222,11 +230,24 @@ public sealed class Panel : IDisposable
 			return;
 		}
 
-		_terminals.Add(session);
-		_activeTerminal = _terminals.Count - 1;
+		_taskNames[session] = name;
+
+		if (reuse >= 0) _terminals.Insert(reuse, session);
+		else _terminals.Add(session);
+
+		_activeTerminal = reuse >= 0 ? reuse : _terminals.Count - 1;
 		Show(PanelView.Terminal);
 		IsProfileMenuOpen = false;
 		_dirty = true;
+	}
+
+	private int IndexOfTask(string name) {
+		for (int i = 0; i < _terminals.Count; i++) {
+			if (_taskNames.TryGetValue(_terminals[i], out string? label) &&
+				string.Equals(label, name, StringComparison.Ordinal)) return i;
+		}
+
+		return -1;
 	}
 
 	public void ActivateTerminal(int index) {
@@ -236,12 +257,18 @@ public sealed class Panel : IDisposable
 	public void CloseTerminal(int index) {
 		if (index < 0 || index >= _terminals.Count) return;
 
+		_taskNames.Remove(_terminals[index]);
 		_terminals[index].Dispose();
 		_terminals.RemoveAt(index);
 
 		_activeTerminal = Math.Min(_activeTerminal, _terminals.Count - 1);
 
 		if (_terminals.Count == 0 && Active == PanelView.Terminal) IsOpen = false;
+	}
+
+	public void MarkDirty() {
+		_dirty = true;
+		NotifyCoalesced();
 	}
 
 	public bool IsDirty => _dirty;

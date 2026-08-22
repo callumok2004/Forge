@@ -1,5 +1,6 @@
 using Forge.Common.Editor;
 using Forge.Common.Git;
+using Forge.Common.Debug;
 using Forge.Common.Render;
 using Forge.Core;
 using Forge.Syntax;
@@ -22,6 +23,8 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 		PointForOffset((ITextFont)font, offset, viewportX, viewportY);
 
 	private const float ChangeMarkWidth = 2f;
+
+	public const float GlyphMarginWidth = 20f;
 
 	private const int GutterPaddingLeft = 12;
 	private const int GutterPaddingRight = 16;
@@ -896,7 +899,7 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 
 	public float GutterWidth(ITextFont font) {
 		int digits = Math.Max(2, DigitCount(Snapshot.LineCount));
-		return GutterPaddingLeft + (digits * font.GetCellWidth()) + GutterPaddingRight;
+		return GlyphMarginWidth + GutterPaddingLeft + (digits * font.GetCellWidth()) + GutterPaddingRight;
 	}
 
 	public int OffsetFromPoint(ITextFont font, float x, float y, float viewportX, float viewportY) {
@@ -1094,7 +1097,9 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 			DrawDecorations(painter, line, textLeft, lineTop, lineHeight);
 			DrawIndentGuides(painter, line, textLeft, lineTop, lineHeight, caretLine);
 			DrawChangeMark(painter, line, x, lineTop, lineHeight);
+			DrawExecutionLine(painter, line, x, lineTop, width, lineHeight);
 			DrawLineNumber(painter, line, caretLine, x, lineTop, gutterWidth);
+			DrawGlyphMargin(painter, line, x, lineTop, lineHeight);
 			DrawLineText(painter, line, textLeft, lineTop);
 		}
 
@@ -1111,6 +1116,65 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 	}
 
 	public IReadOnlyList<Decoration>? Decorations { get; set; }
+
+	public Func<int, BreakpointMark>? BreakpointProvider { get; set; }
+
+	public int ExecutionLine { get; set; } = -1;
+
+	public int HoverGutterLine { get; set; } = -1;
+
+	public bool ExecutionIsTopFrame { get; set; } = true;
+
+	private void DrawGlyphMargin(IPainter painter, int line, float x, float lineTop, float lineHeight) {
+		float centreX = x + GlyphMarginWidth * 0.5f;
+		float centreY = lineTop + lineHeight * 0.5f;
+		float size = MathF.Min(lineHeight, GlyphMarginWidth);
+
+		BreakpointMark mark = BreakpointProvider?.Invoke(line + 1) ?? BreakpointMark.None;
+		bool executing = line == ExecutionLine;
+
+		if (mark == BreakpointMark.None) {
+			if (executing) {
+				painter.DrawIcon(Codicon.DebugStackframe, centreX, centreY, size,
+					ExecutionIsTopFrame ? Theme.DebugStackframeForeground : Theme.DebugBreakpointDisabled);
+				return;
+			}
+
+			if (line != HoverGutterLine) return;
+
+			painter.DrawIcon(Codicon.DebugBreakpoint, centreX, centreY, size,
+				Theme.DebugBreakpointHover);
+			return;
+		}
+
+		Codicon icon = mark switch {
+			BreakpointMark.Conditional => Codicon.DebugBreakpointConditional,
+			BreakpointMark.LogPoint => Codicon.DebugBreakpointLog,
+			BreakpointMark.Unverified => Codicon.DebugBreakpointUnverified,
+			_ => Codicon.DebugBreakpoint,
+		};
+
+		Color color = mark switch {
+			BreakpointMark.Disabled or BreakpointMark.Unverified => Theme.DebugBreakpointDisabled,
+			BreakpointMark.LogPoint => Theme.DebugBreakpointLogPoint,
+			_ => Theme.DebugBreakpointForeground,
+		};
+
+		painter.DrawIcon(icon, centreX, centreY, size, color);
+
+		if (executing) {
+			painter.DrawIcon(Codicon.DebugStackframe, centreX, centreY, size,
+				ExecutionIsTopFrame ? Theme.DebugStackframeForeground : Theme.DebugBreakpointDisabled);
+		}
+	}
+
+	private void DrawExecutionLine(IPainter painter, int line, float x, float lineTop, float width,
+		float lineHeight) {
+		if (line != ExecutionLine) return;
+
+		painter.FillRectangle(x, lineTop, width, lineHeight,
+			ExecutionIsTopFrame ? Theme.DebugExecutionBackground : Theme.DebugFocusedFrameBackground);
+	}
 
 	public readonly record struct Decoration(int Line, int StartColumn, int EndColumn, uint Color);
 

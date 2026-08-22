@@ -17,6 +17,7 @@ public static class Program
 			.WithAssembly("Forge.Workspace")
 			.WithAssembly("Forge.Git")
 			.WithAssembly("Forge.Language")
+			.WithAssembly("Forge.Debug")
 			.WithAssembly("Forge.Extensions")
 			.WithAssembly("Forge.VSCode")
 			.WithAssemblyOf<ShellApplication>()

@@ -163,6 +163,9 @@ internal sealed class RecordingHost : ICommandHost
 		Action<string>? lines, Action<int>? finished) {
 	}
 
+	public void ShowCommandPalette() {
+	}
+
 	public void SetStatusItem(string id, string icon, string text, string? commandId, bool rightAligned = false, int priority = 0) {
 	}
 

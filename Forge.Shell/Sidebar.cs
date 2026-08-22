@@ -31,6 +31,8 @@ public sealed class Sidebar
 
 	public SourceControlView SourceControl { get; } = new();
 
+	public DebugView Debug { get; } = new();
+
 	public float ContentLeft { get; private set; }
 
 	public float ContentWidth { get; private set; }
@@ -115,6 +117,18 @@ public sealed class Sidebar
 
 		ContentLeft = x;
 		ContentWidth = width;
+
+		if (View == ActivityView.Run) {
+			ITextFont runTitle = painter.GetUiStrong();
+
+			painter.DrawText(runTitle, "Run and Debug",
+				x + ((Metrics.Space8 + Metrics.Space4) * scale),
+				y + ((headerHeight - runTitle.GetLineHeight()) / 2f) + runTitle.GetBaseline(),
+				Theme.SidebarTitleForeground);
+
+			Debug.Render(painter, x, y + headerHeight, width, height - headerHeight, scale);
+			return;
+		}
 
 		if (View != ActivityView.Explorer) {
 			painter.PushClip(x, y, width, height);

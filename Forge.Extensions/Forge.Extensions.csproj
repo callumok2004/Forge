@@ -4,6 +4,7 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<ProjectReference Include="..\Forge.Debug\Forge.Debug.csproj" />
 		<ProjectReference Include="..\Forge.Language\Forge.Language.csproj" />
 	</ItemGroup>
 

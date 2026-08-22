@@ -1,11 +1,9 @@
-using Forge.VSCode;
 using Microsoft.Extensions.DependencyInjection;
 
-using Forge.Commands;
 using Forge.Common.Commands;
+using Forge.Common.Debug;
 using Forge.Common.Editor;
 using Forge.Common.Extensions;
-using Forge.Common.Git;
 using Forge.Common.Language;
 using Forge.Common.Render;
 using Forge.Common.UI;
@@ -13,20 +11,20 @@ using Forge.Common.Workspace;
 using Forge.Common;
 using Forge.Core.Native;
 using Forge.Core;
+using Forge.Debug;
 using Forge.Editor;
 using Forge.Extensions.Discord;
 using Forge.Extensions.Host;
 using Forge.Extensions.TrailingSpaces;
-using Forge.Extensions;
 using Forge.Git;
 using Forge.Language;
 using Forge.Render;
-using Forge.Search;
 using Forge.Terminal;
 using Forge.Theming;
 using Forge.UI.Controls;
 using Forge.UI;
 using Forge.Workspace;
+using Forge.VSCode;
 
 namespace Forge.Shell;
 
@@ -82,6 +80,11 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 	private const uint VkOemOpenBrackets = 0xDB;
 	private const uint VkOemCloseBrackets = 0xDD;
 
+	private const uint VkF5 = 0x74;
+	private const uint VkF6 = 0x75;
+	private const uint VkF9 = 0x78;
+	private const uint VkF10 = 0x79;
+	private const uint VkF11 = 0x7A;
 	private const uint VkF12 = 0x7B;
 
 	private const uint VkOemTilde = 0xC0;
@@ -120,6 +123,10 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			scale);
 
 		using Painter painter = new(device, fonts);
+
+		System.Collections.Concurrent.ConcurrentQueue<Action> uiWork = new();
+
+		using DebugService debugger = new();
 
 		using Ambient ambient = new();
 		ambient.SetAccent(Theme.Accent);
@@ -172,6 +179,119 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		workbench.Sidebar.Title = Path.GetFileName(rootPath.TrimEnd(Path.DirectorySeparatorChar));
 		workbench.Sidebar.SetTree(new FileTree(rootPath));
 
+		debugger.Attach(rootPath, UserData.BreakpointsPath);
+
+		debugger.ContextProvider = () => new ResolverContext(rootPath) {
+			File = workbench.ActiveFilePath,
+			LineNumber = (workbench.ActiveView?.CaretLine ?? 0) + 1,
+			ColumnNumber = (workbench.ActiveView?.CaretColumn ?? 0) + 1,
+		};
+
+		debugger.TaskRunner = (label, commandLine, cwd, finished) => {
+			ambient.Begin(AmbientSignal.Build);
+
+			Post(() => workbench.Panel.RunTask(label, commandLine, cwd ?? rootPath, null, exitCode => {
+				ambient.End(AmbientSignal.Build);
+				finished?.Invoke(exitCode);
+				window.Invalidate();
+			}));
+
+			return true;
+		};
+
+		void Post(Action action) {
+			uiWork.Enqueue(action);
+			window.Invalidate();
+		}
+
+		debugger.RevealSource = (path, line) => Post(() => {
+			workbench.OpenFile(path);
+
+			if (workbench.ActiveView is { } view)
+				view.MoveTo(view.Snapshot.GetLineStartOffset(Math.Max(line - 1, 0)), extend: false);
+
+			window.Invalidate();
+		});
+
+		IOutputChannel debugConsole = workbench.Panel.Channel("Debug Console");
+
+		debugger.OnOutput(value => {
+			debugConsole.Append(value.Text.TrimEnd((char)10, (char)13));
+			workbench.Panel.MarkDirty();
+		});
+
+		debugger.OnStateChanged(() => {
+			if (debugger.IsActive()) ambient.Begin(AmbientSignal.Debug);
+			else ambient.End(AmbientSignal.Debug);
+
+			window.Invalidate();
+		});
+
+		void SyncLaunchControl() {
+			List<string> names = [];
+
+			foreach (DebugConfiguration configuration in debugger.GetConfigurations()) {
+				names.Add(configuration.Name);
+			}
+
+			workbench.TitleBar.DebugConfigurations = names;
+			workbench.TitleBar.SelectedDebugConfiguration = debugger.GetSelectedConfiguration();
+			workbench.TitleBar.IsDebugging = debugger.IsActive();
+			workbench.TitleBar.IsPaused = debugger.GetState() == DebugState.Stopped;
+		}
+
+		SyncLaunchControl();
+
+		debugger.OnModelChanged(() => {
+			SyncLaunchControl();
+			window.Invalidate();
+		});
+
+		debugger.OnStateChanged(() => {
+			SyncLaunchControl();
+			window.Invalidate();
+		});
+
+		workbench.Sidebar.Debug.Debugger = debugger;
+		workbench.Sidebar.Debug.ScopesLoader = debugger.ScopesAsync;
+		workbench.Sidebar.Debug.VariablesLoader = debugger.VariablesAsync;
+		workbench.Sidebar.Debug.Changed = window.Invalidate;
+		workbench.Sidebar.Debug.OpenBreakpoint = (path, line) => debugger.RevealSource?.Invoke(path, line);
+
+		debugger.OnStateChanged(() => {
+			if (debugger.GetState() != DebugState.Stopped) workbench.Sidebar.Debug.Reset();
+		});
+
+		workbench.BreakpointMarkFor = line => {
+			if (workbench.ActiveFilePath is not { Length: > 0 } path) return BreakpointMark.None;
+
+			foreach (SourceBreakpoint breakpoint in debugger.GetBreakpointsFor(path)) {
+				if (breakpoint.EffectiveLine != line) continue;
+
+				if (!breakpoint.Enabled || !debugger.AreBreakpointsActivated()) return BreakpointMark.Disabled;
+				if (breakpoint.LogMessage is { Length: > 0 }) return BreakpointMark.LogPoint;
+				if (breakpoint.Condition is { Length: > 0 }) return BreakpointMark.Conditional;
+
+				return debugger.IsActive() && !breakpoint.Verified
+					? BreakpointMark.Unverified
+					: BreakpointMark.Verified;
+			}
+
+			return BreakpointMark.None;
+		};
+
+		workbench.ExecutionLineFor = path => {
+			if (!debugger.IsActive() || debugger.GetState() != DebugState.Stopped) return -1;
+
+			return debugger.GetFocusedFrame() is { SourcePath: { } source } frame &&
+				string.Equals(source, path, StringComparison.OrdinalIgnoreCase)
+					? frame.Line - 1
+					: -1;
+		};
+
+		DebugCommands.Register(workbench.Commands, debugger,
+			(id, title, category, handler) => new Forge.Commands.Command(id, title, category, handler));
+
 		ThreadPool.UnsafeQueueUserWorkItem(_ => LoadExtensions(workbench, window.Invalidate), null);
 
 		IFileIndex index = new FileIndex(rootPath);
@@ -195,7 +315,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		OpenInitialFiles(workbench, args);
 		UpdateTitle(window, workbench, rootPath);
 
-		WireEvents(window, device, painter, fonts, settings, workbench, ambient, rootPath);
+		WireEvents(window, device, painter, fonts, settings, workbench, ambient, debugger, uiWork, rootPath);
 
 		builder
 			.Publish<IAppWindow>(window)
@@ -205,7 +325,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			.Publish<IPainter>(painter)
 			.Publish<IEditorHost>(workbench)
 			.Publish<IFileIndex>(index)
-			.Publish<IAmbient>(ambient);
+			.Publish<IAmbient>(ambient)
+			.Publish<IDebug>(debugger);
 
 		if (workbench.Repository is { } published) builder.Publish(published);
 
@@ -276,8 +397,22 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		ambient.SetLanguageColor(dominant, dominant.A > 0.05f ? 1f : 0f);
 	}
 
+	private static string? DebugKeyBinding(uint key, bool shift, bool control, DebugState state) => key switch {
+		VkF5 when control && shift => DebugCommands.Restart,
+		VkF5 when shift => DebugCommands.Stop,
+		VkF5 when control => DebugCommands.Run,
+		VkF5 => state == DebugState.Stopped ? DebugCommands.Continue : DebugCommands.Start,
+		VkF6 => DebugCommands.Pause,
+		VkF9 => DebugCommands.ToggleBreakpoint,
+		VkF10 => DebugCommands.StepOver,
+		VkF11 when shift => DebugCommands.StepOut,
+		VkF11 => DebugCommands.StepInto,
+		_ => null,
+	};
+
 	private static void WireEvents(AppWindow window, RenderDevice device, IPainter painter, FontSet fonts,
-		Settings settings, Workbench workbench, Ambient ambient, string rootPath) {
+		Settings settings, Workbench workbench, Ambient ambient, DebugService debugger,
+		System.Collections.Concurrent.ConcurrentQueue<Action> uiWork, string rootPath) {
 		bool selecting = false;
 		bool draggingSplitter = false;
 		bool draggingPanel = false;
@@ -369,6 +504,15 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			long now = System.Diagnostics.Stopwatch.GetTimestamp();
 			float delta = (float)((now - ambientStamp) / (double)System.Diagnostics.Stopwatch.Frequency);
 			ambientStamp = now;
+
+			while (uiWork.TryDequeue(out Action? work)) {
+				try {
+					work();
+				}
+				catch (Exception exception) when (exception is InvalidOperationException or IOException) {
+					workbench.Panel.Output.Append($"Debug UI update failed: {exception.Message}");
+				}
+			}
 
 			ambient.SetFocused(window.IsForeground());
 
@@ -730,6 +874,9 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 				if (workbench.Sidebar.View == ActivityView.SourceControl) {
 					workbench.Sidebar.SourceControl.ScrollByWheel(delta, workbench.Scale);
 				}
+				else if (workbench.Sidebar.View == ActivityView.Run) {
+					workbench.Sidebar.Debug.ScrollByWheel(delta, workbench.Scale);
+				}
 				else workbench.Sidebar.ScrollByWheel(delta, workbench.Scale);
 
 				Damage(workbench.SidebarRect(device.Height));
@@ -763,6 +910,21 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			LastMouseX = x;
 			LastMouseY = y;
 
+			if (workbench.ActiveView is { } marginView) {
+				int gutterLine = x >= workbench.EditorLeft &&
+					x < workbench.EditorLeft + TextView.GlyphMarginWidth && y >= workbench.EditorTop
+						? marginView.Snapshot.GetLineAt(marginView.OffsetFromPoint(painter.GetCode(), x, y,
+							workbench.EditorLeft, workbench.EditorTop))
+						: -1;
+
+				if (gutterLine != marginView.HoverGutterLine) {
+					marginView.HoverGutterLine = gutterLine;
+
+					Damage(new PixelRect((int)workbench.EditorLeft, (int)workbench.EditorTop,
+						(int)(workbench.EditorLeft + TextView.GlyphMarginWidth), device.Height));
+				}
+			}
+
 			ambient.SetPointer(x / MathF.Max(device.Width, 1f), y / MathF.Max(device.Height, 1f));
 
 			window.Cursor =
@@ -771,7 +933,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 				workbench.ActiveView is not null && !workbench.Palette.IsOpen &&
 					!workbench.QuickOpen.IsOpen &&
 					workbench.IntelliSense?.Suggest.Contains(x, y) != true &&
-					x >= workbench.EditorLeft && y >= workbench.EditorTop &&
+					x >= workbench.EditorLeft + TextView.GlyphMarginWidth &&
+					y >= workbench.EditorTop &&
 					y < workbench.EditorBottom(device.Height)
 					? beamCursor
 					: arrowCursor;
@@ -918,8 +1081,16 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 				bool tabCleared = workbench.Tabs.HoverIndex != -1;
 				workbench.Tabs.HoverIndex = -1;
 
-				if (workbench.Sidebar.SetHover(workbench.Sidebar.RowAt(x, y, workbench.ActivityBarWidth,
-					workbench.ShellTop, workbench.Scale))) Damage(workbench.SidebarRect(device.Height));
+				if (workbench.Sidebar.View == ActivityView.Run) {
+					if (workbench.Sidebar.Debug.SetHover(x, y,
+						workbench.ShellTop + (Metrics.SidebarHeaderHeight * workbench.Scale),
+						workbench.Scale)) Damage(workbench.SidebarRect(device.Height));
+				}
+				else if (workbench.Sidebar.View == ActivityView.Explorer &&
+					workbench.Sidebar.SetHover(workbench.Sidebar.RowAt(x, y, workbench.ActivityBarWidth,
+						workbench.ShellTop, workbench.Scale))) {
+					Damage(workbench.SidebarRect(device.Height));
+				}
 
 				if (tabCleared) Damage(workbench.TabStripRect(device.Width));
 
@@ -1001,6 +1172,14 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		};
 
 		window.Events.MouseDown += (x, y) => {
+			if (workbench.LaunchPicker.IsOpen && !workbench.LaunchPicker.Contains(x, y) &&
+				workbench.TitleBar.PartAt(x, y, device.Width, workbench.Scale)
+					!= TitleBarPart.DebugConfiguration) {
+				workbench.LaunchPicker.Close();
+				Refresh();
+				return;
+			}
+
 			if (workbench.Palette.IsOpen) {
 				int row = workbench.Palette.RowAt(x, y);
 
@@ -1104,6 +1283,53 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 					case TitleBarPart.Settings:
 						workbench.OpenFile(UserData.SettingsPath);
 						break;
+
+					case TitleBarPart.DebugStart:
+						if (debugger.IsActive()) debugger.StopSession(disconnect: false, suspend: false);
+						else debugger.StartDebugging(null, noDebug: false);
+
+						break;
+
+					case TitleBarPart.DebugContinue:
+						if (debugger.GetState() == DebugState.Stopped) debugger.Continue();
+						else debugger.Pause();
+
+						break;
+
+					case TitleBarPart.DebugStepOver:
+						debugger.StepOver();
+						break;
+
+					case TitleBarPart.DebugStepInto:
+						debugger.StepInto();
+						break;
+
+					case TitleBarPart.DebugStepOut:
+						debugger.StepOut();
+						break;
+
+					case TitleBarPart.DebugRestart:
+						debugger.RestartSession();
+						break;
+
+					case TitleBarPart.DebugStop:
+						debugger.StopSession(disconnect: false, suspend: false);
+						break;
+
+					case TitleBarPart.DebugConfiguration: {
+						List<string> names = [];
+
+						foreach (DebugConfiguration configuration in debugger.GetConfigurations()) {
+							names.Add(configuration.Name);
+						}
+
+						workbench.LaunchPicker.Selected = debugger.GetSelectedConfiguration();
+
+						workbench.LaunchPicker.Open(names, workbench.TitleBar.DebugControlLeft,
+							TitleBar.Height(workbench.Scale));
+
+						break;
+					}
 				}
 
 				Refresh();
@@ -1244,6 +1470,19 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 					return;
 				}
 
+				if (workbench.Sidebar.View == ActivityView.Run) {
+					workbench.Sidebar.Debug.Click(y,
+						workbench.ShellTop + (Metrics.SidebarHeaderHeight * workbench.Scale), workbench.Scale);
+
+					Refresh();
+					return;
+				}
+
+				if (workbench.Sidebar.View != ActivityView.Explorer) {
+					Refresh();
+					return;
+				}
+
 				int row = workbench.Sidebar.RowAt(x, y, workbench.ActivityBarWidth, workbench.ShellTop, workbench.Scale);
 				if (workbench.Sidebar.Activate(row) is { } path) workbench.OpenFile(path);
 
@@ -1283,7 +1522,15 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 				int offset = view.OffsetFromPoint(painter.GetCode(), x, y, workbench.EditorLeft,
 					workbench.EditorTop);
 
-				bool inGutter = x < workbench.EditorLeft + view.GutterWidth(painter.GetCode());
+				float gutterWidth = view.GutterWidth(painter.GetCode());
+				bool inGutter = x < workbench.EditorLeft + gutterWidth;
+				bool inBreakpointStrip = x < workbench.EditorLeft + TextView.GlyphMarginWidth;
+
+				if (inBreakpointStrip && workbench.ActiveFilePath is { Length: > 0 } breakpointPath) {
+					debugger.ToggleBreakpoint(breakpointPath, view.Snapshot.GetLineAt(offset) + 1);
+					Refresh();
+					return;
+				}
 
 				if (inGutter || clickCount >= 3) view.SelectLineAt(offset);
 				else if (clickCount == 2) view.SelectWordAt(offset);
@@ -1294,6 +1541,16 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		};
 
 		window.Events.MouseUp += (x, y) => {
+			if (workbench.LaunchPicker.IsOpen && workbench.LaunchPicker.Contains(x, y)) {
+				if (workbench.LaunchPicker.Accept(x, y, workbench.Scale) is { } chosen) {
+					debugger.SelectConfiguration(chosen);
+				}
+
+				workbench.LaunchPicker.Close();
+				Refresh();
+				return;
+			}
+
 			if (workbench.Menu.IsOpen && workbench.Menu.Contains(x, y)) {
 				if (workbench.Menu.CommandAt(x, y) is var picked && picked != MenuCommand.None) Invoke(picked);
 
@@ -1385,6 +1642,12 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			bool shift = Win32.IsKeyDown(Win32.VkShift);
 			bool control = Win32.IsKeyDown(Win32.VkControl);
 			bool alt = Win32.IsKeyDown(Win32.VkMenu);
+
+			if (DebugKeyBinding(key, shift, control, debugger.GetState()) is { } debugCommand) {
+				workbench.RunCommand(debugCommand, new CommandHost(workbench, Refresh));
+				Refresh();
+				return;
+			}
 
 			if (workbench.Palette.IsOpen) {
 				switch (key) {

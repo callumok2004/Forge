@@ -1,6 +1,7 @@
 using Forge.VSCode;
 using Forge.Commands;
 using Forge.Common.Commands;
+using Forge.Common.Debug;
 using Forge.Common.Editor;
 using Forge.Common.Extensions;
 using Forge.Common.Git;
@@ -98,6 +99,12 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	}
 
 	public ICommandRegistry Commands { get; } = new CommandRegistry();
+
+	public LaunchPicker LaunchPicker { get; } = new();
+
+	public Func<int, BreakpointMark>? BreakpointMarkFor { get; set; }
+
+	public Func<string, int>? ExecutionLineFor { get; set; }
 
 	public CommandPalette Palette { get; } = new();
 
@@ -473,6 +480,9 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 					Breadcrumbs.Render(painter, editorLeft, BreadcrumbsTop, editorWidth, _scale);
 				}
 
+				view.BreakpointProvider = BreakpointMarkFor;
+				view.ExecutionLine = ExecutionLineFor?.Invoke(ActiveFilePath ?? string.Empty) ?? -1;
+
 				view.Render(painter, editorLeft, EditorTop, textWidth, editorHeight);
 
 				if (ShowMinimap &&
@@ -515,6 +525,8 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		}
 
 		Sidebar.SourceControl.Menu.Render(painter, width, height, _scale);
+
+		LaunchPicker.Render(painter, _scale);
 
 		QuickOpen.Render(painter, width, height, _scale);
 		Palette.Render(painter, width, height, _scale);

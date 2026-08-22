@@ -14,6 +14,14 @@ public enum TitleBarPart
 	Branch,
 	Layout,
 	Settings,
+	DebugStart,
+	DebugConfiguration,
+	DebugContinue,
+	DebugStepOver,
+	DebugStepInto,
+	DebugStepOut,
+	DebugRestart,
+	DebugStop,
 	Minimize,
 	Maximize,
 	Close,
@@ -54,6 +62,22 @@ public sealed class TitleBar
 	public string? FolderName { get; set; }
 
 	public string? BranchName { get; set; }
+
+	public IReadOnlyList<string> DebugConfigurations { get; set; } = [];
+
+	public string? SelectedDebugConfiguration { get; set; }
+
+	public bool IsDebugging { get; set; }
+
+	public bool IsPaused { get; set; }
+
+	private readonly float[] _sessionCentres = new float[6];
+
+	private float _debugLeft;
+	private float _debugRight;
+	private float _debugSplit;
+
+	public float DebugControlLeft => _debugLeft;
 
 	public string? RemoteOwner { get; set; }
 
@@ -108,6 +132,20 @@ public sealed class TitleBar
 		if (_accountRight > _accountLeft && x >= _accountLeft && x < _accountRight) return TitleBarPart.Account;
 
 		if (_branchRight > _branchLeft && x >= _branchLeft && x < _branchRight) return TitleBarPart.Branch;
+
+		if (IsDebugging) {
+			float half = SessionButton * scale / 2f;
+
+			for (int i = 0; i < _sessionCentres.Length; i++) {
+				if (_sessionCentres[i] <= 0f) continue;
+
+				if (x >= _sessionCentres[i] - half && x < _sessionCentres[i] + half) {
+					return TitleBarPart.DebugContinue + i;
+				}
+			}
+		}
+
+		if (_debugRight > _debugLeft && x >= _debugLeft && x < _debugRight) return x < _debugSplit ? TitleBarPart.DebugStart : TitleBarPart.DebugConfiguration;
 
 		if (x >= _centreLeft && x < _centreRight) return TitleBarPart.CommandCentre;
 
@@ -335,11 +373,108 @@ public sealed class TitleBar
 		float settingsCentre = windowWidth - buttons - (action / 2f);
 		float layoutCentre = settingsCentre - action;
 
+		float launchRight = DrawSessionControls(painter, layoutCentre - (action / 2f), centreY, scale);
+
+		DrawLaunchControl(painter, launchRight, centreY, height, scale);
+
 		DrawAction(painter, Codicon.LayoutSidebarLeft, layoutCentre, centreY, height, action,
 			TitleBarPart.Layout, scale);
 
 		DrawAction(painter, Codicon.SettingsGear, settingsCentre, centreY, height, action,
 			TitleBarPart.Settings, scale);
+	}
+
+	private const float SessionButton = 26f;
+
+	private float DrawSessionControls(IPainter painter, float right, float centreY, float scale) {
+		Array.Clear(_sessionCentres);
+
+		if (!IsDebugging) return right;
+
+		float button = SessionButton * scale;
+
+		ReadOnlySpan<Codicon> icons = [
+			IsPaused ? Codicon.DebugContinue : Codicon.DebugPause,
+			Codicon.DebugStepOver,
+			Codicon.DebugStepInto,
+			Codicon.DebugStepOut,
+			Codicon.DebugRestart,
+			Codicon.DebugStop,
+		];
+
+		float padding = Metrics.Space6 * scale;
+		float pillWidth = (button * icons.Length) + (padding * 2f);
+		float pillHeight = 26f * scale;
+		float pillLeft = right - pillWidth;
+
+		painter.FillRoundedRectangle(pillLeft, centreY - (pillHeight / 2f), pillWidth, pillHeight,
+			pillHeight / 2f, Theme.ChromeBackground);
+
+		painter.StrokeRoundedRectangle(pillLeft, centreY - (pillHeight / 2f), pillWidth, pillHeight,
+			pillHeight / 2f, Metrics.StrokeThickness * scale, Theme.PanelBorder);
+
+		float cursor = pillLeft + padding;
+
+		for (int i = 0; i < icons.Length; i++) {
+			float centre = cursor + (button * i) + (button / 2f);
+			_sessionCentres[i] = centre;
+
+			bool hovered = _hover == TitleBarPart.DebugContinue + i;
+
+			if (hovered) {
+				float box = 22f * scale;
+				painter.FillRoundedRectangle(centre - (box / 2f), centreY - (box / 2f), box, box,
+					box / 2f, Theme.ListHoverBackground);
+			}
+
+			Color colour = i == icons.Length - 1
+				? Theme.DebugBreakpointForeground
+				: hovered ? Theme.TabActiveForeground : Theme.TitleBarForeground;
+
+			painter.DrawIcon(icons[i], centre, centreY, Metrics.IconSize * scale, colour);
+		}
+
+		return pillLeft - (Metrics.Space8 * scale);
+	}
+
+	private void DrawLaunchControl(IPainter painter, float right, float centreY, float height,
+		float scale) {
+		_debugLeft = _debugRight = _debugSplit = 0f;
+
+		if (DebugConfigurations.Count == 0 || IsDebugging) return;
+
+		ITextFont font = painter.GetUi();
+
+		string label = SelectedDebugConfiguration ?? DebugConfigurations[0];
+		float labelWidth = font.Measure(label);
+
+		float play = 26f * scale;
+		float chevron = 18f * scale;
+		float padding = Metrics.Space8 * scale;
+		float box = 24f * scale;
+
+		float width = play + padding + labelWidth + chevron + padding;
+		float left = right - width - (Metrics.Space12 * scale);
+
+		_debugLeft = left;
+		_debugRight = left + width;
+		_debugSplit = left + play;
+
+		painter.FillRoundedRectangle(left, centreY - (box / 2f), width, box,
+			Metrics.RadiusSmall * scale, Theme.ChromeBackground);
+
+		painter.DrawIcon(IsDebugging ? Codicon.DebugAlt : Codicon.Run, left + (play / 2f), centreY,
+			Metrics.IconSize * scale,
+			_hover == TitleBarPart.DebugStart ? Theme.GitAddedForeground : Theme.TitleBarForeground);
+
+		painter.DrawText(font, label, left + play + padding,
+			centreY - (font.GetLineHeight() / 2f) + font.GetBaseline(),
+			_hover == TitleBarPart.DebugConfiguration
+				? Theme.TabActiveForeground
+				: Theme.TitleBarForeground);
+
+		painter.DrawChevron(left + play + padding + labelWidth + (chevron / 2f), centreY, 8f * scale,
+			true, Theme.TitleBarForeground);
 	}
 
 	private void DrawAction(IPainter painter, Codicon icon, float centreX, float centreY, float height,

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using Forge.Commands;
 using Forge.Common.Commands;
 using Forge.Common.Render;
+using Forge.Debug;
 using Forge.Common.Extensions;
 using Forge.Core;
 using Forge.Extensions.Host;
@@ -58,6 +59,8 @@ public sealed class DotnetExtension : ForgeExtension
 	public string? Target => _workspace.Target;
 
 	public override void Register(ICommandRegistry commands) {
+		RegisterDebugAdapters();
+
 		commands.Register(new Command("dotnet.build", "Build", ".NET",
 			host => RunTask(host, "build")));
 
@@ -153,6 +156,20 @@ public sealed class DotnetExtension : ForgeExtension
 			StartServer(host);
 			host.Refresh();
 		}));
+	}
+
+	private void RegisterDebugAdapters() {
+		string executable = NetCoreDbgAcquisition.ExecutablePath(StorageDirectory);
+
+		foreach ((string type, string label) in ((string, string)[])[
+			("coreclr", ".NET Core"),
+			("clr", ".NET Framework"),
+			("dotnet", ".NET")]) {
+			DebugAdapters.Register(new DebugAdapterDescriptor(type, label, executable,
+				["--interpreter=vscode"]) {
+				Acquire = progress => NetCoreDbgAcquisition.AcquireAsync(StorageDirectory, progress),
+			});
+		}
 	}
 
 	public override bool ActivatesIn(string? workspacePath) {

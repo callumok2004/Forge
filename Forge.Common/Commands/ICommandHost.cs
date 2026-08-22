@@ -26,6 +26,7 @@ public interface ICommandHost
 	void ReportProblems(IReadOnlyList<Diagnostic> problems);
 
 	void ShowPanel(string view);
+	void ShowCommandPalette();
 	void ShowOutput(IOutputChannel channel);
 
 	void RunInTerminal(string name, string commandLine, string? workingDirectory, Action<string>? lines, Action<int>? finished);

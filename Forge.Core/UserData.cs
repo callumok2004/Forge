@@ -14,6 +14,10 @@ public static class UserData
 
 	public static string SourceControlStatePath => Path.Combine(Directory, "source-control.txt");
 
+	public static string BreakpointsPath => Path.Combine(Directory, "breakpoints.json");
+
+	public static string DebuggersPath => Path.Combine(Directory, "debuggers");
+
 	public static string ExtensionsDirectory => Path.Combine(Directory, "extensions");
 	public static string ExtensionStorageDirectory => Path.Combine(Directory, "extension-storage");
 

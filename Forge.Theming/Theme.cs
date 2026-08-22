@@ -80,6 +80,17 @@ public static class Theme
 
 	public static readonly Color GitDeletedForeground = Color.Parse("#c74e39");
 
+	public static readonly Color DebugBreakpointForeground = Color.Parse("#e51400");
+	public static readonly Color DebugBreakpointDisabled = Color.Parse("#848484");
+	public static readonly Color DebugBreakpointConditional = Color.Parse("#e5a000");
+	public static readonly Color DebugBreakpointLogPoint = Color.Parse("#5aa6e5");
+	public static readonly Color DebugBreakpointHover = Color.Parse("#e5140055");
+	public static readonly Color DebugStackframeForeground = Color.Parse("#ffcc00");
+	public static readonly Color DebugExecutionBackground = Color.Parse("#ffff0033");
+	public static readonly Color DebugFocusedFrameBackground = Color.Parse("#7abd7a26");
+	public static readonly Color DebugToolBarBackground = Color.Parse("#333333");
+	public static readonly Color DebugStatusBarBackground = Color.Parse("#cc6633");
+
 	public static readonly Color GitRenamedForeground = Color.Parse("#73c991");
 
 	public static readonly Color GitConflictForeground = Color.Parse("#e4676b");

@@ -83,6 +83,9 @@ public sealed class CommandHost(Workbench workbench, Action refresh) : ICommandH
 	}
 
 	public void ShowPanel(string view) {
-		if (Enum.TryParse(view, ignoreCase: true, out PanelView parsed)) workbench.Panel.Show(parsed);
+		if (Enum.TryParse(view.Replace(" ", string.Empty), ignoreCase: true, out PanelView parsed))
+			workbench.Panel.Show(parsed);
 	}
+
+	public void ShowCommandPalette() => workbench.Palette.Show(ForgeDllMain.Commands);
 }

@@ -41,6 +41,9 @@
     <Project Path="Forge.Git/Forge.Git.csproj">
       <Platform Project="x64" />
     </Project>
+    <Project Path="Forge.Debug/Forge.Debug.csproj">
+      <Platform Project="x64" />
+    </Project>
     <Project Path="Forge.Language/Forge.Language.csproj">
       <Platform Project="x64" />
     </Project>
