@@ -4,13 +4,22 @@ namespace Forge.VSCode;
 
 public sealed record VSCodeCommand(string Id, string Title, string? Category);
 
+public sealed record WebviewViewEntry(string ViewId, string Title, string Directory, string ExtensionId,
+	string? When, string Location);
+
+public sealed record VSCodeWebviewView(string Id, string Name, string? When);
+
+public sealed record VSCodeViewContainer(string Id, string Title, string? Icon, string Location, string? When,
+	VSCodeWebviewView[] WebviewViews);
+
 public sealed record VSCodeExtension(
 	string Identifier,
 	string DisplayName,
 	string Directory,
 	string[] ActivationEvents,
 	bool HasWebview,
-	VSCodeCommand[] Commands);
+	VSCodeCommand[] Commands,
+	VSCodeViewContainer[] Containers);
 
 public static class VSCodeExtensions
 {
@@ -62,7 +71,8 @@ public static class VSCodeExtensions
 				directory,
 				Strings(root, "activationEvents"),
 				HasWebviewView(root),
-				ReadCommands(root));
+				ReadCommands(root),
+				ReadContainers(root));
 		}
 		catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException) {
 			return null;
@@ -83,6 +93,69 @@ public static class VSCodeExtensions
 		}
 
 		return [.. results];
+	}
+
+	private static VSCodeViewContainer[] ReadContainers(in JsonElement root) {
+		if (!root.TryGetProperty("contributes", out JsonElement contributes)) return [];
+
+		if (!contributes.TryGetProperty("views", out JsonElement views) ||
+			views.ValueKind != JsonValueKind.Object) {
+			return [];
+		}
+
+		Dictionary<string, ContainerMeta> declared = ReadContainerTitles(contributes);
+
+		List<VSCodeViewContainer> results = [];
+
+		foreach (JsonProperty container in views.EnumerateObject()) {
+			if (container.Value.ValueKind != JsonValueKind.Array) continue;
+
+			List<VSCodeWebviewView> webviews = [];
+
+			foreach (JsonElement view in container.Value.EnumerateArray()) {
+				if (Text(view, "type") != "webview" || Text(view, "id") is not { } id) continue;
+
+				webviews.Add(new VSCodeWebviewView(id, Text(view, "name") ?? string.Empty, Text(view, "when")));
+			}
+
+			if (webviews.Count == 0) continue;
+
+			declared.TryGetValue(container.Name, out ContainerMeta meta);
+
+			results.Add(new VSCodeViewContainer(
+				container.Name,
+				meta.Title ?? container.Name,
+				meta.Icon,
+				meta.Location ?? "activitybar",
+				meta.When,
+				[.. webviews]));
+		}
+
+		return [.. results];
+	}
+
+	private readonly record struct ContainerMeta(string? Title, string? Icon, string? Location, string? When);
+
+	private static Dictionary<string, ContainerMeta> ReadContainerTitles(in JsonElement contributes) {
+		Dictionary<string, ContainerMeta> declared = new(StringComparer.Ordinal);
+
+		if (!contributes.TryGetProperty("viewsContainers", out JsonElement containers) ||
+			containers.ValueKind != JsonValueKind.Object) {
+			return declared;
+		}
+
+		foreach (JsonProperty location in containers.EnumerateObject()) {
+			if (location.Value.ValueKind != JsonValueKind.Array) continue;
+
+			foreach (JsonElement entry in location.Value.EnumerateArray()) {
+				if (Text(entry, "id") is not { } id) continue;
+
+				declared[id] = new ContainerMeta(Text(entry, "title") ?? id, Text(entry, "icon"),
+					location.Name, Text(entry, "when"));
+			}
+		}
+
+		return declared;
 	}
 
 	private static bool HasWebviewView(in JsonElement root) {

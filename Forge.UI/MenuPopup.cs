@@ -25,6 +25,7 @@ public enum MenuCommand
 	SelectAll,
 
 	ToggleSidebar,
+	ToggleAuxiliaryBar,
 	TogglePanel,
 	ShowTerminal,
 	ShowProblems,
@@ -89,6 +90,7 @@ public sealed class MenuPopup
 
 		[
 			new("Toggle Primary Sidebar", MenuCommand.ToggleSidebar, "Ctrl+B"),
+			new("Toggle Secondary Side Bar", MenuCommand.ToggleAuxiliaryBar, "Ctrl+Alt+B"),
 			new("Toggle Panel", MenuCommand.TogglePanel, "Ctrl+J"),
 			new("Toggle Minimap", MenuCommand.ToggleMinimap),
 			MenuEntry.Separator,

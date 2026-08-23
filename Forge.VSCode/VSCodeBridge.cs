@@ -11,10 +11,31 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 	private readonly Dictionary<string, VSCodeExtension> _byCommand = [with(StringComparer.Ordinal)];
 	private readonly List<VSCodeExtension> _activated = [];
 
+	private readonly List<WebviewViewEntry> _views = [];
+	private readonly Dictionary<string, string> _context = new(StringComparer.Ordinal);
+
 	private NodeExtensionHost? _process;
 	private VSCodeExtension? _claude;
 
 	public IReadOnlyList<VSCodeExtension> Activated => _activated;
+
+	public IReadOnlyList<WebviewViewEntry> WebviewViews {
+		get {
+			List<WebviewViewEntry> visible = [];
+
+			foreach (WebviewViewEntry entry in _views) {
+				if (WhenExpression.Evaluate(entry.When, _context)) visible.Add(entry);
+			}
+
+			return visible;
+		}
+	}
+
+	public Action? ViewsChanged { get; set; }
+
+	public Action<string, string>? WebviewHtmlChanged { get; set; }
+
+	public Action<string, string>? WebviewMessage { get; set; }
 
 	public bool IsRunning => _process?.IsRunning ?? false;
 
@@ -44,16 +65,27 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 			if (IsClaudeIdentifier(extension.Identifier)) _claude = extension;
 
 			Register(extension);
+			RegisterViews(extension);
 		}
+
+		if (_views.Count > 0) ViewsChanged?.Invoke();
 
 		_ = ActivateAllAsync(found);
 	}
 
-	public Task<string?> ResolveWebviewAsync(string viewId, string? title = null) =>
-		_process?.ResolveWebviewAsync(viewId, title) ?? Task.FromResult<string?>(null);
+	public Task<string?> ResolveWebviewAsync(string viewId, string? title = null, string? root = null) =>
+		_process?.ResolveWebviewAsync(viewId, title, root) ?? Task.FromResult<string?>(null);
 
-	public Task PostWebviewMessageAsync(string viewId, JsonNode? message) =>
-		_process?.PostWebviewMessageAsync(viewId, message) ?? Task.CompletedTask;
+	public bool TraceWebviews { get; set; }
+
+	public Task SetWebviewVisibilityAsync(string viewId, bool visible) =>
+		_process?.SetWebviewVisibilityAsync(viewId, visible) ?? Task.CompletedTask;
+
+	public Task PostWebviewMessageAsync(string viewId, JsonNode? message) {
+		if (TraceWebviews) Log($"webview -> extension [{viewId}] {Summarise(message)}");
+
+		return _process?.PostWebviewMessageAsync(viewId, message) ?? Task.CompletedTask;
+	}
 
 	public void PublishState(HostState state) => _process?.PublishState(state);
 
@@ -88,6 +120,20 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 		}
 	}
 
+	private void RegisterViews(VSCodeExtension extension) {
+		foreach (VSCodeViewContainer container in extension.Containers) {
+			foreach (VSCodeWebviewView view in container.WebviewViews) {
+				string? when = container.When is { Length: > 0 } outer
+					? view.When is { Length: > 0 } inner ? $"({outer}) && ({inner})" : outer
+					: view.When;
+
+				_views.Add(new WebviewViewEntry(view.Id,
+					view.Name is { Length: > 0 } name ? name : container.Title,
+					extension.Directory, extension.Identifier, when, container.Location));
+			}
+		}
+	}
+
 	private void Register(VSCodeExtension extension) {
 		foreach (VSCodeCommand command in extension.Commands) RegisterCommand(extension, command);
 	}
@@ -114,14 +160,33 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 
 	private JsonNode? OnRequest(string method, JsonNode? parameters) => method switch {
 		"commands/execute" => Execute(parameters),
+		"webview/postMessage" => WebviewSend(parameters),
+		"workspace/openTextDocument" => OpenTextDocument(parameters),
+		"window/showTextDocument" => ShowTextDocument(parameters),
 		"window/showMessage" => ShowMessage(parameters),
 		"commands/list" => CommandList(),
 		"window/showQuickPick" => null,
-		_ => null,
+		_ => Unhandled(method, parameters),
 	};
+
+	private JsonNode? Unhandled(string method, JsonNode? parameters) {
+		Log($"Unhandled API call: {method} {Summarise(parameters)}");
+		return null;
+	}
+
+	private static string Summarise(JsonNode? parameters) {
+		string text = parameters?.ToJsonString() ?? string.Empty;
+
+		return text.Length > 300 ? text[..300] + "..." : text;
+	}
 
 	private JsonNode? Execute(JsonNode? parameters) {
 		if (parameters?["id"]?.GetValue<string>() is not { } id) return null;
+
+		if (id == "setContext") {
+			SetContext(parameters["args"] as JsonArray);
+			return null;
+		}
 
 		if (OwnedByClaude(id)) Ambient.Pulse(AmbientSignal.Claude, 0.9f);
 
@@ -131,6 +196,76 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 		}
 
 		commands.Execute(id, host);
+		return null;
+	}
+
+	private JsonNode? WebviewSend(JsonNode? parameters) {
+		if (parameters?["id"]?.GetValue<string>() is not { } id) return null;
+
+		if (TraceWebviews) Log($"extension -> webview [{id}] {Summarise(parameters["message"])}");
+
+		WebviewMessage?.Invoke(id, parameters["message"]?.ToJsonString() ?? "null");
+		return null;
+	}
+
+	private void SetContext(JsonArray? arguments) {
+		if (arguments is not { Count: >= 2 } || arguments[0]?.GetValue<string>() is not { } key) return;
+
+		string value = arguments[1] switch {
+			JsonValue node when node.TryGetValue(out bool flag) => flag ? "true" : "false",
+			JsonValue node when node.TryGetValue(out string? text) => text ?? string.Empty,
+			null => string.Empty,
+			JsonNode node => node.ToJsonString(),
+		};
+
+		if (_context.TryGetValue(key, out string? existing) &&
+			string.Equals(existing, value, StringComparison.Ordinal)) {
+			return;
+		}
+
+		_context[key] = value;
+		ViewsChanged?.Invoke();
+	}
+
+	private JsonNode? OpenTextDocument(JsonNode? parameters) {
+		if (parameters?["target"]?.GetValue<string>() is { Length: > 0 } path && File.Exists(path)) {
+			host.OpenFile(path);
+			return HostEditor.UriFor(path);
+		}
+
+		if (parameters?["content"]?.GetValue<string>() is not { } content) return null;
+
+		string name = parameters["fileName"]?.GetValue<string>() is { Length: > 0 } given
+			? Path.GetFileName(given)
+			: "Untitled";
+
+		string scratch = Path.Combine(Path.GetTempPath(), "Forge", "untitled");
+
+		try {
+			Directory.CreateDirectory(scratch);
+
+			string file = Path.Combine(scratch, $"{Path.GetFileNameWithoutExtension(name)}-{Environment.TickCount}{Path.GetExtension(name)}");
+
+			File.WriteAllText(file, content);
+			host.OpenFile(file);
+
+			return HostEditor.UriFor(file);
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
+			Log($"Could not open the document: {exception.Message}");
+			return null;
+		}
+	}
+
+	private JsonNode? ShowTextDocument(JsonNode? parameters) {
+		if (parameters?["uri"]?.GetValue<string>() is not { Length: > 0 } uri) return null;
+
+		string path = uri.StartsWith("file:", StringComparison.OrdinalIgnoreCase)
+			? new Uri(uri).LocalPath
+			: uri;
+
+		if (File.Exists(path)) host.OpenFile(path);
+
 		return null;
 	}
 
@@ -158,8 +293,27 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 					.Append((parameters?["value"]?.GetValue<string>() ?? string.Empty).TrimEnd('\n'));
 				break;
 
+			case "host/log":
+				Log(parameters?["message"]?.GetValue<string>() ?? string.Empty);
+				break;
+
+			case "webview/setHtml":
+				if (parameters?["id"]?.GetValue<string>() is { } view) {
+					WebviewHtmlChanged?.Invoke(view, parameters["html"]?.GetValue<string>() ?? string.Empty);
+				}
+
+				break;
+
 			case "window/progress":
 				Progress(parameters);
+				break;
+
+			default:
+				if (method is not ("webview/registerProvider" or "webview/unregisterProvider"
+					or "commands/unregister" or "webview/show" or "host/ready")) {
+					Log($"Unhandled API notification: {method} {Summarise(parameters)}");
+				}
+
 				break;
 
 			case "commands/register":

@@ -224,6 +224,31 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			window.Invalidate();
 		});
 
+		using Forge.Webview.WebviewHost webviews = new(window.Handle,
+			Path.Combine(UserData.Directory, "webview"), Post);
+
+		workbench.Webviews = webviews;
+
+		webviews.SetZoom(settings.ZoomFactor);
+
+		webviews.ThemeCss = Common.Webview.WebviewTheme.BuildCss(settings.EditorFontFamily[0],
+			settings.EditorFontSize);
+
+		webviews.OnFailure(reason => {
+			workbench.Panel.Channel("Extensions").Append($"Webview: {reason}");
+			window.Invalidate();
+		});
+
+		webviews.OnMessage((viewId, json) => {
+			if (workbench.VSCode is not { } vscode) return;
+
+			try {
+				_ = vscode.PostWebviewMessageAsync(viewId, System.Text.Json.Nodes.JsonNode.Parse(json));
+			}
+			catch (System.Text.Json.JsonException) {
+			}
+		});
+
 		IOutputChannel debugConsole = workbench.Panel.Channel("Debug Console");
 
 		debugger.OnOutput(value => {
@@ -303,7 +328,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		DebugCommands.Register(workbench.Commands, debugger,
 			(id, title, category, handler) => new Forge.Commands.Command(id, title, category, handler));
 
-		ThreadPool.UnsafeQueueUserWorkItem(_ => LoadExtensions(workbench, window.Invalidate), null);
+		ThreadPool.UnsafeQueueUserWorkItem(_ => LoadExtensions(workbench, window.Invalidate, Post), null);
 
 		IFileIndex index = new FileIndex(rootPath);
 		workbench.QuickOpen.Attach(index);
@@ -377,6 +402,14 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		if (memory.PanelHeight > 0f) workbench.Panel.Height = memory.PanelHeight;
 
+		if (memory.AuxiliaryWidth >= AuxiliaryBar.MinWidth) workbench.Auxiliary.Width = memory.AuxiliaryWidth;
+
+		workbench.Auxiliary.IsOpen = memory.AuxiliaryOpen;
+
+		if (memory.AuxiliaryView is { Length: > 0 } auxiliaryView) {
+			workbench.Auxiliary.RestoreSelection(auxiliaryView);
+		}
+
 		if (memory.PanelOpen && Enum.TryParse(memory.PanelView, out PanelView panel)) {
 			workbench.Panel.Show(panel);
 		}
@@ -402,6 +435,9 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		memory.PanelOpen = workbench.Panel.IsOpen;
 		memory.PanelView = workbench.Panel.Active.ToString();
 		memory.PanelHeight = workbench.Panel.Height;
+		memory.AuxiliaryOpen = workbench.Auxiliary.IsOpen;
+		memory.AuxiliaryWidth = workbench.Auxiliary.Width;
+		memory.AuxiliaryView = workbench.Auxiliary.ActiveViewId;
 		memory.DebugConfiguration = debugger.GetSelectedConfiguration();
 	}
 
@@ -469,6 +505,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		System.Collections.Concurrent.ConcurrentQueue<Action> uiWork, string rootPath) {
 		bool selecting = false;
 		bool draggingSplitter = false;
+		bool draggingAuxiliary = false;
 		bool draggingPanel = false;
 		bool selectingOutput = false;
 
@@ -523,6 +560,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		void ApplyZoom() {
 			float target = window.DpiScale * settings.ZoomFactor;
 
+			workbench.Webviews.SetZoom(settings.ZoomFactor);
+
 			if (!fonts.Rescale(target)) return;
 
 			workbench.Scale = target;
@@ -554,10 +593,63 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		long ambientStamp = System.Diagnostics.Stopwatch.GetTimestamp();
 
+		void SyncWebviews() {
+			AuxiliaryBar bar = workbench.Auxiliary;
+
+			if (workbench.AuxiliaryWidth <= 0f || bar.Active is not { } entry) {
+				if (bar.ShownViewId is { } hidden) {
+					_ = workbench.VSCode?.SetWebviewVisibilityAsync(hidden, false) ?? Task.CompletedTask;
+					bar.ShownViewId = null;
+				}
+
+				workbench.Webviews.HideAll();
+				return;
+			}
+
+			if (bar.HtmlFor(entry.ViewId) is not { Length: > 0 } html) {
+				if (!bar.ClaimResolve(entry.ViewId) || workbench.VSCode is not { } vscode) return;
+
+				bar.Status = "Loading view...";
+
+				_ = vscode.ResolveWebviewAsync(entry.ViewId, entry.Title, entry.Directory)
+					.ContinueWith(task => {
+						if (task.Result is not { Length: > 0 } resolved) return;
+
+						uiWork.Enqueue(() => {
+							bar.SetHtml(entry.ViewId, resolved);
+							bar.Status = null;
+						});
+
+						window.Invalidate();
+					}, TaskScheduler.Default);
+
+				return;
+			}
+
+			if (bar.ContentBounds is not { Right: > 0, Bottom: > 0 } bounds) return;
+
+			if (string.Equals(bar.ShownViewId, entry.ViewId, StringComparison.Ordinal)) {
+				workbench.Webviews.SetBounds(entry.ViewId, bounds);
+				return;
+			}
+
+			if (bar.ShownViewId is { } previous) {
+				workbench.Webviews.Hide(previous);
+				_ = workbench.VSCode?.SetWebviewVisibilityAsync(previous, false) ?? Task.CompletedTask;
+			}
+
+			bar.ShownViewId = entry.ViewId;
+			_ = workbench.VSCode?.SetWebviewVisibilityAsync(entry.ViewId, true) ?? Task.CompletedTask;
+			bar.Status = null;
+			workbench.Webviews.Show(entry.ViewId, html, entry.Directory, bounds);
+		}
+
 		void AmbientTick() {
 			long now = System.Diagnostics.Stopwatch.GetTimestamp();
 			float delta = (float)((now - ambientStamp) / (double)System.Diagnostics.Stopwatch.Frequency);
 			ambientStamp = now;
+
+			SyncWebviews();
 
 			while (uiWork.TryDequeue(out Action? work)) {
 				try {
@@ -720,6 +812,10 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 				case MenuCommand.ToggleSidebar:
 					workbench.ShowSidebar = !workbench.ShowSidebar;
+					break;
+
+				case MenuCommand.ToggleAuxiliaryBar:
+					workbench.Auxiliary.Toggle();
 					break;
 
 				case MenuCommand.TogglePanel:
@@ -981,8 +1077,18 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 			ambient.SetPointer(x / MathF.Max(device.Width, 1f), y / MathF.Max(device.Height, 1f));
 
+			if (workbench.AuxiliaryWidth > 0f) {
+				bool overClose = workbench.Auxiliary.IsOverClose(x, y);
+
+				if (overClose != workbench.Auxiliary.HoverClose) {
+					workbench.Auxiliary.HoverClose = overClose;
+					Damage(workbench.AuxiliaryRect(device.Width, device.Height));
+				}
+			}
+
 			window.Cursor =
 				workbench.IsOverSplitter(x, device.Height, y) ? resizeWidthCursor :
+				workbench.IsOverAuxiliarySplitter(x, y, device.Width, device.Height) ? resizeWidthCursor :
 				workbench.IsOverPanelSplitter(x, y, device.Height) ? resizeHeightCursor :
 				workbench.ActiveView is not null && !workbench.Palette.IsOpen &&
 					!workbench.QuickOpen.IsOpen &&
@@ -1027,6 +1133,12 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 			if (draggingSplitter) {
 				workbench.ResizeSidebar(x);
+				window.Invalidate();
+				return;
+			}
+
+			if (draggingAuxiliary) {
+				workbench.ResizeAuxiliary(x, device.Width);
 				window.Invalidate();
 				return;
 			}
@@ -1433,6 +1545,35 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 				return;
 			}
 
+			if (workbench.IsOverAuxiliarySplitter(x, y, device.Width, device.Height)) {
+				draggingAuxiliary = true;
+				Win32.SetCapture(window.Handle);
+				return;
+			}
+
+			if (workbench.Auxiliary.ShownViewId is not null &&
+				!workbench.Auxiliary.ContentBounds.Contains(new PixelRect(x, y, x + 1, y + 1))) {
+				workbench.Webviews.ReleaseFocus();
+			}
+
+			if (workbench.AuxiliaryWidth > 0f && workbench.Auxiliary.IsOverClose(x, y)) {
+				workbench.Auxiliary.IsOpen = false;
+				workbench.Auxiliary.HoverClose = false;
+				Refresh();
+				return;
+			}
+
+			if (workbench.AuxiliaryWidth > 0f && workbench.Auxiliary.TabAt(x, y,
+				workbench.AuxiliaryLeft(device.Width), workbench.ShellTop, workbench.AuxiliaryWidth,
+				workbench.Scale) is int auxiliaryTab && auxiliaryTab >= 0) {
+				if (workbench.Auxiliary.Select(workbench.Auxiliary.Views[auxiliaryTab].ViewId)) {
+					workbench.Auxiliary.ShownViewId = null;
+					window.Invalidate();
+				}
+
+				return;
+			}
+
 			if (workbench.Panel.IsChannelMenuOpen) {
 				int channel = workbench.Panel.ChannelAt(x, y, workbench.Scale);
 
@@ -1628,13 +1769,14 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 				return;
 			}
 
-			if (selecting || draggingSplitter || draggingPanel || selectingOutput) {
+			if (selecting || draggingSplitter || draggingAuxiliary || draggingPanel || selectingOutput) {
 				Win32.ReleaseCapture();
 				window.Invalidate();
 			}
 
 			selecting = false;
 			draggingSplitter = false;
+			draggingAuxiliary = false;
 			draggingPanel = false;
 			selectingOutput = false;
 			SetAutoScrolling(false);
@@ -1935,6 +2077,11 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 					Refresh();
 					return;
 
+				case VkB when control && Win32.IsKeyDown(Win32.VkMenu):
+					workbench.Auxiliary.Toggle();
+					Refresh();
+					return;
+
 				case VkB when control:
 					workbench.ShowSidebar = !workbench.ShowSidebar;
 					Refresh();
@@ -2165,7 +2312,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		};
 	}
 
-	private static void LoadExtensions(Workbench workbench, Action refresh) {
+	private static void LoadExtensions(Workbench workbench, Action refresh, Action<Action> post) {
 		CommandHost host = new(workbench, refresh);
 
 		ExtensionHost extensions = new(Settings.Current, BuiltInExtensions.All);
@@ -2206,12 +2353,24 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 				$"{registry.RequiringHost().Count()} needing an extension host");
 		}
 
-		StartVSCodeBridge(workbench, host);
+		StartVSCodeBridge(workbench, host, post);
 	}
 
-	private static void StartVSCodeBridge(Workbench workbench, CommandHost host) {
+	private static void StartVSCodeBridge(Workbench workbench, CommandHost host, Action<Action> post) {
 		VSCodeBridge bridge = new(workbench.Commands, host);
 		workbench.VSCode = bridge;
+
+		bridge.ViewsChanged = () => post(() => workbench.Auxiliary.SetViews(bridge.WebviewViews));
+
+		bridge.WebviewHtmlChanged = (viewId, html) => post(() => {
+			workbench.Auxiliary.SetHtml(viewId, html);
+
+			if (string.Equals(workbench.Auxiliary.ShownViewId, viewId, StringComparison.Ordinal)) {
+				workbench.Auxiliary.ShownViewId = null;
+			}
+		});
+
+		bridge.WebviewMessage = (viewId, json) => post(() => workbench.Webviews.PostMessage(viewId, json));
 
 		HostState state = new() {
 			WorkspacePath = workbench.RootPath,

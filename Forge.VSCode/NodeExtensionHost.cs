@@ -91,14 +91,18 @@ public sealed class NodeExtensionHost : IDisposable
 	public Task<JsonNode?> InvokeCommandAsync(string id, JsonArray? arguments = null) =>
 		SendAsync("commands/invoke", new JsonObject { ["id"] = id, ["args"] = arguments ?? [] });
 
-	public async Task<string?> ResolveWebviewAsync(string viewId, string? title = null) {
+	public async Task<string?> ResolveWebviewAsync(string viewId, string? title = null, string? root = null) {
 		JsonNode? result = await SendAsync("webview/resolve", new JsonObject {
 			["viewId"] = viewId,
 			["title"] = title,
+			["root"] = root,
 		}).ConfigureAwait(false);
 
 		return (result as JsonObject)?["html"]?.GetValue<string>();
 	}
+
+	public Task<JsonNode?> SetWebviewVisibilityAsync(string viewId, bool visible) =>
+		SendAsync("webview/visibility", new JsonObject { ["id"] = viewId, ["visible"] = visible });
 
 	public Task<JsonNode?> PostWebviewMessageAsync(string viewId, JsonNode? message) =>
 		SendAsync("webview/message", new JsonObject { ["id"] = viewId, ["message"] = message?.DeepClone() });

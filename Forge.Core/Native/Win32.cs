@@ -26,6 +26,9 @@ public static unsafe partial class Win32
 	public const uint WmDestroy = 0x0002;
 	public const uint WmSize = 0x0005;
 	public const uint WmSetFocus = 0x0007;
+
+	[LibraryImport("user32.dll")]
+	public static partial nint SetFocus(nint window);
 	public const uint WmKillFocus = 0x0008;
 	public const uint WmPaint = 0x000F;
 	public const uint WmClose = 0x0010;

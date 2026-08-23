@@ -53,6 +53,9 @@
     <Project Path="Forge.Terminal/Forge.Terminal.csproj">
       <Platform Project="x64" />
     </Project>
+    <Project Path="Forge.Webview/Forge.Webview.csproj">
+      <Platform Project="x64" />
+    </Project>
     <Project Path="Forge.Workspace/Forge.Workspace.csproj">
       <Platform Project="x64" />
     </Project>

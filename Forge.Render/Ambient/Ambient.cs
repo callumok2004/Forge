@@ -43,6 +43,8 @@ public sealed class Ambient : IAmbient, IDisposable
 	private float _focus = 1f;
 	private bool _focused = true;
 	private bool _active = true;
+	private bool _rimMoving = true;
+	private bool _loaderMoving;
 
 	private ID3D11VertexShader? _vertexShader;
 	private ID3D11PixelShader? _pixelShader;
@@ -151,17 +153,39 @@ public sealed class Ambient : IAmbient, IDisposable
 		_language = Vector4.Lerp(_language, _languageTarget, 1f - MathF.Exp(-4.5f * dt));
 
 		bool settled = !moving
-			&& !_focused
-			&& _focus < 0.01f
-			&& MathF.Abs(Vector2.Distance(_pointer, _pointerTarget)) < 0.002f;
+			&& MathF.Abs(focusTarget - _focus) < 0.004f
+			&& MathF.Abs(idleTarget - _idle) < 0.004f
+			&& Vector2.Distance(_pointer, _pointerTarget) < 0.002f
+			&& Vector4.Distance(_language, _languageTarget) < 0.004f;
 
-		if (settled) _active = false;
+		if (settled) {
+			_focus = focusTarget;
+			_idle = idleTarget;
+			_pointer = _pointerTarget;
+			_language = _languageTarget;
+		}
 
-		return _opacity > 0f && !_failed && (_active || _idle < 0.999f);
+		_rimMoving = !settled;
+		_loaderMoving = _slots[Index(AmbientSignal.Build)].Level > 0.001f
+			|| _slots[Index(AmbientSignal.Task)].Level > 0.001f
+			|| _slots[Index(AmbientSignal.Tests)].Level > 0.001f
+			|| _slots[Index(AmbientSignal.Search)].Level > 0.001f;
+
+		if (settled && !_loaderMoving) _active = false;
+
+		return _opacity > 0f && !_failed && _active;
 	}
 
 	public void Damage(Action<PixelRect> invalidate, int width, int height) {
 		if (_opacity <= 0f || _failed || width <= 0 || height <= 0) return;
+
+		int loader = Math.Clamp((int)(height * 0.03f), 8, height);
+
+		if (!_rimMoving) {
+			if (_loaderMoving) invalidate(new PixelRect(0, height - loader, width, height));
+
+			return;
+		}
 
 		int band = Math.Clamp((int)(height * BandFraction), 1, Math.Min(width, height) / 2);
 

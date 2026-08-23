@@ -113,10 +113,19 @@ rpc.on("webview/resolve", async params => {
 	const provider = forge.webviewProviders.get(params.viewId);
 	if (!provider) throw new Error(`unknown webview ${params.viewId}`);
 
-	const view = forge.createWebview(params.viewId, params.title ?? params.viewId);
+	const view = forge.createWebview(params.viewId, params.title ?? params.viewId, false, params.root);
 	await provider.resolveWebviewView(view, { state: undefined }, { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) });
 
 	return { viewId: params.viewId, html: view.webview.html };
+});
+
+rpc.on("webview/visibility", params => {
+	const entry = forge.webviews.get(params.id);
+	if (!entry) return null;
+
+	entry.view.visible = params.visible === true;
+	forge.dispatchEvent(`webview.${params.id}.onDidChangeVisibility`, undefined);
+	return null;
 });
 
 rpc.on("webview/message", params => {

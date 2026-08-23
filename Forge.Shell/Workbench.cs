@@ -57,6 +57,10 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	public Panel Panel { get; } = new();
 
+	public AuxiliaryBar Auxiliary { get; } = new();
+
+	public Common.Webview.IWebviewHost Webviews { get; set; } = Common.Webview.NullWebviewHost.Instance;
+
 	public IntelliSense? IntelliSense { get; set; }
 
 	public string? ActiveFilePath => ActiveDocument?.Path;
@@ -178,6 +182,10 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	private float EditorRightGutter => Metrics.CardMargin * 2f * _scale;
 
+	public float AuxiliaryWidth => Auxiliary is { IsOpen: true, HasViews: true } ? Auxiliary.Width * _scale : 0f;
+
+	public float AuxiliaryLeft(float windowWidth) => windowWidth - AuxiliaryWidth - (Metrics.CardMargin * _scale);
+
 	public float PanelHeight => Panel.IsOpen ? (Panel.Height * _scale) + (Metrics.CardInnerMargin * _scale) : 0f;
 
 	public float PanelTop(float windowHeight) =>
@@ -195,7 +203,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	public float EditorTop => ShellTop + TabStrip.Height(_scale) + Breadcrumbs.Height(_scale);
 
 	public float EditorWidth(float windowWidth) =>
-		Math.Max(0f, windowWidth - EditorLeft - EditorRightGutter);
+		Math.Max(0f, windowWidth - EditorLeft - EditorRightGutter - AuxiliaryWidth);
 
 	public float TextWidth(float windowWidth) =>
 		Math.Max(0f, EditorWidth(windowWidth) - (ShowMinimap ? Minimap.Width(_scale) : 0f));
@@ -266,6 +274,24 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	}
 
 	public void ResizeSidebar(float pointerX) => Sidebar.Resize((pointerX - ActivityBarWidth) / _scale);
+
+	public PixelRect AuxiliaryRect(float windowWidth, float windowHeight) =>
+		AuxiliaryWidth <= 0f
+			? default
+			: PixelRect.Around(AuxiliaryLeft(windowWidth) - (Metrics.CardMargin * _scale), ShellTop,
+				AuxiliaryWidth + (Metrics.CardMargin * 2f * _scale), StatusBarTop(windowHeight) - ShellTop);
+
+	public bool IsOverAuxiliarySplitter(float x, float y, float windowWidth, float windowHeight) {
+		if (AuxiliaryWidth <= 0f || y < ShellTop || y >= StatusBarTop(windowHeight)) return false;
+
+		float edge = AuxiliaryLeft(windowWidth);
+		float slop = Metrics.SplitterHitWidth * _scale;
+
+		return x >= edge - slop && x <= edge + slop;
+	}
+
+	public void ResizeAuxiliary(float pointerX, float windowWidth) =>
+		Auxiliary.Resize((windowWidth - pointerX - (Metrics.CardMargin * _scale)) / _scale);
 
 	public bool IsOverPanelSplitter(float x, float y, float windowHeight) {
 		if (!Panel.IsOpen || x < EditorLeft) return false;
@@ -506,6 +532,14 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 				Metrics.StrokeThickness * _scale, Theme.PanelBorder);
 		}
 
+		if (AuxiliaryWidth > 0f) {
+			float auxiliaryLeft = AuxiliaryLeft(width);
+
+			if (painter.NeedsPaint(auxiliaryLeft, ShellTop, AuxiliaryWidth, statusTop - ShellTop)) {
+				Auxiliary.Render(painter, auxiliaryLeft, ShellTop, AuxiliaryWidth, statusTop - ShellTop, _scale);
+			}
+		}
+
 		if (Panel.IsOpen &&
 			painter.NeedsPaint(editorLeft, PanelTop(height), editorWidth, height - PanelTop(height))) {
 			Panel.Render(painter, editorLeft, PanelTop(height), editorWidth, Panel.Height * _scale, _scale);
@@ -553,12 +587,13 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		float width = 520f * _scale;
 		float y = StatusBarTop(windowHeight) - height - BadgeGap;
 
-		return PixelRect.Around(windowWidth - width - (Metrics.SpaceLg * _scale), y, width, height);
+		return PixelRect.Around(windowWidth - AuxiliaryWidth - width - (Metrics.SpaceLg * _scale), y, width,
+			height);
 	}
 
 	private void DrawFrameStats(IPainter painter, IFrameStats stats, float windowWidth, float statusTop) {
 		float y = statusTop - BadgeHeight - BadgeGap;
-		float right = windowWidth - (Metrics.SpaceLg * _scale);
+		float right = windowWidth - AuxiliaryWidth - (Metrics.SpaceLg * _scale);
 
 		Span<char> buffer = stackalloc char[64];
 

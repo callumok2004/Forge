@@ -375,7 +375,31 @@ const workspace = {
 		return root && path.startsWith(root) ? path.slice(root.length).replace(/^[\\/]/, "") : path;
 	},
 
-	openTextDocument: target => call("workspace/openTextDocument", { target: typeof target === "string" ? target : target?.fsPath ?? target }),
+	openTextDocument: async target => {
+		const options = target && typeof target === "object" && !target.fsPath ? target : {};
+
+		const result = await call("workspace/openTextDocument", {
+			target: typeof target === "string" ? target : target?.fsPath ?? options.path ?? null,
+			content: options.content ?? null,
+			language: options.language ?? null,
+			fileName: options.fileName ?? null,
+		});
+
+		if (!result) return undefined;
+
+		const uri = result.fsPath ? Uri.file(result.fsPath) : Uri.parse(String(result));
+
+		return {
+			uri,
+			fileName: uri.fsPath,
+			languageId: options.language ?? "plaintext",
+			isUntitled: !result.fsPath,
+			isDirty: false,
+			lineCount: (options.content ?? "").split("\n").length,
+			getText: () => options.content ?? "",
+			save: () => Promise.resolve(true),
+		};
+	},
 	registerFileSystemProvider: () => new Disposable(),
 	registerTextDocumentContentProvider: () => new Disposable(),
 	createFileSystemWatcher: () => ({
@@ -413,16 +437,29 @@ const extensions = {
 
 const webviews = new Map();
 
-function createWebview(id, title, panel) {
+function webviewRelative(root, uri) {
+	const target = (uri && (uri.fsPath ?? uri.path)) ?? String(uri ?? "");
+	const normalised = target.split("\\").join("/").replace(/^\/(?=[a-zA-Z]:)/, "");
+
+	if (!root) return normalised;
+
+	const base = root.split("\\").join("/").replace(/\/+$/, "");
+
+	return normalised.toLowerCase().startsWith(base.toLowerCase() + "/")
+		? normalised.slice(base.length + 1)
+		: normalised.replace(/^[a-zA-Z]:\//, "");
+}
+
+function createWebview(id, title, panel, root) {
 	const messages = new EventEmitter();
 
 	const webview = {
 		options: {},
 		html: "",
-		cspSource: "forge-webview:",
+		cspSource: "https://forge-webview",
 		onDidReceiveMessage: messages.event,
 		postMessage: message => call("webview/postMessage", { id, message }),
-		asWebviewUri: uri => Uri.parse(`forge-webview://asset${uri.path}`),
+		asWebviewUri: uri => Uri.parse(`https://forge-webview/${webviewRelative(root, uri)}`),
 	};
 
 	Object.defineProperty(webview, "html", {
@@ -471,7 +508,7 @@ const state = {
 };
 
 const api = {
-	version: "1.94.0",
+	version: "1.130.0",
 	Disposable,
 	EventEmitter,
 	Uri,

@@ -30,6 +30,12 @@ public sealed class WorkspaceMemory
 
 	public float PanelHeight { get; set; }
 
+	public bool AuxiliaryOpen { get; set; }
+
+	public float AuxiliaryWidth { get; set; }
+
+	public string? AuxiliaryView { get; set; }
+
 	public string? DebugConfiguration { get; set; }
 
 	public static WorkspaceMemory Load(string root) {
