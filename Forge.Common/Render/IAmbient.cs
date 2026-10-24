@@ -1,29 +1,14 @@
 using Forge.Core;
-using Forge.Theming;
 
 namespace Forge.Common.Render;
 
 public interface IAmbient
 {
-	void Set(AmbientSignal signal, float level);
-
 	void Pulse(AmbientSignal signal, float strength);
 
 	void Begin(AmbientSignal signal);
 
-	void End(AmbientSignal signal);
-
-	void SetPointer(float x, float y);
-
-	void SetFocused(bool focused);
-
-	void SetAccent(Color color);
-
-	void SetLanguageColor(Color color, float strength);
-
-	void SetOpacity(float opacity);
-
-	void Touch();
+	void End(AmbientSignal signal, bool succeeded = true);
 
 	bool Tick(float deltaSeconds);
 

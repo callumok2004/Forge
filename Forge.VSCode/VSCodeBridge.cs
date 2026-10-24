@@ -15,7 +15,6 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 	private readonly Dictionary<string, string> _context = new(StringComparer.Ordinal);
 
 	private NodeExtensionHost? _process;
-	private VSCodeExtension? _claude;
 
 	public IReadOnlyList<VSCodeExtension> Activated => _activated;
 
@@ -62,8 +61,6 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 		_process = process;
 
 		foreach (VSCodeExtension extension in found) {
-			if (IsClaudeIdentifier(extension.Identifier)) _claude = extension;
-
 			Register(extension);
 			RegisterViews(extension);
 		}
@@ -188,8 +185,6 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 			return null;
 		}
 
-		if (OwnedByClaude(id)) Ambient.Pulse(AmbientSignal.Claude, 0.9f);
-
 		if (_byCommand.ContainsKey(id)) {
 			Invoke(id);
 			return null;
@@ -285,10 +280,6 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 	private void OnNotification(string method, JsonNode? parameters) {
 		switch (method) {
 			case "output/append":
-				if (IsClaudeIdentifier(parameters?["name"]?.GetValue<string>())) {
-					Ambient.Pulse(AmbientSignal.Claude, 0.5f);
-				}
-
 				host.Channel(parameters?["name"]?.GetValue<string>() ?? "Extensions")
 					.Append((parameters?["value"]?.GetValue<string>() ?? string.Empty).TrimEnd('\n'));
 				break;
@@ -329,23 +320,11 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 		string? title = parameters?["title"]?.GetValue<string>();
 		bool running = parameters?["state"]?.GetValue<string>() is not "end";
 
-		if (!IsClaudeIdentifier(title)) {
-			if (running) Ambient.Pulse(AmbientSignal.Notification, 0.6f);
-			return;
-		}
+		if (!IsClaudeIdentifier(title)) return;
 
-		if (running) {
-			Ambient.Begin(AmbientSignal.Task);
-			Ambient.Begin(AmbientSignal.Claude);
-			return;
-		}
-
-		Ambient.End(AmbientSignal.Task);
-		Ambient.End(AmbientSignal.Claude);
+		if (running) Ambient.Begin(AmbientSignal.Task);
+		else Ambient.End(AmbientSignal.Task);
 	}
-
-	private bool OwnedByClaude(string id) =>
-		_claude is not null && _byCommand.TryGetValue(id, out VSCodeExtension? owner) && ReferenceEquals(owner, _claude);
 
 	private static bool IsClaudeIdentifier(string? value) =>
 		value is not null && value.Contains("claude", StringComparison.OrdinalIgnoreCase);

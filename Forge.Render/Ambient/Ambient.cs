@@ -1,5 +1,4 @@
 using System.Numerics;
-using System.Reflection;
 using System.Runtime.InteropServices;
 
 using Vortice.D3DCompiler;
@@ -17,33 +16,27 @@ namespace Forge.Render;
 
 public sealed class Ambient : IAmbient, IDisposable
 {
-	private const int SlotCount = 12;
-	private const float IdleAfterSeconds = 12f;
-	private const float BandFraction = 0.22f;
+	private const int SlotCount = 5;
+	private const float GlowHeightFraction = 0.38f;
+	private const float ResultSeconds = 4f;
+	private const float TransitionRate = 5f;
+	private const float BreathSeconds = 1.6f;
 
-	private static readonly float[] AttackRates =
-		[3.0f, 3.0f, 3.0f, 4.5f, 4.0f, 3.5f, 5.0f, 9.0f, 6.0f, 6.0f, 3.0f, 3.0f];
+	private static readonly float[] AttackRates = [3.0f, 3.0f, 3.0f, 6.0f, 3.0f];
 
-	private static readonly float[] DecayRates =
-		[0.55f, 0.55f, 0.55f, 0.30f, 0.30f, 0.45f, 0.70f, 2.20f, 0.90f, 0.55f, 0.60f, 0.60f];
+	private static readonly float[] DecayRates = [0.55f, 0.55f, 0.60f, 0.90f, 0.55f];
 
 	private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
 	private readonly Slot[] _slots = new Slot[SlotCount];
 	private readonly int[] _outstanding = new int[SlotCount];
+	private readonly Lock _sync = new();
 
-	private Vector2 _pointer = new(0.5f, 0.5f);
-	private Vector2 _pointerTarget = new(0.5f, 0.5f);
-	private Vector4 _accent = new(0.32f, 0.45f, 0.78f, 1f);
-	private Vector4 _language;
-	private Vector4 _languageTarget;
-	private float _opacity = 1f;
-	private float _time;
-	private float _idle;
-	private float _idleSeconds;
-	private float _focus = 1f;
-	private bool _focused = true;
-	private bool _active = true;
-	private bool _rimMoving = true;
+	private Vector4 _glow;
+	private float _depth;
+	private Color _result;
+	private float _resultSeconds;
+
+	private bool _glowMoving;
 	private bool _loaderMoving;
 
 	private ID3D11VertexShader? _vertexShader;
@@ -67,150 +60,123 @@ public sealed class Ambient : IAmbient, IDisposable
 
 	public string? LastFailure { get; private set; }
 
-	public void Set(AmbientSignal signal, float level) {
-		ref Slot slot = ref Reference(signal);
-		slot.Sustained = true;
-		slot.Target = Math.Clamp(level, 0f, 1f);
-		_active = true;
-	}
-
 	public void Pulse(AmbientSignal signal, float strength) {
-		ref Slot slot = ref Reference(signal);
-		slot.Sustained = false;
-		slot.Target = Math.Clamp(Math.Max(slot.Target, strength), 0f, 1f);
-		_active = true;
+		lock (_sync) {
+			ref Slot slot = ref _slots[Index(signal)];
+			slot.Sustained = false;
+			slot.Target = Math.Clamp(Math.Max(slot.Target, strength), 0f, 1f);
+		}
 	}
 
 	public void Begin(AmbientSignal signal) {
-		int index = Index(signal);
-
-		lock (_outstanding) _outstanding[index]++;
-
-		Set(signal, 1f);
+		lock (_sync) {
+			int index = Index(signal);
+			_outstanding[index]++;
+			_slots[index].Sustained = true;
+			_slots[index].Target = 1f;
+		}
 	}
 
-	public void End(AmbientSignal signal) {
-		int index = Index(signal);
-		int remaining;
+	public void End(AmbientSignal signal, bool succeeded = true) {
+		lock (_sync) {
+			int index = Index(signal);
+			int remaining = _outstanding[index] = Math.Max(_outstanding[index] - 1, 0);
 
-		lock (_outstanding) remaining = _outstanding[index] = Math.Max(_outstanding[index] - 1, 0);
+			if (remaining > 0) return;
 
-		if (remaining == 0) Set(signal, 0f);
-	}
+			_slots[index].Target = 0f;
 
-	public void SetPointer(float x, float y) {
-		_pointerTarget = new Vector2(Math.Clamp(x, 0f, 1f), Math.Clamp(y, 0f, 1f));
-		Touch();
-	}
-
-	public void SetFocused(bool focused) {
-		_focused = focused;
-		_active = true;
-	}
-
-	public void SetAccent(Color color) => _accent = new Vector4(color.R, color.G, color.B, 1f);
-
-	public void SetLanguageColor(Color color, float strength) {
-		_languageTarget = new Vector4(color.R, color.G, color.B, Math.Clamp(strength, 0f, 1f));
-		_active = true;
-	}
-
-	public void SetOpacity(float opacity) => _opacity = Math.Clamp(opacity, 0f, 1f);
-
-	public void Touch() {
-		_idleSeconds = 0f;
-		_active = true;
+			if (signal is AmbientSignal.Build or AmbientSignal.Tests) {
+				_result = succeeded ? Theme.ChartsGreen : Theme.ChartsRed;
+				_resultSeconds = ResultSeconds;
+			}
+		}
 	}
 
 	public bool Tick(float deltaSeconds) {
 		float dt = deltaSeconds > 0f && deltaSeconds < 0.25f ? deltaSeconds : 1f / 60f;
 
-		_idleSeconds += dt;
+		lock (_sync) {
+			bool loading = false;
 
-		bool moving = false;
+			for (int i = 0; i < SlotCount; i++) {
+				ref Slot slot = ref _slots[i];
 
-		for (int i = 0; i < SlotCount; i++) {
-			ref Slot slot = ref _slots[i];
+				if (!slot.Sustained && slot.Target > 0f) {
+					slot.Target *= MathF.Exp(-slot.Decay * dt);
+					if (slot.Target < 0.002f) slot.Target = 0f;
+				}
 
-			if (!slot.Sustained && slot.Target > 0f) {
-				slot.Target *= MathF.Exp(-slot.Decay * dt);
-				if (slot.Target < 0.002f) slot.Target = 0f;
+				slot.Level += (slot.Target - slot.Level) * (1f - MathF.Exp(-slot.Attack * dt));
+
+				if (slot.Target <= 0f && slot.Level < 0.001f) slot.Level = 0f;
+
+				if (i != Index(AmbientSignal.Debug) && slot.Level > 0.001f) loading = true;
 			}
 
-			slot.Level += (slot.Target - slot.Level) * (1f - MathF.Exp(-slot.Attack * dt));
+			_loaderMoving = loading;
 
-			if (slot.Target <= 0f && slot.Level < 0.001f) slot.Level = 0f;
+			if (_resultSeconds > 0f) _resultSeconds = MathF.Max(_resultSeconds - dt, 0f);
 
-			if (slot.Level > 0f || slot.Target > 0f) moving = true;
+			bool building = _outstanding[Index(AmbientSignal.Build)] + _outstanding[Index(AmbientSignal.Tests)] > 0;
+
+			(Vector4 target, float depth) = building ? (Opaque(Theme.ChartsYellow), 1f)
+				: _resultSeconds > 0f ? (Opaque(_result), 0f)
+				: _outstanding[Index(AmbientSignal.Debug)] > 0 ? (Opaque(Theme.ChartsBlue), 0f)
+				: (Vector4.Zero, 0f);
+
+			float blend = 1f - MathF.Exp(-TransitionRate * dt);
+			_glow = Vector4.Lerp(_glow, target, blend);
+			_depth += (depth - _depth) * blend;
+
+			bool settled = Vector4.Distance(_glow, target) < 0.002f && MathF.Abs(depth - _depth) < 0.002f;
+
+			if (settled) {
+				_glow = target;
+				_depth = depth;
+			}
+
+			_glowMoving = !settled || (_depth > 0f && _glow.W > 0f) || _resultSeconds > 0f;
+
+			return !_failed && (_glowMoving || _loaderMoving);
 		}
-
-		float focusTarget = _focused ? 1f : 0f;
-		float idleTarget = Math.Clamp((_idleSeconds - IdleAfterSeconds) / 8f, 0f, 1f);
-
-		_focus += (focusTarget - _focus) * (1f - MathF.Exp(-6f * dt));
-		_idle += (idleTarget - _idle) * (1f - MathF.Exp(-0.5f * dt));
-		_pointer = Vector2.Lerp(_pointer, _pointerTarget, 1f - MathF.Exp(-10f * dt));
-		_language = Vector4.Lerp(_language, _languageTarget, 1f - MathF.Exp(-4.5f * dt));
-
-		bool settled = !moving
-			&& MathF.Abs(focusTarget - _focus) < 0.004f
-			&& MathF.Abs(idleTarget - _idle) < 0.004f
-			&& Vector2.Distance(_pointer, _pointerTarget) < 0.002f
-			&& Vector4.Distance(_language, _languageTarget) < 0.004f;
-
-		if (settled) {
-			_focus = focusTarget;
-			_idle = idleTarget;
-			_pointer = _pointerTarget;
-			_language = _languageTarget;
-		}
-
-		_rimMoving = !settled;
-		_loaderMoving = _slots[Index(AmbientSignal.Build)].Level > 0.001f
-			|| _slots[Index(AmbientSignal.Task)].Level > 0.001f
-			|| _slots[Index(AmbientSignal.Tests)].Level > 0.001f
-			|| _slots[Index(AmbientSignal.Search)].Level > 0.001f;
-
-		if (settled && !_loaderMoving) _active = false;
-
-		return _opacity > 0f && !_failed && _active;
 	}
 
 	public void Damage(Action<PixelRect> invalidate, int width, int height) {
-		if (_opacity <= 0f || _failed || width <= 0 || height <= 0) return;
+		if (_failed || width <= 0 || height <= 0) return;
 
-		int loader = Math.Clamp((int)(height * 0.03f), 8, height);
-
-		if (!_rimMoving) {
-			if (_loaderMoving) invalidate(new PixelRect(0, height - loader, width, height));
-
+		if (_glowMoving) {
+			int band = Math.Clamp((int)MathF.Ceiling(height * GlowHeightFraction), 1, height);
+			invalidate(new PixelRect(0, height - band, width, height));
 			return;
 		}
 
-		int band = Math.Clamp((int)(height * BandFraction), 1, Math.Min(width, height) / 2);
-
-		invalidate(new PixelRect(0, 0, width, band));
-		invalidate(new PixelRect(0, height - band, width, height));
-		invalidate(new PixelRect(0, band, band, height - band));
-		invalidate(new PixelRect(width - band, band, width, height - band));
+		if (_loaderMoving) {
+			int loader = Math.Clamp((int)(height * 0.03f), 8, height);
+			invalidate(new PixelRect(0, height - loader, width, height));
+		}
 	}
 
 	public void Prepare(RenderDevice device) {
-		if (_opacity <= 0f || _failed || !EnsureResources(device)) return;
+		if (_failed || !EnsureResources(device)) return;
 
 		ID3D11DeviceContext context = device.D3DContext;
 
-		_time = (float)_clock.Elapsed.TotalSeconds;
+		float time = (float)_clock.Elapsed.TotalSeconds;
+		float breath = 0.7f + (0.3f * MathF.Cos(MathF.Tau * time / BreathSeconds));
 
-		Constants data = new() {
-			Frame = new Vector4(_width, _height, _time, 0f),
-			Pointer = new Vector4(_pointer.X, _pointer.Y, _focus, _idle),
-			Accent = _accent with { W = _opacity },
-			Language = _language,
-			Signal0 = new Vector4(_slots[0].Level, _slots[1].Level, _slots[2].Level, _slots[3].Level),
-			Signal1 = new Vector4(_slots[4].Level, _slots[5].Level, _slots[6].Level, _slots[7].Level),
-			Signal2 = new Vector4(_slots[8].Level, _slots[9].Level, _slots[10].Level, _slots[11].Level),
-		};
+		Constants data;
+
+		lock (_sync) {
+			float strength = 1f - (_depth * (1f - breath));
+			Vector4 loader = _glow.W > 0.01f ? _glow / _glow.W : Opaque(Theme.Accent);
+
+			data = new Constants {
+				Frame = new Vector4(_width, _height, time, 0f),
+				Glow = _glow * strength,
+				Loader = loader with { W = LoaderProgress() },
+			};
+		}
 
 		context.UpdateSubresource(data, _constants!);
 
@@ -226,13 +192,25 @@ public sealed class Ambient : IAmbient, IDisposable
 	}
 
 	public void Composite(RenderDevice device) {
-		if (_opacity <= 0f || _failed || _bitmap is null) return;
+		if (_failed || _bitmap is null) return;
 
 		device.Context.DrawImage(_bitmap, new Vector2(0f, 0f),
-			D2D.InterpolationMode.Linear, D2D.CompositeMode.Plus);
+			D2D.InterpolationMode.Linear, D2D.CompositeMode.SourceOver);
 	}
 
-	private ref Slot Reference(AmbientSignal signal) => ref _slots[Index(signal)];
+	private float LoaderProgress() {
+		float progress = 0f;
+
+		for (int i = 0; i < SlotCount; i++) {
+			if (i == Index(AmbientSignal.Debug)) continue;
+
+			progress = 1f - ((1f - progress) * (1f - _slots[i].Level));
+		}
+
+		return progress;
+	}
+
+	private static Vector4 Opaque(Color color) => new(color.R, color.G, color.B, 1f);
 
 	private static int Index(AmbientSignal signal) {
 		int index = (int)signal;
@@ -349,11 +327,7 @@ public sealed class Ambient : IAmbient, IDisposable
 	private struct Constants
 	{
 		public Vector4 Frame;
-		public Vector4 Pointer;
-		public Vector4 Accent;
-		public Vector4 Language;
-		public Vector4 Signal0;
-		public Vector4 Signal1;
-		public Vector4 Signal2;
+		public Vector4 Glow;
+		public Vector4 Loader;
 	}
 }

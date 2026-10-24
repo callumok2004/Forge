@@ -583,7 +583,7 @@ public sealed class DotnetExtension : ForgeExtension
 				host.Refresh();
 			},
 			exitCode => {
-				Ambient.End(signal);
+				Ambient.End(signal, exitCode == 0);
 
 				TimeSpan elapsed = Stopwatch.GetElapsedTime(started);
 

@@ -94,4 +94,9 @@ public static class Theme
 	public static readonly Color GitRenamedForeground = Color.Parse("#73c991");
 
 	public static readonly Color GitConflictForeground = Color.Parse("#e4676b");
+
+	public static readonly Color ChartsRed = Color.Parse("#ff8a8a");
+	public static readonly Color ChartsYellow = Color.Parse("#e3b341");
+	public static readonly Color ChartsGreen = Color.Parse("#3fd8a0");
+	public static readonly Color ChartsBlue = Color.Parse("#5aa8ff");
 }

@@ -166,6 +166,8 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		}, null);
 	}
 
+	public Action? PaintBackdrop { get; init; }
+
 	public bool ShowFrameStats { get; set; }
 
 	public IFrameStats? FrameStats { get; set; }
@@ -475,6 +477,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		float textWidth = TextWidth(width);
 
 		painter.FillRectangle(0f, ShellTop, width, height - ShellTop, Theme.EditorBackground);
+		PaintBackdrop?.Invoke();
 
 		if (painter.NeedsPaint(0f, 0f, width, ShellTop)) TitleBar.Render(painter, width, _scale);
 

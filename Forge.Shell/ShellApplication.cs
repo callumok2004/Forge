@@ -129,7 +129,6 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		using DebugService debugger = new();
 
 		using Ambient ambient = new();
-		ambient.SetAccent(Theme.Accent);
 
 		using FileIconSet fileIcons = new(device.Factory,
 			Path.Combine(AppContext.BaseDirectory, "Assets"));
@@ -139,7 +138,10 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		using Image appIcon = new(device,
 			Path.Combine(AppContext.BaseDirectory, "Assets", "forge-icon.bgra"));
 
-		using Workbench workbench = new(scale) { ShowMinimap = settings.MinimapEnabled };
+		using Workbench workbench = new(scale) {
+			ShowMinimap = settings.MinimapEnabled,
+			PaintBackdrop = () => ambient.Composite(device),
+		};
 		workbench.TitleBar.Icon = appIcon;
 
 		string rootPath = ResolveWorkspaceRoot(args);
@@ -163,7 +165,6 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			repository.OnChanged(() => {
 				workbench.BranchName = repository.GetBranch() ?? workbench.BranchName;
 				workbench.TitleBar.BranchName = workbench.BranchName;
-				ambient.Pulse(AmbientSignal.Git, 0.85f);
 				window.Invalidate();
 			});
 
@@ -202,7 +203,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			ambient.Begin(AmbientSignal.Build);
 
 			Post(() => workbench.Panel.RunTask(label, commandLine, cwd ?? rootPath, null, exitCode => {
-				ambient.End(AmbientSignal.Build);
+				ambient.End(AmbientSignal.Build, exitCode == 0);
 				finished?.Invoke(exitCode);
 				window.Invalidate();
 			}));
@@ -256,9 +257,17 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			workbench.Panel.MarkDirty();
 		});
 
+		bool debugging = false;
+
 		debugger.OnStateChanged(() => {
-			if (debugger.IsActive()) ambient.Begin(AmbientSignal.Debug);
-			else ambient.End(AmbientSignal.Debug);
+			bool active = debugger.IsActive();
+
+			if (active != debugging) {
+				debugging = active;
+
+				if (active) ambient.Begin(AmbientSignal.Debug);
+				else ambient.End(AmbientSignal.Debug);
+			}
 
 			window.Invalidate();
 		});
@@ -345,8 +354,6 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		window.Events.PlacementChanged += () => window.CaptureState().Save(UserData.WindowStatePath);
 
 		index.StartScan();
-
-		workbench.ActiveDocumentChanged += () => ApplyLanguageColor(ambient, fileIcons, workbench.ActiveFilePath);
 
 		RestoreWorkspace(workbench, memory);
 		OpenInitialFiles(workbench, args);
@@ -474,17 +481,6 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		workbench.TitleBar.FolderName = folder;
 		window.SetTitle(title);
-	}
-
-	private static void ApplyLanguageColor(IAmbient ambient, IFileIconSet icons, string? path) {
-		if (string.IsNullOrEmpty(path) || icons.IconForFile(Path.GetFileName(path)) is not { } icon) {
-			ambient.SetLanguageColor(default, 0f);
-			return;
-		}
-
-		Color dominant = icon.GetDominantColor();
-
-		ambient.SetLanguageColor(dominant, dominant.A > 0.05f ? 1f : 0f);
 	}
 
 	private static string? DebugKeyBinding(uint key, bool shift, bool control, DebugState state) => key switch {
@@ -659,8 +655,6 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 					workbench.Panel.Output.Append($"Debug UI update failed: {exception.Message}");
 				}
 			}
-
-			ambient.SetFocused(window.IsForeground());
 
 			if (ambient.Tick(delta)) ambient.Damage(window.Invalidate, device.Width, device.Height);
 
@@ -926,7 +920,6 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 				try {
 					workbench.Render(painter, device.Width, device.Height);
-					ambient.Composite(device);
 				}
 				catch (Exception exception) {
 					painter.UnwindClips();
@@ -1074,8 +1067,6 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 						(int)(workbench.EditorLeft + TextView.GlyphMarginWidth), device.Height));
 				}
 			}
-
-			ambient.SetPointer(x / MathF.Max(device.Width, 1f), y / MathF.Max(device.Height, 1f));
 
 			if (workbench.AuxiliaryWidth > 0f) {
 				bool overClose = workbench.Auxiliary.IsOverClose(x, y);
@@ -1784,8 +1775,6 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		window.Events.CharacterTyped += character => {
 			if (character < ' ' || character == 0x7F || Win32.IsKeyDown(Win32.VkControl)) return;
-
-			ambient.Pulse(AmbientSignal.Typing, 0.6f);
 
 			if (workbench.Palette.IsOpen) {
 				workbench.Palette.Append(character);

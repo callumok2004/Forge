@@ -53,21 +53,9 @@ public sealed class CommandHost(Workbench workbench, Action refresh) : ICommandH
 		Action<string>? lines, Action<int>? finished) =>
 		workbench.Panel.RunTask(name, commandLine, workingDirectory, lines, finished);
 
-	public void ReportProblems(IReadOnlyList<Diagnostic> problems) {
-		int errors = 0;
-		int warnings = 0;
-
-		foreach (Diagnostic problem in problems) {
-			if (problem.IsError) errors++;
-			else warnings++;
-		}
-
-		Ambient.Set(AmbientSignal.Error, MathF.Min(errors / 24f, 0.7f));
-		Ambient.Set(AmbientSignal.Warning, MathF.Min(warnings / 40f, 0.4f));
-
+	public void ReportProblems(IReadOnlyList<Diagnostic> problems) =>
 		workbench.Panel.SetProblems(problems.Select(static problem =>
 			new Problem(problem.File, problem.Line, problem.Column, problem.Message, problem.IsError)));
-	}
 
 	public void SetStatusItem(string id, string icon, string text, string? commandId, bool rightAligned, int priority) =>
 		workbench.StatusBar.SetItem(new StatusBar.Item(id,

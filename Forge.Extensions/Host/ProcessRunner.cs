@@ -38,7 +38,7 @@ public static class ProcessRunner
 				};
 
 				if (!process.Start()) {
-					if (signal is { } unavailable) Ambient.End(unavailable);
+					if (signal is { } unavailable) Ambient.End(unavailable, succeeded: false);
 
 					log($"Could not start {fileName}.");
 					finished?.Invoke(-1);
@@ -51,13 +51,13 @@ public static class ProcessRunner
 				process.BeginErrorReadLine();
 				process.WaitForExit();
 
-				if (signal is { } completed) Ambient.End(completed);
+				if (signal is { } completed) Ambient.End(completed, process.ExitCode == 0);
 
 				finished?.Invoke(process.ExitCode);
 			}
 			catch (Exception exception) when (exception is System.ComponentModel.Win32Exception
 				or InvalidOperationException or IOException) {
-				if (signal is { } failed) Ambient.End(failed);
+				if (signal is { } failed) Ambient.End(failed, succeeded: false);
 
 				log($"{fileName} could not be run: {exception.Message}");
 				finished?.Invoke(-1);
