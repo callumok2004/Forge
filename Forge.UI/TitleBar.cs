@@ -9,19 +9,21 @@ public enum TitleBarPart
 	None,
 	AppIcon,
 	Menu,
+	Project,
+	Branch,
 	Account,
 	CommandCentre,
-	Branch,
-	Layout,
-	Settings,
-	DebugStart,
-	DebugConfiguration,
-	DebugContinue,
-	DebugStepOver,
-	DebugStepInto,
-	DebugStepOut,
-	DebugRestart,
-	DebugStop,
+	RunConfiguration,
+	Run,
+	Debug,
+	Continue,
+	Pause,
+	Stop,
+	Restart,
+	ShowNextStatement,
+	StepInto,
+	StepOver,
+	StepOut,
 	Minimize,
 	Maximize,
 	Close,
@@ -29,39 +31,44 @@ public enum TitleBarPart
 
 public sealed class TitleBar
 {
-	private const float ButtonWidth = 46f;
-	private const float ActionWidth = 32f;
+	private const float CaptionButtonWidth = 46f;
+	private const float WidgetHeight = 26f;
+	private const float AppIconSize = 20f;
+	private const float RunButtonWidth = 28f;
 	private const float CommandCentreHeight = 22f;
 	private const float CommandCentreMaxWidth = 600f;
-
 	private const float CommandCentreWidthFraction = 0.38f;
-	private const float CommandCentreMinWidth = 160f;
+	private const float SideFraction = 0.2f;
+	private const float ContainerMargin = 10f;
+	private const float ItemMargin = 6f;
+	private const float CommandCentrePadding = 12f;
+	private const int MaxRegions = 24;
 
+	private const string MenuLabel = "Forge";
 	private const string SignInLabel = "Sign in";
 
-	private static readonly string[] MenuLabels = ["File", "Edit", "Selection", "View", "Go", "Run", "Help"];
+	private readonly Region[] _regions = new Region[MaxRegions];
+	private int _regionCount;
 
-	private TitleBarPart _hover = TitleBarPart.None;
-	private int _hoverMenuIndex = -1;
+	private string? _colouredName;
+	private Color _projectColor;
+	private string _initials = string.Empty;
 
-	private float _menuLeft;
-	private float _menuRight;
-	private float _centreLeft;
-	private float _centreRight;
-	private float _branchLeft;
-	private float _branchRight;
-	private float _accountLeft;
-	private float _accountRight;
+	private readonly record struct Region(TitleBarPart Part, float Left, float Right);
 
 	public static float Height(float scale) => Metrics.TitleBarHeight * scale;
 
 	public string Title { get; set; } = "Forge";
 
-	public string? DocumentName { get; set; }
-
 	public string? FolderName { get; set; }
 
 	public string? BranchName { get; set; }
+
+	public string? RemoteOwner { get; set; }
+
+	public string? RemoteRepository { get; set; }
+
+	public string? AccountName { get; set; }
 
 	public IReadOnlyList<string> DebugConfigurations { get; set; } = [];
 
@@ -71,434 +78,326 @@ public sealed class TitleBar
 
 	public bool IsPaused { get; set; }
 
-	private readonly float[] _sessionCentres = new float[6];
-
-	private float _debugLeft;
-	private float _debugRight;
-	private float _debugSplit;
-	private float _actionsLeft;
-
-	public float DebugControlLeft => _debugLeft;
-
-	public string? RemoteOwner { get; set; }
-
-	public string? RemoteRepository { get; set; }
-
-	public string? AccountName { get; set; }
-
 	public bool IsMaximized { get; set; }
+
+	public bool MenuOpen { get; set; }
 
 	public IImage? Icon { get; set; }
 
-	public TitleBarPart Hover => _hover;
+	public TitleBarPart Hover { get; private set; }
 
-	public int HoverMenuIndex => _hoverMenuIndex;
+	public float MenuLeft { get; private set; }
 
-	public int OpenMenuIndex { get; set; } = -1;
+	public float ProjectLeft { get; private set; }
 
-	public static ReadOnlySpan<string> Menus => MenuLabels;
+	public float RunConfigurationLeft { get; private set; }
 
-	public void SetHover(TitleBarPart part, int menuIndex = -1) {
-		_hover = part;
-		_hoverMenuIndex = part == TitleBarPart.Menu ? menuIndex : -1;
-	}
+	public string? ProjectName => RemoteRepository is { Length: > 0 } repository ? repository : FolderName;
 
-	#region Hit testing
+	public void SetHover(TitleBarPart part) => Hover = part;
 
 	public TitleBarPart PartAt(float x, float y, float windowWidth, float scale) {
 		if (y < 0f || y >= Height(scale)) return TitleBarPart.None;
 
-		float button = ButtonWidth * scale;
+		float button = CaptionButtonWidth * scale;
 		float fromRight = windowWidth - x;
 
-		if (fromRight >= 0f) {
-			if (fromRight <= button) return TitleBarPart.Close;
+		if (fromRight >= 0f && fromRight <= button) return TitleBarPart.Close;
 
-			if (fromRight <= button * 2f) return TitleBarPart.Maximize;
+		if (fromRight > button && fromRight <= button * 2f) return TitleBarPart.Maximize;
 
-			if (fromRight <= button * 3f) return TitleBarPart.Minimize;
+		if (fromRight > button * 2f && fromRight <= button * 3f) return TitleBarPart.Minimize;
 
-			float action = ActionWidth * scale;
-			float actionsRight = fromRight - (button * 3f);
-
-			if (actionsRight <= action) return TitleBarPart.Settings;
-
-			if (actionsRight <= action * 2f) return TitleBarPart.Layout;
-		}
-
-		if (x < Metrics.ActivityBarWidth * scale) return TitleBarPart.AppIcon;
-
-		if (x >= _menuLeft && x < _menuRight) return TitleBarPart.Menu;
-
-		if (_accountRight > _accountLeft && x >= _accountLeft && x < _accountRight) return TitleBarPart.Account;
-
-		if (_branchRight > _branchLeft && x >= _branchLeft && x < _branchRight) return TitleBarPart.Branch;
-
-		if (IsDebugging) {
-			float half = SessionButton * scale / 2f;
-
-			for (int i = 0; i < _sessionCentres.Length; i++) {
-				if (_sessionCentres[i] <= 0f) continue;
-
-				if (x >= _sessionCentres[i] - half && x < _sessionCentres[i] + half) {
-					return TitleBarPart.DebugContinue + i;
-				}
-			}
-		}
-
-		if (_debugRight > _debugLeft && x >= _debugLeft && x < _debugRight) return x < _debugSplit ? TitleBarPart.DebugStart : TitleBarPart.DebugConfiguration;
-
-		if (x >= _centreLeft && x < _centreRight) return TitleBarPart.CommandCentre;
+		for (int i = 0; i < _regionCount; i++)
+			if (x >= _regions[i].Left && x < _regions[i].Right) return _regions[i].Part;
 
 		return TitleBarPart.None;
 	}
 
-	public int MenuIndexAt(IPainter painter, float x, float y, float scale) {
-		if (y < 0f || y >= Height(scale) || x < _menuLeft || x >= _menuRight) return -1;
-
-		float cursor = _menuLeft;
-
-		for (int i = 0; i < MenuLabels.Length; i++) {
-			float width = MenuItemWidth(painter, MenuLabels[i], scale);
-
-			if (x >= cursor && x < cursor + width) return i;
-
-			cursor += width;
-		}
-
-		return -1;
-	}
-
-	public static float MenuLeftAt(IPainter painter, int index, float scale) {
-		float cursor = Metrics.ActivityBarWidth * scale;
-
-		for (int i = 0; i < index && i < MenuLabels.Length; i++) {
-			cursor += MenuItemWidth(painter, MenuLabels[i], scale);
-		}
-
-		return cursor;
-	}
-
-	public nint HitTest(float x, float y, float windowWidth, float scale) =>
-		PartAt(x, y, windowWidth, scale) switch {
-			TitleBarPart.Minimize => Win32.HtMinButton,
-			TitleBarPart.Maximize => Win32.HtMaxButton,
-			TitleBarPart.Close => Win32.HtClose,
-			TitleBarPart.None => y < Height(scale) ? Win32.HtCaption : Win32.HtClient,
-			_ => Win32.HtClient,
-		};
-
-	#endregion
+	public nint HitTest(float x, float y, float windowWidth, float scale) => PartAt(x, y, windowWidth, scale) switch {
+		TitleBarPart.Minimize => Win32.HtMinButton,
+		TitleBarPart.Maximize => Win32.HtMaxButton,
+		TitleBarPart.Close => Win32.HtClose,
+		TitleBarPart.None => y < Height(scale) ? Win32.HtCaption : Win32.HtClient,
+		_ => Win32.HtClient,
+	};
 
 	public void Render(IPainter painter, float width, float scale) {
 		float height = Height(scale);
-
-		painter.FillRectangle(0f, 0f, width, height, Theme.EditorBackground);
-
 		float centreY = height / 2f;
 
-		DrawAppIcon(painter, centreY, scale);
-		DrawMenu(painter, centreY, scale);
-		DrawActions(painter, width, centreY, height, scale);
-		DrawCommandCentre(painter, width, centreY, scale);
+		_regionCount = 0;
+
+		painter.FillRectangle(0f, 0f, width, height, Theme.TitleBarBackground);
+
+		float left = DrawLeft(painter, centreY, scale);
+		float right = DrawRunCluster(painter, width - (CaptionButtonWidth * 3f * scale) - (Metrics.Space8 * scale), centreY, scale);
+
+		DrawCommandCentre(painter, width, left, right, centreY, scale);
 		DrawCaptionButtons(painter, width, height, scale);
 	}
 
-	private void DrawAppIcon(IPainter painter, float centreY, float scale) {
-		float slot = Metrics.ActivityBarWidth * scale;
+	private float DrawLeft(IPainter painter, float centreY, float scale) {
+		float slot = ActivityBar.Width(scale);
 
-		if (Icon is { } icon) painter.DrawImage(icon, slot / 2f, centreY, Metrics.IconSize * scale);
+		if (Icon is { } icon) painter.DrawImage(icon, ActivityBar.CentreX(scale), centreY, AppIconSize * scale);
+
+		AddRegion(TitleBarPart.AppIcon, 0f, slot);
+
+		float cursor = slot + (Metrics.Space4 * scale);
+
+		cursor = DrawMenuButton(painter, cursor, centreY, scale);
+
+		if (ProjectName is { Length: > 0 } project) cursor = DrawProject(painter, project, cursor + (Metrics.Space16 * scale), centreY, scale);
+
+		if (BranchName is { Length: > 0 } branch) cursor = DrawBranch(painter, branch, cursor + (Metrics.Space2 * scale), centreY, scale);
+
+		return DrawAccount(painter, cursor + (Metrics.Space2 * scale), centreY, scale);
 	}
 
-	private void DrawMenu(IPainter painter, float centreY, float scale) {
+	private float DrawMenuButton(IPainter painter, float left, float centreY, float scale) {
 		ITextFont font = painter.GetUi();
-		float baseline = centreY - (font.GetLineHeight() / 2f) + font.GetBaseline();
-		float itemHeight = 22f * scale;
-		float radius = Metrics.RadiusSmall * scale;
+		float width = font.Measure(MenuLabel) + (Metrics.Space8 * 2f * scale);
 
-		_menuLeft = Metrics.ActivityBarWidth * scale;
-		float cursor = _menuLeft;
+		MenuLeft = left;
 
-		for (int i = 0; i < MenuLabels.Length; i++) {
-			float itemWidth = MenuItemWidth(painter, MenuLabels[i], scale);
+		if (MenuOpen || Hover == TitleBarPart.Menu) FillWidget(painter, left, width, centreY, scale, Theme.MenubarSelectionBackground);
 
-			if (OpenMenuIndex == i || (_hover == TitleBarPart.Menu && _hoverMenuIndex == i)) {
-				painter.FillRoundedRectangle(cursor, centreY - (itemHeight / 2f), itemWidth, itemHeight,
-					radius, Theme.ListHoverBackground);
-			}
+		painter.DrawText(font, MenuLabel, left + (Metrics.Space8 * scale), Baseline(font, centreY), Theme.TitleBarForeground);
 
-			float textX = cursor + ((itemWidth - font.Measure(MenuLabels[i])) / 2f);
-			painter.DrawText(font, MenuLabels[i], textX, baseline, Theme.TitleBarForeground);
-
-			cursor += itemWidth;
-		}
-
-		_menuRight = cursor;
+		AddRegion(TitleBarPart.Menu, left, left + width);
+		return left + width;
 	}
 
-	private static float MenuItemWidth(IPainter painter, string label, float scale) =>
-		painter.GetUi().Measure(label) + (Metrics.Space8 * 2f * scale);
+	private float DrawProject(IPainter painter, string name, float left, float centreY, float scale) {
+		EnsureProjectColour(name);
 
-	private void DrawCommandCentre(IPainter painter, float windowWidth, float centreY, float scale) {
-		ITextFont font = painter.GetUi();
-
-		float gap = Metrics.Space6 * scale;
-		float padding = Metrics.Space12 * scale;
-		float iconSize = 14f * scale;
-		float pillHeight = CommandCentreHeight * scale;
-
-		ReadOnlySpan<char> label = DocumentName is { Length: > 0 } name ? name : Title;
-		float labelWidth = font.Measure(label);
-
-		ReadOnlySpan<char> suffix = DocumentName is { Length: > 0 } && FolderName is { Length: > 0 } folder
-			? folder
-			: default;
-
-		float suffixWidth = suffix.IsEmpty ? 0f : font.Measure(suffix) + gap;
-
-		float contentWidth = labelWidth + suffixWidth;
-		float pillWidth = Math.Clamp(contentWidth + (padding * 2f), CommandCentreMinWidth * scale,
-			CommandCentreMaxWidth * scale);
-
-		bool hasRemote = RemoteRepository is { Length: > 0 };
-		string? gitLabel = hasRemote ? RemoteRepository : BranchName;
-		bool hasGit = gitLabel is { Length: > 0 };
-
-		float gitWidth = hasGit
-			? padding + iconSize + gap + font.Measure(gitLabel!) + padding
-			: 0f;
-
-		bool signedIn = AccountName is { Length: > 0 };
-		string accountLabel = signedIn ? AccountName! : SignInLabel;
-		float accountWidth = padding + iconSize + gap + font.Measure(accountLabel) + padding;
-
-		float groupWidth = accountWidth + pillWidth + gitWidth;
-		float groupLeft = (windowWidth - groupWidth) / 2f;
-
-		float floor = _menuRight + (Metrics.Space8 * scale);
-		float actionsLeft = _actionsLeft > 0f
-			? _actionsLeft
-			: windowWidth - ((ButtonWidth * 3f + ActionWidth * 2f) * scale);
-
-		float ceiling = actionsLeft - groupWidth - (Metrics.Space8 * scale);
-
-		if (ceiling < floor) {
-			_centreLeft = _centreRight = _branchLeft = _branchRight = _accountLeft = _accountRight = 0f;
-			return;
-		}
-
-		groupLeft = Math.Clamp(groupLeft, floor, ceiling);
-
-		float top = centreY - (pillHeight / 2f);
-		float radius = Metrics.RadiusMedium * scale;
-		float baseline = centreY - (font.GetLineHeight() / 2f) + font.GetBaseline();
-
-		_accountLeft = groupLeft;
-		_accountRight = groupLeft + accountWidth;
-		_centreLeft = _accountRight;
-		_centreRight = _centreLeft + pillWidth;
-		_branchLeft = hasGit ? _centreRight : 0f;
-		_branchRight = hasGit ? _centreRight + gitWidth : 0f;
-
-		float groupRight = groupLeft + groupWidth;
-
-		painter.FillRoundedRectangle(groupLeft, top, groupWidth, pillHeight, radius,
-			Theme.CommandCentreBackground);
-
-		switch (_hover) {
-			case TitleBarPart.Account:
-				painter.FillRoundedRectangle(_accountLeft, top, accountWidth, pillHeight, radius,
-					Theme.CommandCentreHoverBackground);
-
-				painter.FillRectangle(_accountRight - radius, top, radius, pillHeight,
-					Theme.CommandCentreHoverBackground);
-				break;
-
-			case TitleBarPart.CommandCentre:
-				painter.FillRectangle(_centreLeft, top, pillWidth, pillHeight,
-					Theme.CommandCentreHoverBackground);
-				break;
-
-			case TitleBarPart.Branch when hasGit:
-				painter.FillRoundedRectangle(_branchLeft, top, gitWidth, pillHeight, radius,
-					Theme.CommandCentreHoverBackground);
-
-				painter.FillRectangle(_branchLeft, top, radius, pillHeight,
-					Theme.CommandCentreHoverBackground);
-				break;
-		}
-
-		painter.StrokeRoundedRectangle(groupLeft, top, groupWidth, pillHeight, radius, 1f,
-			Theme.CommandCentreBorder);
-
-		painter.DrawVerticalLine(_centreLeft, top, top + pillHeight, Theme.CommandCentreBorder);
-
-		if (hasGit) painter.DrawVerticalLine(_branchLeft, top, top + pillHeight, Theme.CommandCentreBorder);
-
-		painter.PushClip(_accountLeft, top, accountWidth, pillHeight);
-
-		painter.DrawIcon(Codicon.Account, _accountLeft + padding + (iconSize / 2f), centreY, iconSize,
-			Theme.TitleBarForeground);
-
-		painter.DrawText(font, accountLabel, _accountLeft + padding + iconSize + gap, baseline,
-			signedIn ? Theme.TitleBarForeground : Theme.SectionHeaderForeground);
-
-		painter.PopClip();
-
-		painter.PushClip(_centreLeft, top, pillWidth, pillHeight);
-
-		float cursor = _centreLeft + Math.Max(padding, (pillWidth - contentWidth) / 2f);
-		painter.DrawText(font, label, cursor, baseline, Theme.TitleBarForeground);
-
-		if (!suffix.IsEmpty) {
-			cursor += labelWidth + gap;
-			painter.DrawText(font, suffix, cursor, baseline, Theme.SectionHeaderForeground);
-		}
-
-		painter.PopClip();
-
-		if (!hasGit) return;
-
-		painter.PushClip(_branchLeft, top, gitWidth, pillHeight);
-
-		painter.DrawIcon(hasRemote ? Codicon.Repo : Codicon.GitBranch,
-			_branchLeft + padding + (iconSize / 2f), centreY, iconSize, Theme.TitleBarForeground);
-
-		painter.DrawText(font, gitLabel!, _branchLeft + padding + iconSize + gap, baseline,
-			Theme.TitleBarForeground);
-
-		painter.PopClip();
-	}
-
-	private void DrawActions(IPainter painter, float windowWidth, float centreY, float height, float scale) {
-		float action = ActionWidth * scale;
-		float buttons = ButtonWidth * 3f * scale;
-
-		float settingsCentre = windowWidth - buttons - (action / 2f);
-		float layoutCentre = settingsCentre - action;
-
-		float launchRight = DrawSessionControls(painter, layoutCentre - (action / 2f), centreY, scale);
-
-		DrawLaunchControl(painter, launchRight, centreY, height, scale);
-
-		_actionsLeft = _debugLeft > 0f ? _debugLeft : launchRight;
-
-		DrawAction(painter, Codicon.LayoutSidebarLeft, layoutCentre, centreY, height, action,
-			TitleBarPart.Layout, scale);
-
-		DrawAction(painter, Codicon.SettingsGear, settingsCentre, centreY, height, action,
-			TitleBarPart.Settings, scale);
-	}
-
-	private const float SessionButton = 26f;
-
-	private float DrawSessionControls(IPainter painter, float right, float centreY, float scale) {
-		Array.Clear(_sessionCentres);
-
-		if (!IsDebugging) return right;
-
-		float button = SessionButton * scale;
-
-		ReadOnlySpan<Codicon> icons = [
-			IsPaused ? Codicon.DebugContinue : Codicon.DebugPause,
-			Codicon.DebugStepOver,
-			Codicon.DebugStepInto,
-			Codicon.DebugStepOut,
-			Codicon.DebugRestart,
-			Codicon.DebugStop,
-		];
-
+		ITextFont font = painter.GetUiStrong();
 		float padding = Metrics.Space6 * scale;
-		float pillWidth = (button * icons.Length) + (padding * 2f);
-		float pillHeight = 26f * scale;
-		float pillLeft = right - pillWidth;
+		float gap = Metrics.Space6 * scale;
+		float tile = 20f * scale;
+		float chevron = 12f * scale;
+		float labelWidth = Math.Min(font.Measure(name), 220f * scale);
+		float width = padding + tile + gap + labelWidth + gap + chevron - (Metrics.Space2 * scale) + padding;
 
-		painter.FillRoundedRectangle(pillLeft, centreY - (pillHeight / 2f), pillWidth, pillHeight,
-			pillHeight / 2f, Theme.ChromeBackground);
+		ProjectLeft = left;
 
-		painter.StrokeRoundedRectangle(pillLeft, centreY - (pillHeight / 2f), pillWidth, pillHeight,
-			pillHeight / 2f, Metrics.StrokeThickness * scale, Theme.PanelBorder);
+		if (Hover == TitleBarPart.Project) FillWidget(painter, left, width, centreY, scale, Theme.ToolbarHoverBackground);
 
-		float cursor = pillLeft + padding;
+		float tileLeft = left + padding;
+		float tileTop = centreY - (tile / 2f);
+		float radius = Metrics.RadiusMedium * scale;
 
-		for (int i = 0; i < icons.Length; i++) {
-			float centre = cursor + (button * i) + (button / 2f);
-			_sessionCentres[i] = centre;
+		painter.FillRoundedRectangle(tileLeft, tileTop, tile, tile, radius, _projectColor);
+		painter.StrokeRoundedRectangle(tileLeft, tileTop, tile, tile, radius, Metrics.StrokeThickness * scale, Theme.TitleBarForeground.WithAlpha(0.1f));
 
-			bool hovered = _hover == TitleBarPart.DebugContinue + i;
+		ITextFont small = painter.GetUiSmall();
+		painter.DrawText(small, _initials, tileLeft + ((tile - small.Measure(_initials)) / 2f), Baseline(small, centreY), Color.Parse("#ffffff"));
 
-			if (hovered) {
-				float box = 22f * scale;
-				painter.FillRoundedRectangle(centre - (box / 2f), centreY - (box / 2f), box, box,
-					box / 2f, Theme.ListHoverBackground);
-			}
+		float cursor = tileLeft + tile + gap;
 
-			Color colour = i == icons.Length - 1
-				? Theme.DebugBreakpointForeground
-				: hovered ? Theme.TabActiveForeground : Theme.TitleBarForeground;
+		painter.PushClip(cursor, tileTop, labelWidth, tile);
+		painter.DrawText(font, name, cursor, Baseline(font, centreY), Theme.TitleBarForeground);
+		painter.PopClip();
 
-			painter.DrawIcon(icons[i], centre, centreY, Metrics.IconSize * scale, colour);
-		}
+		cursor += labelWidth + gap - (Metrics.Space2 * scale);
+		painter.DrawIcon(Codicon.ChevronDown, cursor + (chevron / 2f), centreY, chevron, Theme.TitleBarForeground.WithAlpha(0.55f));
 
-		return pillLeft - (Metrics.Space8 * scale);
+		AddRegion(TitleBarPart.Project, left, left + width);
+		return left + width;
 	}
 
-	private void DrawLaunchControl(IPainter painter, float right, float centreY, float height,
-		float scale) {
-		_debugLeft = _debugRight = _debugSplit = 0f;
+	private float DrawBranch(IPainter painter, string branch, float left, float centreY, float scale) {
+		ITextFont font = painter.GetUi();
+		float padding = Metrics.Space6 * scale;
+		float gap = Metrics.Space6 * scale;
+		float icon = 14f * scale;
+		float chevron = 12f * scale;
+		float labelWidth = Math.Min(font.Measure(branch), 260f * scale);
+		float width = padding + icon + gap + labelWidth + gap + chevron - (Metrics.Space2 * scale) + padding;
 
-		if (DebugConfigurations.Count == 0 || IsDebugging) return;
+		if (Hover == TitleBarPart.Branch) FillWidget(painter, left, width, centreY, scale, Theme.ToolbarHoverBackground);
+
+		float cursor = left + padding;
+		painter.DrawIcon(Codicon.GitBranch, cursor + (icon / 2f), centreY, icon, Theme.TitleBarForeground.WithAlpha(0.8f));
+		cursor += icon + gap;
+
+		painter.PushClip(cursor, centreY - (WidgetHeight * scale / 2f), labelWidth, WidgetHeight * scale);
+		painter.DrawText(font, branch, cursor, Baseline(font, centreY), Theme.TitleBarForeground);
+		painter.PopClip();
+
+		cursor += labelWidth + gap - (Metrics.Space2 * scale);
+		painter.DrawIcon(Codicon.ChevronDown, cursor + (chevron / 2f), centreY, chevron, Theme.TitleBarForeground.WithAlpha(0.55f));
+
+		AddRegion(TitleBarPart.Branch, left, left + width);
+		return left + width;
+	}
+
+	private float DrawAccount(IPainter painter, float left, float centreY, float scale) {
+		ITextFont font = painter.GetUi();
+		string label = AccountName is { Length: > 0 } name ? name : SignInLabel;
+		float avatar = 20f * scale;
+		float gap = Metrics.Space6 * scale;
+		float labelWidth = Math.Min(font.Measure(label), 140f * scale);
+		float width = (Metrics.Space4 * scale) + avatar + gap + labelWidth + (Metrics.Space8 * scale);
+
+		if (Hover == TitleBarPart.Account) FillWidget(painter, left, width, centreY, scale, Theme.ToolbarHoverBackground);
+
+		float cursor = left + (Metrics.Space4 * scale);
+		painter.DrawIcon(Codicon.Account, cursor + (avatar / 2f), centreY, 16f * scale, Theme.TitleBarForeground);
+		cursor += avatar + gap;
+
+		painter.PushClip(cursor, centreY - avatar, labelWidth, avatar * 2f);
+		painter.DrawText(font, label, cursor, Baseline(font, centreY), Theme.TitleBarForeground);
+		painter.PopClip();
+
+		AddRegion(TitleBarPart.Account, left, left + width);
+		return left + width;
+	}
+
+	private float DrawRunCluster(IPainter painter, float right, float centreY, float scale) {
+		RunConfigurationLeft = 0f;
+
+		if (DebugConfigurations.Count == 0 && !IsDebugging) return right;
 
 		ITextFont font = painter.GetUi();
+		string label = SelectedDebugConfiguration ?? (DebugConfigurations.Count > 0 ? DebugConfigurations[0] : "Add Configuration...");
 
-		string label = SelectedDebugConfiguration ?? DebugConfigurations[0];
-		float labelWidth = font.Measure(label);
+		float button = RunButtonWidth * scale;
+		float gap = Metrics.Space2 * scale;
+		float separator = (Metrics.Space6 * 2f * scale) + scale;
+		float dot = 7f * scale;
+		float chevron = 12f * scale;
+		float labelWidth = Math.Min(font.Measure(label), 220f * scale);
+		bool showDot = IsDebugging;
+		float configWidth = (Metrics.Space8 * scale) + (showDot ? dot + (Metrics.Space6 * scale) : 0f) + labelWidth + (Metrics.Space6 * scale) + chevron - (Metrics.Space2 * scale) + (Metrics.Space6 * scale);
 
-		float play = 26f * scale;
-		float chevron = 18f * scale;
-		float padding = Metrics.Space8 * scale;
-		float box = 24f * scale;
+		ReadOnlySpan<TitleBarPart> runGroup = IsDebugging ? [IsPaused ? TitleBarPart.Continue : TitleBarPart.Pause, TitleBarPart.Stop, TitleBarPart.Restart] : [TitleBarPart.Run, TitleBarPart.Debug];
+		ReadOnlySpan<TitleBarPart> stepGroup = IsDebugging ? [TitleBarPart.ShowNextStatement, TitleBarPart.StepInto, TitleBarPart.StepOver, TitleBarPart.StepOut] : [];
 
-		float width = play + padding + labelWidth + chevron + padding;
-		float left = right - width - (Metrics.Space12 * scale);
+		float total = configWidth + gap + separator + GroupWidth(runGroup.Length, button, gap) + (stepGroup.Length > 0 ? separator + GroupWidth(stepGroup.Length, button, gap) : 0f);
+		float cursor = right - total;
+		float clusterLeft = cursor - (Metrics.Space4 * scale);
 
-		_debugLeft = left;
-		_debugRight = left + width;
-		_debugSplit = left + play;
+		RunConfigurationLeft = cursor;
 
-		painter.FillRoundedRectangle(left, centreY - (box / 2f), width, box,
-			Metrics.RadiusSmall * scale, Theme.ChromeBackground);
+		Color tint = IsPaused ? Theme.DebugIconPause : Theme.DebugIconStart;
 
-		painter.DrawIcon(IsDebugging ? Codicon.DebugAlt : Codicon.Run, left + (play / 2f), centreY,
-			Metrics.IconSize * scale,
-			_hover == TitleBarPart.DebugStart ? Theme.GitAddedForeground : Theme.TitleBarForeground);
+		if (IsDebugging) FillWidget(painter, cursor, configWidth, centreY, scale, tint.WithAlpha(0.16f));
+		else if (Hover == TitleBarPart.RunConfiguration) FillWidget(painter, cursor, configWidth, centreY, scale, Theme.ToolbarHoverBackground);
 
-		painter.DrawText(font, label, left + play + padding,
-			centreY - (font.GetLineHeight() / 2f) + font.GetBaseline(),
-			_hover == TitleBarPart.DebugConfiguration
-				? Theme.TabActiveForeground
-				: Theme.TitleBarForeground);
+		float text = cursor + (Metrics.Space8 * scale);
 
-		painter.DrawChevron(left + play + padding + labelWidth + (chevron / 2f), centreY, 8f * scale,
-			true, Theme.TitleBarForeground);
-	}
-
-	private void DrawAction(IPainter painter, Codicon icon, float centreX, float centreY, float height,
-		float width, TitleBarPart part, float scale) {
-		bool hovered = _hover == part;
-
-		if (hovered) {
-			float box = 24f * scale;
-			painter.FillRoundedRectangle(centreX - (box / 2f), centreY - (box / 2f), box, box,
-				Metrics.RadiusSmall * scale, Theme.ListHoverBackground);
+		if (showDot) {
+			painter.FillCircle(text + (dot / 2f), centreY, dot, tint.WithAlpha(0.25f));
+			painter.FillCircle(text + (dot / 2f), centreY, dot / 2f, tint);
+			text += dot + (Metrics.Space6 * scale);
 		}
 
-		painter.DrawIcon(icon, centreX, centreY, Metrics.IconSize * scale,
-			hovered ? Theme.TabActiveForeground : Theme.TitleBarForeground);
+		painter.PushClip(text, centreY - (WidgetHeight * scale / 2f), labelWidth, WidgetHeight * scale);
+		painter.DrawText(font, label, text, Baseline(font, centreY), Theme.TitleBarForeground);
+		painter.PopClip();
+
+		text += labelWidth + (Metrics.Space6 * scale) - (Metrics.Space2 * scale);
+		painter.DrawIcon(Codicon.ChevronDown, text + (chevron / 2f), centreY, chevron, Theme.TitleBarForeground.WithAlpha(0.55f));
+
+		AddRegion(TitleBarPart.RunConfiguration, cursor, cursor + configWidth);
+		cursor += configWidth + gap;
+
+		cursor = DrawSeparator(painter, cursor, centreY, scale);
+		cursor = DrawRunGroup(painter, runGroup, cursor, centreY, button, gap, scale);
+
+		if (stepGroup.Length > 0) {
+			cursor = DrawSeparator(painter, cursor - gap, centreY, scale);
+			DrawRunGroup(painter, stepGroup, cursor, centreY, button, gap, scale);
+		}
+
+		return clusterLeft;
+	}
+
+	private static float GroupWidth(int count, float button, float gap) => (button * count) + (gap * count);
+
+	private float DrawSeparator(IPainter painter, float left, float centreY, float scale) {
+		float x = left + (Metrics.Space6 * scale);
+		painter.DrawVerticalLine(x, centreY - (8f * scale), centreY + (8f * scale), Theme.TitleBarForeground.WithAlpha(0.18f));
+		return x + scale + (Metrics.Space6 * scale);
+	}
+
+	private float DrawRunGroup(IPainter painter, ReadOnlySpan<TitleBarPart> parts, float left, float centreY, float button, float gap, float scale) {
+		foreach (TitleBarPart part in parts) {
+			bool enabled = part is not (TitleBarPart.ShowNextStatement or TitleBarPart.StepInto or TitleBarPart.StepOver or TitleBarPart.StepOut) || IsPaused;
+
+			if (enabled && Hover == part) FillWidget(painter, left, button, centreY, scale, Theme.ToolbarHoverBackground);
+
+			(Codicon icon, Color color) = RunIcon(part);
+			painter.DrawIcon(icon, left + (button / 2f), centreY, Metrics.IconSize * scale, enabled ? color : color.WithAlpha(0.35f));
+
+			if (enabled) AddRegion(part, left, left + button);
+
+			left += button + gap;
+		}
+
+		return left;
+	}
+
+	private static (Codicon Icon, Color Color) RunIcon(TitleBarPart part) => part switch {
+		TitleBarPart.Run => (Codicon.DebugStart, Theme.DebugIconStart),
+		TitleBarPart.Debug => (Codicon.DebugAlt, Theme.DebugIconStart),
+		TitleBarPart.Continue => (Codicon.DebugContinue, Theme.DebugIconStart),
+		TitleBarPart.Pause => (Codicon.DebugPause, Theme.DebugIconPause),
+		TitleBarPart.Stop => (Codicon.DebugStop, Theme.DebugIconStop),
+		TitleBarPart.Restart => (Codicon.DebugRestart, Theme.DebugIconRestart),
+		TitleBarPart.ShowNextStatement => (Codicon.DebugStackframe, Theme.DebugIconPause),
+		TitleBarPart.StepInto => (Codicon.DebugStepInto, Theme.DebugIconStep),
+		TitleBarPart.StepOver => (Codicon.DebugStepOver, Theme.DebugIconStep),
+		_ => (Codicon.DebugStepOut, Theme.DebugIconStep),
+	};
+
+	private void DrawCommandCentre(IPainter painter, float windowWidth, float leftEnd, float rightStart, float centreY, float scale) {
+		ITextFont font = painter.GetUi();
+		string label = Title;
+
+		float leftBox = Math.Max(windowWidth * SideFraction, leftEnd);
+		float rightBox = Math.Max(windowWidth * SideFraction, windowWidth - rightStart);
+		float available = Math.Max(windowWidth - leftBox - rightBox, 0f);
+
+		float inset = (ContainerMargin + ItemMargin) * scale;
+		float content = (CommandCentrePadding * 2f * scale) + (20f * scale) + font.Measure(label);
+		float preferred = Math.Min(content, Math.Min(windowWidth * CommandCentreWidthFraction, CommandCentreMaxWidth * scale)) + (inset * 2f);
+		float outer = Math.Min(preferred, available);
+		float width = outer - (inset * 2f);
+
+		if (width <= 0f) return;
+
+		float left = leftBox + ((available - outer) / 2f) + inset;
+		float height = CommandCentreHeight * scale;
+		float top = centreY - (height / 2f);
+		float radius = Metrics.RadiusMedium * scale;
+		bool hovered = Hover == TitleBarPart.CommandCentre;
+
+		if (hovered) painter.FillRoundedRectangle(left, top, width, height, radius, Theme.CommandCentreHoverBackground);
+
+		painter.StrokeRoundedRectangle(left, top, width, height, radius, Metrics.StrokeThickness * scale, hovered ? Theme.CommandCentreActiveBorder : Theme.CommandCentreBorder);
+
+		float icon = 14f * scale;
+		float iconMargin = 3f * scale;
+		float labelWidth = Math.Max(Math.Min(font.Measure(label), width - icon - (iconMargin * 2f)), 0f);
+		float cursor = left + Math.Max((width - icon - (iconMargin * 2f) - labelWidth) / 2f, 0f);
+
+		painter.PushClip(left, top, width, height);
+		painter.DrawIcon(Codicon.Search, cursor + iconMargin + (icon / 2f), centreY, icon, Theme.CommandCentreForeground.WithAlpha(0.8f));
+		painter.PopClip();
+		cursor += icon + (iconMargin * 2f);
+
+		painter.PushClip(cursor, top, labelWidth, height);
+		painter.DrawText(font, label, cursor, Baseline(font, centreY), Theme.CommandCentreForeground);
+		painter.PopClip();
+
+		AddRegion(TitleBarPart.CommandCentre, left, left + width);
 	}
 
 	private void DrawCaptionButtons(IPainter painter, float width, float height, float scale) {
-		float button = ButtonWidth * scale;
+		float button = CaptionButtonWidth * scale;
 		float centreY = height / 2f;
 
 		DrawCaptionButton(painter, TitleBarPart.Minimize, width - (button * 3f), button, height, centreY, scale);
@@ -506,18 +405,13 @@ public sealed class TitleBar
 		DrawCaptionButton(painter, TitleBarPart.Close, width - button, button, height, centreY, scale);
 	}
 
-	private void DrawCaptionButton(IPainter painter, TitleBarPart which, float left, float width, float height,
-		float centreY, float scale) {
-		bool hovered = _hover == which;
+	private void DrawCaptionButton(IPainter painter, TitleBarPart which, float left, float width, float height, float centreY, float scale) {
+		bool hovered = Hover == which;
+		bool closing = hovered && which == TitleBarPart.Close;
 
-		if (hovered) {
-			painter.FillRectangle(left, 0f, width, height,
-				which == TitleBarPart.Close ? Color.Parse("#C42B1C") : Theme.ListHoverBackground);
-		}
+		if (hovered) painter.FillRectangle(left, 0f, width, height, which == TitleBarPart.Close ? Color.Parse("#e81123e6") : Color.Parse("#ffffff1a"));
 
-		Color color = hovered && which == TitleBarPart.Close
-			? Color.Parse("#FFFFFF")
-			: Theme.TitleBarForeground;
+		Color color = closing ? Color.Parse("#ffffff") : Theme.TitleBarForeground;
 
 		float centreX = left + (width / 2f);
 		float size = 10f * scale;
@@ -529,8 +423,7 @@ public sealed class TitleBar
 				break;
 
 			case TitleBarPart.Maximize when IsMaximized:
-				StrokeRectangle(painter, centreX - half, centreY - half + (2f * scale), size - (2f * scale),
-					size - (2f * scale), color);
+				StrokeRectangle(painter, centreX - half, centreY - half + (2f * scale), size - (2f * scale), size - (2f * scale), color);
 				painter.DrawHorizontalLine(centreY - half, centreX - half + (2f * scale), centreX + half, color);
 				painter.DrawVerticalLine(centreX + half, centreY - half, centreY + half - (2f * scale), color);
 				break;
@@ -546,11 +439,67 @@ public sealed class TitleBar
 		}
 	}
 
-	private static void StrokeRectangle(IPainter painter, float x, float y, float width, float height,
-		Color color) {
+	private static void StrokeRectangle(IPainter painter, float x, float y, float width, float height, Color color) {
 		painter.DrawHorizontalLine(y, x, x + width, color);
 		painter.DrawHorizontalLine(y + height, x, x + width, color);
 		painter.DrawVerticalLine(x, y, y + height, color);
 		painter.DrawVerticalLine(x + width, y, y + height + 1f, color);
+	}
+
+	private static void FillWidget(IPainter painter, float left, float width, float centreY, float scale, Color color) {
+		float height = WidgetHeight * scale;
+		painter.FillRoundedRectangle(left, centreY - (height / 2f), width, height, Metrics.RadiusMedium * scale, color);
+	}
+
+	private static float Baseline(ITextFont font, float centreY) => centreY - (font.GetLineHeight() / 2f) + font.GetBaseline();
+
+	private void AddRegion(TitleBarPart part, float left, float right) {
+		if (_regionCount < MaxRegions) _regions[_regionCount++] = new Region(part, left, right);
+	}
+
+	private void EnsureProjectColour(string name) {
+		if (_colouredName == name) return;
+
+		_colouredName = name;
+		_projectColor = NameColour(name);
+		_initials = Initials(name);
+	}
+
+	private static string Initials(string name) {
+		List<string> words = [];
+		int start = 0;
+
+		for (int i = 0; i <= name.Length; i++) {
+			bool boundary = i == name.Length || char.IsWhiteSpace(name[i]) || name[i] is '.' or '_' or '-';
+			bool camel = i > 0 && i < name.Length && char.IsLower(name[i - 1]) && char.IsUpper(name[i]);
+
+			if (boundary || camel) {
+				if (i > start) words.Add(name[start..i]);
+
+				start = boundary ? i + 1 : i;
+			}
+		}
+
+		string letters = words.Count > 1 ? $"{words[0][0]}{words[1][0]}" : name[..Math.Min(2, name.Length)];
+		return letters.ToUpperInvariant();
+	}
+
+	private static Color NameColour(string name) {
+		int hash = 0;
+
+		foreach (char character in name) hash = unchecked((hash * 31) + character);
+
+		return FromHsl(((hash % 360) + 360) % 360, 0.6f, 0.55f);
+	}
+
+	private static Color FromHsl(float hue, float saturation, float lightness) {
+		float a = saturation * Math.Min(lightness, 1f - lightness);
+
+		float Channel(float n) {
+			float k = (n + (hue / 30f)) % 12f;
+			return lightness - (a * Math.Max(-1f, Math.Min(Math.Min(k - 3f, 9f - k), 1f)));
+		}
+
+		return new Color(Channel(0f), Channel(8f), Channel(4f));
 	}
 }

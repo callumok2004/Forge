@@ -90,23 +90,73 @@ public sealed class AuxiliaryBar
 
 	public bool HoverClose { get; set; }
 
-	public int TabAt(float x, float y, float left, float top, float width, float scale) {
-		float headerHeight = Metrics.SidebarHeaderHeight * scale;
+	private const float StripActionHeight = 34f;
+	private const float StripActionGap = 4f;
+	private const float StripIndicatorRadius = 9f;
+	private const float StripIconSize = 18f;
 
-		if (y < top || y >= top + headerHeight || x < left || x >= left + width) return -1;
+	private readonly Dictionary<string, IVectorIcon?> _icons = new(StringComparer.Ordinal);
 
-		float cursor = left + (Metrics.Space12 * scale);
+	private int _stripHover = -1;
 
-		for (int i = 0; i < _views.Count && i < _tabWidths.Count; i++) {
-			if (x >= cursor && x < cursor + _tabWidths[i]) return i;
+	public Func<string, IVectorIcon?>? IconLoader { get; set; }
 
-			cursor += _tabWidths[i] + (Metrics.Space12 * scale);
-		}
+	public static float StripWidth(float scale) => (Metrics.ActivityBarWidth + Metrics.CardMargin) * scale;
 
-		return -1;
+	public int StripIndexAt(float x, float y, float stripLeft, float top, float scale) {
+		if (x < stripLeft || x >= stripLeft + (Metrics.ActivityBarWidth * scale) || y < top) return -1;
+
+		float step = (StripActionHeight + StripActionGap) * scale;
+		int index = (int)((y - top) / step);
+
+		return index >= 0 && index < _views.Count && y - top - (index * step) < StripActionHeight * scale ? index : -1;
 	}
 
-	private readonly List<float> _tabWidths = [];
+	public bool SetStripHover(int index) {
+		bool changed = _stripHover != index;
+		_stripHover = index;
+		return changed;
+	}
+
+	public void ActivateStrip(int index) {
+		if (index < 0 || index >= _views.Count) return;
+
+		string viewId = _views[index].ViewId;
+
+		if (IsOpen && string.Equals(ActiveViewId, viewId, StringComparison.Ordinal)) IsOpen = false;
+		else {
+			Select(viewId);
+			IsOpen = true;
+		}
+	}
+
+	public void RenderStrip(IPainter painter, float stripLeft, float top, float scale) {
+		float width = Metrics.ActivityBarWidth * scale;
+		float centreX = stripLeft + (width / 2f);
+		float item = StripActionHeight * scale;
+		float step = (StripActionHeight + StripActionGap) * scale;
+
+		for (int i = 0; i < _views.Count; i++) {
+			WebviewViewEntry view = _views[i];
+			float itemTop = top + (i * step);
+			bool active = IsOpen && string.Equals(view.ViewId, ActiveViewId, StringComparison.Ordinal);
+
+			if (active) painter.FillRoundedRectangle(centreX - (item / 2f), itemTop, item, item, StripIndicatorRadius * scale, Theme.ActivityBarActiveBackground);
+
+			Color color = active ? Theme.ActivityBarActiveForeground : i == _stripHover ? Theme.Foreground : Theme.ActivityBarForeground;
+
+			if (IconFor(view) is { } icon) painter.DrawVectorIcon(icon, centreX, itemTop + (item / 2f), StripIconSize * scale, color);
+			else painter.DrawIcon(Codicon.Extensions, centreX, itemTop + (item / 2f), StripIconSize * scale, color);
+		}
+	}
+
+	private IVectorIcon? IconFor(WebviewViewEntry view) {
+		if (view.IconPath is not { } path || IconLoader is not { } loader) return null;
+
+		if (!_icons.TryGetValue(path, out IVectorIcon? icon)) _icons[path] = icon = loader(path);
+
+		return icon;
+	}
 
 	public void Render(IPainter painter, float x, float y, float width, float height, float scale) {
 		float inner = Metrics.CardInnerMargin * scale;
@@ -123,23 +173,7 @@ public sealed class AuxiliaryBar
 
 		ITextFont font = painter.GetUiStrong();
 		float baseline = y + ((headerHeight - font.GetLineHeight()) / 2f) + font.GetBaseline();
-		float cursor = x + (Metrics.Space12 * scale);
-
-		_tabWidths.Clear();
-
-		foreach (WebviewViewEntry view in _views) {
-			string label = view.Title;
-			float measured = font.Measure(label);
-
-			_tabWidths.Add(measured);
-
-			bool active = string.Equals(view.ViewId, ActiveViewId, StringComparison.Ordinal);
-
-			painter.DrawText(font, label, cursor, baseline,
-				active ? Theme.SidebarTitleForeground : Theme.SectionHeaderForeground);
-
-			cursor += measured + (Metrics.Space12 * scale);
-		}
+		if (Active is { } current) painter.DrawText(font, current.Title.ToUpperInvariant(), x + (Metrics.Space12 * scale), baseline, Theme.SidebarTitleForeground);
 
 		float action = Metrics.IconSize * scale;
 		float closeCentreX = x + cardWidth - (Metrics.Space12 * scale) - (action / 2f);

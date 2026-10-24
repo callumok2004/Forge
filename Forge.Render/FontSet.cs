@@ -13,6 +13,7 @@ public sealed class FontSet : IFontSet, IDisposable
 	private readonly float _uiSize;
 	private readonly float _labelSize;
 	private readonly float _lineHeight;
+	private readonly BundledFonts _bundled;
 
 	private bool _disposed;
 
@@ -27,6 +28,7 @@ public sealed class FontSet : IFontSet, IDisposable
 		_labelSize = labelSize;
 
 		Icons = new IconFont(factory, iconFontPath);
+		_bundled = new BundledFonts(factory, Path.GetDirectoryName(iconFontPath) ?? AppContext.BaseDirectory);
 
 		Scale = scale;
 		Build(scale);
@@ -88,19 +90,16 @@ public sealed class FontSet : IFontSet, IDisposable
 	private void Build(float scale) {
 		float codePixels = MathF.Round(_codeSize * scale);
 
-		Code = new TextFont(_factory, _codeFamily, codePixels, TextWeight.Regular,
-			_lineHeight > 0f ? _lineHeight * scale : codePixels * Theming.Metrics.EditorLineHeightRatio);
+		DWrite.IDWriteFontCollection? bundled = _bundled.Collection;
+		float lineHeight = _lineHeight > 0f ? _lineHeight * scale : codePixels * Theming.Metrics.EditorLineHeightRatio;
 
-		CodeStrong = new TextFont(_factory, _codeFamily, codePixels, TextWeight.Bold,
-			_lineHeight > 0f ? _lineHeight * scale : codePixels * Theming.Metrics.EditorLineHeightRatio);
+		Code = new TextFont(_factory, bundled, _codeFamily, codePixels, TextWeight.Regular, lineHeight);
+		CodeStrong = new TextFont(_factory, bundled, _codeFamily, codePixels, TextWeight.Bold, lineHeight);
+		CodeSmall = new TextFont(_factory, bundled, _codeFamily, MathF.Round(codePixels * 0.85f), TextWeight.Regular, lineHeight);
 
-		CodeSmall = new TextFont(_factory, _codeFamily, MathF.Round(codePixels * 0.85f),
-			TextWeight.Regular,
-			_lineHeight > 0f ? _lineHeight * scale : codePixels * Theming.Metrics.EditorLineHeightRatio);
-
-		Ui = new TextFont(_factory, _uiFamily, MathF.Round(_uiSize * scale));
-		UiStrong = new TextFont(_factory, _uiFamily, MathF.Round(_labelSize * scale), TextWeight.SemiBold);
-		UiSmall = new TextFont(_factory, _uiFamily, MathF.Round(9f * scale), TextWeight.SemiBold);
+		Ui = new TextFont(_factory, bundled, _uiFamily, MathF.Round(_uiSize * scale));
+		UiStrong = new TextFont(_factory, bundled, _uiFamily, MathF.Round(_labelSize * scale), TextWeight.SemiBold);
+		UiSmall = new TextFont(_factory, bundled, _uiFamily, MathF.Round(9f * scale), TextWeight.SemiBold);
 	}
 
 	public void Dispose() {
@@ -115,5 +114,6 @@ public sealed class FontSet : IFontSet, IDisposable
 		UiStrong?.Dispose();
 		UiSmall?.Dispose();
 		Icons?.Dispose();
+		_bundled.Dispose();
 	}
 }

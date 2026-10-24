@@ -124,9 +124,9 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 					? view.When is { Length: > 0 } inner ? $"({outer}) && ({inner})" : outer
 					: view.When;
 
-				_views.Add(new WebviewViewEntry(view.Id,
-					view.Name is { Length: > 0 } name ? name : container.Title,
-					extension.Directory, extension.Identifier, when, container.Location));
+				string? icon = container.Icon is { Length: > 0 } relative && !relative.StartsWith("$(", StringComparison.Ordinal) ? Path.GetFullPath(Path.Combine(extension.Directory, relative)) : null;
+
+				_views.Add(new WebviewViewEntry(view.Id, view.Name is { Length: > 0 } name ? name : container.Title, extension.Directory, extension.Identifier, when, container.Location, icon));
 			}
 		}
 	}

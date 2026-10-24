@@ -144,6 +144,17 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		};
 		workbench.TitleBar.Icon = appIcon;
 
+		using VectorIcon? explorerIcon = VectorIcon.Load(device.Factory, Path.Combine(AppContext.BaseDirectory, "Assets", "ui", "folder.svg"));
+		workbench.ActivityBar.ExplorerIcon = explorerIcon;
+		workbench.Auxiliary.IconLoader = path => VectorIcon.Load(device.Factory, path);
+
+		ProcessTree processTree = new();
+
+		using Timer resourceTimer = new(_ => {
+			workbench.StatusBar.Resources = processTree.Sample();
+			window.Invalidate(workbench.StatusBarRect(device.Width, device.Height));
+		}, null, TimeSpan.Zero, TimeSpan.FromSeconds(2));
+
 		string rootPath = ResolveWorkspaceRoot(args);
 		workbench.RootPath = rootPath;
 		workbench.Panel.WorkingDirectory = rootPath;
@@ -467,20 +478,20 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 	}
 
 	private static void UpdateTitle(AppWindow window, Workbench workbench, string rootPath) {
-		string folder = Path.GetFileName(rootPath.TrimEnd(Path.DirectorySeparatorChar));
 		Document? document = workbench.ActiveDocument;
+		string title = WindowTitle.Format(Settings.Current.GetString("window.title"), rootPath, document?.Path, document?.IsDirty() ?? false);
 
-		string title = document is null
-			? $"Forge - {folder}"
-			: $"{(document.IsDirty() ? "● " : string.Empty)}{document.Name} - {folder} - Forge";
-
-		workbench.TitleBar.Title = "Forge";
-		workbench.TitleBar.DocumentName = document is null
-			? null
-			: $"{(document.IsDirty() ? "● " : string.Empty)}{document.Name}";
-
-		workbench.TitleBar.FolderName = folder;
+		workbench.TitleBar.FolderName = Path.GetFileName(rootPath.TrimEnd(Path.DirectorySeparatorChar));
+		workbench.TitleBar.Title = title;
 		window.SetTitle(title);
+	}
+
+	private static MenuEntry[] ProjectMenu(TitleBar bar) {
+		MenuEntry[] common = [new("Open Folder…", MenuCommand.OpenFolder), new("New Window", MenuCommand.NewWindow)];
+
+		if (bar.RemoteRepository is not { Length: > 0 }) return common;
+
+		return [.. common, MenuEntry.Separator, new("Open on GitHub", MenuCommand.OpenRemote), new("Copy Repository URL", MenuCommand.CopyRemote)];
 	}
 
 	private static string? DebugKeyBinding(uint key, bool shift, bool control, DebugState state) => key switch {
@@ -637,7 +648,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			bar.ShownViewId = entry.ViewId;
 			_ = workbench.VSCode?.SetWebviewVisibilityAsync(entry.ViewId, true) ?? Task.CompletedTask;
 			bar.Status = null;
-			workbench.Webviews.Show(entry.ViewId, html, entry.Directory, bounds);
+			workbench.Webviews.Show(entry.ViewId, html, entry.Directory, bounds, entry.ExtensionId);
 		}
 
 		void AmbientTick() {
@@ -738,14 +749,36 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			}
 		}
 
-		void Invoke(MenuCommand command) {
+		void OpenMenu(MenuEntry[] entries, float left) {
+			workbench.Menu.Open(entries, left, workbench.ShellTop);
+			workbench.TitleBar.MenuOpen = entries == MenuPopup.CodeMenu;
+		}
+
+		void CloseMenu() {
 			workbench.Menu.Close();
-			workbench.TitleBar.OpenMenuIndex = -1;
+			workbench.TitleBar.MenuOpen = false;
+		}
+
+		void Invoke(MenuCommand command) {
+			string? commandId = workbench.Menu.CommandId;
+			CloseMenu();
 
 			TextView? view = workbench.ActiveView;
 
 			switch (command) {
-				case MenuCommand.RunCommand when workbench.Menu.CommandId is { } id:
+				case MenuCommand.NewWindow:
+					System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = true });
+					break;
+
+				case MenuCommand.OpenRemote when new CommandHost(workbench, Refresh).GetRemoteUrl() is { } remoteUrl:
+					System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(remoteUrl) { UseShellExecute = true });
+					break;
+
+				case MenuCommand.CopyRemote when new CommandHost(workbench, Refresh).GetRemoteUrl() is { } remoteUrl:
+					Clipboard.SetText(remoteUrl);
+					break;
+
+				case MenuCommand.RunCommand when commandId is { } id:
 					workbench.RunCommand(id, new CommandHost(workbench, Refresh));
 					break;
 
@@ -965,13 +998,10 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			TitleBar bar = workbench.TitleBar;
 
 			TitleBarPart part = bar.PartAt(x, y, device.Width, workbench.Scale);
-			int menu = part == TitleBarPart.Menu
-				? bar.MenuIndexAt(painter, x, y, workbench.Scale)
-				: -1;
 
-			if (part == bar.Hover && menu == bar.HoverMenuIndex) return;
+			if (part == bar.Hover) return;
 
-			bar.SetHover(part, menu);
+			bar.SetHover(part);
 			Damage(workbench.TitleBarRect(device.Width));
 		}
 
@@ -1105,19 +1135,15 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			if (workbench.Menu.IsOpen) {
 				if (y < workbench.ShellTop) {
 					HoverTitleBar(x, y);
-
-					int over = workbench.TitleBar.MenuIndexAt(painter, x, y, workbench.Scale);
-
-					if (over >= 0 && over != workbench.Menu.MenuIndex) {
-						workbench.Menu.Open(over);
-						workbench.TitleBar.OpenMenuIndex = over;
-						window.Invalidate();
-					}
-
 					return;
 				}
 
-				if (workbench.Menu.Hover(x, y)) Damage(workbench.Menu.Bounds);
+				PixelRect before = workbench.Menu.Bounds;
+
+				if (workbench.Menu.Hover(x, y)) {
+					Damage(before);
+					Damage(workbench.Menu.Bounds);
+				}
 
 				return;
 			}
@@ -1223,6 +1249,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			}
 
 			if (workbench.ActivityBar.SetHover(-1)) Damage(workbench.ActivityBarRect(device.Height));
+
+			if (workbench.Auxiliary.SetStripHover(workbench.Auxiliary.StripIndexAt(x, y, workbench.AuxiliaryStripLeft(device.Width), workbench.ShellTop, workbench.Scale))) Damage(PixelRect.Around(workbench.AuxiliaryStripLeft(device.Width), workbench.ShellTop, workbench.AuxiliaryStripWidth, statusTop - workbench.ShellTop));
 
 			if (workbench.ShowSidebar && x < workbench.EditorLeft && !selecting &&
 				workbench.Sidebar.View == ActivityView.SourceControl) {
@@ -1330,8 +1358,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		window.Events.MouseDown += (x, y) => {
 			if (workbench.LaunchPicker.IsOpen && !workbench.LaunchPicker.Contains(x, y) &&
-				workbench.TitleBar.PartAt(x, y, device.Width, workbench.Scale)
-					!= TitleBarPart.DebugConfiguration) {
+				workbench.TitleBar.PartAt(x, y, device.Width, workbench.Scale) != TitleBarPart.RunConfiguration) {
 				workbench.LaunchPicker.Close();
 				Refresh();
 				return;
@@ -1371,15 +1398,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			if (workbench.Menu.IsOpen) {
 				if (workbench.Menu.Contains(x, y)) return;
 
-				int clicked = y < workbench.ShellTop &&
-					workbench.TitleBar.PartAt(x, y, device.Width, workbench.Scale) == TitleBarPart.Menu
-					? workbench.TitleBar.MenuIndexAt(painter, x, y, workbench.Scale)
-					: -1;
-
-				bool reopen = clicked >= 0 && clicked != workbench.Menu.MenuIndex;
-
-				workbench.Menu.Open(reopen ? clicked : -1);
-				workbench.TitleBar.OpenMenuIndex = workbench.Menu.MenuIndex;
+				CloseMenu();
 				Refresh();
 				return;
 			}
@@ -1425,68 +1444,61 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			if (y < workbench.ShellTop) {
 				switch (workbench.TitleBar.PartAt(x, y, device.Width, workbench.Scale)) {
 					case TitleBarPart.Menu:
-						workbench.Menu.Open(workbench.TitleBar.MenuIndexAt(painter, x, y, workbench.Scale));
-						workbench.TitleBar.OpenMenuIndex = workbench.Menu.MenuIndex;
+						OpenMenu(MenuPopup.CodeMenu, workbench.TitleBar.MenuLeft);
+						break;
+
+					case TitleBarPart.Project:
+						OpenMenu(ProjectMenu(workbench.TitleBar), workbench.TitleBar.ProjectLeft);
 						break;
 
 					case TitleBarPart.CommandCentre:
 						workbench.QuickOpen.Show();
 						break;
 
-					case TitleBarPart.Layout:
-						workbench.ShowSidebar = !workbench.ShowSidebar;
+					case TitleBarPart.Run:
+						debugger.StartDebugging(null, noDebug: true);
 						break;
 
-					case TitleBarPart.Settings:
-						workbench.OpenFile(UserData.SettingsPath);
+					case TitleBarPart.Debug:
+						debugger.StartDebugging(null, noDebug: false);
 						break;
 
-					case TitleBarPart.DebugStart:
-						if (debugger.IsActive()) debugger.StopSession(disconnect: false, suspend: false);
-						else debugger.StartDebugging(null, noDebug: false);
-
+					case TitleBarPart.Continue:
+						debugger.Continue();
 						break;
 
-					case TitleBarPart.DebugContinue:
-						if (debugger.GetState() == DebugState.Stopped) debugger.Continue();
-						else debugger.Pause();
-
+					case TitleBarPart.Pause:
+						debugger.Pause();
 						break;
 
-					case TitleBarPart.DebugStepOver:
-						debugger.StepOver();
-						break;
-
-					case TitleBarPart.DebugStepInto:
-						debugger.StepInto();
-						break;
-
-					case TitleBarPart.DebugStepOut:
-						debugger.StepOut();
-						break;
-
-					case TitleBarPart.DebugRestart:
-						debugger.RestartSession();
-						break;
-
-					case TitleBarPart.DebugStop:
+					case TitleBarPart.Stop:
 						debugger.StopSession(disconnect: false, suspend: false);
 						break;
 
-					case TitleBarPart.DebugConfiguration: {
-						List<string> names = [];
-
-						foreach (DebugConfiguration configuration in debugger.GetConfigurations()) {
-							names.Add(configuration.Name);
-						}
-
-						workbench.LaunchPicker.Selected = debugger.GetSelectedConfiguration();
-
-						workbench.LaunchPicker.Open(names, workbench.TitleBar.DebugControlLeft,
-							TitleBar.Height(workbench.Scale));
-
+					case TitleBarPart.Restart:
+						debugger.RestartSession();
 						break;
-					}
+
+					case TitleBarPart.ShowNextStatement when debugger.GetFocusedFrame() is { SourcePath: { } source } frame:
+						workbench.GoTo(source, frame.Line, frame.Column);
+						break;
+
+					case TitleBarPart.StepInto:
+						debugger.StepInto();
+						break;
+
+					case TitleBarPart.StepOver:
+						debugger.StepOver();
+						break;
+
+					case TitleBarPart.StepOut:
+						debugger.StepOut();
+						break;
+
+					case TitleBarPart.RunConfiguration:
+						workbench.LaunchPicker.Selected = debugger.GetSelectedConfiguration();
+						workbench.LaunchPicker.Open([.. debugger.GetConfigurations().Select(static configuration => configuration.Name)], workbench.TitleBar.RunConfigurationLeft, TitleBar.Height(workbench.Scale));
+						break;
 				}
 
 				Refresh();
@@ -1509,6 +1521,29 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 			if (x < workbench.ActivityBarWidth) {
 				int item = workbench.ActivityBar.IndexAt(x, y, workbench.ShellTop, statusTop - workbench.ShellTop, workbench.Scale);
+
+				if (ActivityBar.ControlAt(item) is { } control) {
+					switch (control) {
+						case ActivityBarControl.ToggleSidebar:
+							workbench.ShowSidebar = !workbench.ShowSidebar;
+							Refresh();
+							break;
+
+						case ActivityBarControl.TogglePanel:
+							Invoke(MenuCommand.TogglePanel);
+							break;
+
+						case ActivityBarControl.ToggleAuxiliaryBar:
+							Invoke(MenuCommand.ToggleAuxiliaryBar);
+							break;
+
+						case ActivityBarControl.Manage:
+							Invoke(MenuCommand.OpenSettings);
+							break;
+					}
+
+					return;
+				}
 
 				if (item >= 0 && !workbench.ActivityBar.Activate(item)) workbench.ShowSidebar = !workbench.ShowSidebar;
 				else if (item >= 0) workbench.ShowSidebar = true;
@@ -1554,14 +1589,9 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 				return;
 			}
 
-			if (workbench.AuxiliaryWidth > 0f && workbench.Auxiliary.TabAt(x, y,
-				workbench.AuxiliaryLeft(device.Width), workbench.ShellTop, workbench.AuxiliaryWidth,
-				workbench.Scale) is int auxiliaryTab && auxiliaryTab >= 0) {
-				if (workbench.Auxiliary.Select(workbench.Auxiliary.Views[auxiliaryTab].ViewId)) {
-					workbench.Auxiliary.ShownViewId = null;
-					window.Invalidate();
-				}
-
+			if (workbench.Auxiliary.StripIndexAt(x, y, workbench.AuxiliaryStripLeft(device.Width), workbench.ShellTop, workbench.Scale) is var strip && strip >= 0) {
+				workbench.Auxiliary.ActivateStrip(strip);
+				Refresh();
 				return;
 			}
 
@@ -1877,8 +1907,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			if (workbench.Menu.IsOpen) {
 				switch (key) {
 					case VkEscape:
-						workbench.Menu.Close();
-						workbench.TitleBar.OpenMenuIndex = -1;
+						CloseMenu();
 						break;
 
 					case VkUp:
@@ -1891,12 +1920,11 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 					case VkLeft:
 					case VkRight:
-						workbench.Menu.Cycle(key == VkLeft ? -1 : 1);
-						workbench.TitleBar.OpenMenuIndex = workbench.Menu.MenuIndex;
+						workbench.Menu.MoveHorizontal(key == VkLeft ? -1 : 1);
 						break;
 
-					case VkReturn:
-						Invoke(workbench.Menu.Accept());
+					case VkReturn when workbench.Menu.Accept() is var accepted && accepted != MenuCommand.None:
+						Invoke(accepted);
 						return;
 				}
 

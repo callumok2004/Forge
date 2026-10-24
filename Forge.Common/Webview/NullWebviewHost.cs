@@ -13,7 +13,7 @@ public sealed class NullWebviewHost : IWebviewHost
 
 	public bool IsShowing(string id) => false;
 
-	public void Show(string id, string html, string? rootDirectory, PixelRect bounds) {
+	public void Show(string id, string html, string? rootDirectory, PixelRect bounds, string? extensionId = null) {
 	}
 
 	public void SetBounds(string id, PixelRect bounds) {

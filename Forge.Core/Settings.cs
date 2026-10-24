@@ -22,13 +22,13 @@ public sealed class Settings
 
 	public float ZoomFactor => MathF.Pow(ZoomStep, ZoomLevel);
 
-	public string[] EditorFontFamily { get; private set; } = ["Consolas", "Courier New"];
+	public string[] EditorFontFamily { get; private set; } = ["JetBrains Mono", "Consolas", "Courier New"];
 
 	public float EditorFontSize { get; private set; } = 14f;
 
 	public float EditorLineHeight { get; private set; }
 
-	public string[] UiFontFamily { get; private set; } = ["Segoe WPC", "Segoe UI", "Tahoma"];
+	public string[] UiFontFamily { get; private set; } = ["Geist", "Segoe WPC", "Segoe UI", "Tahoma"];
 
 	public float UiFontSize { get; private set; } = 13f;
 

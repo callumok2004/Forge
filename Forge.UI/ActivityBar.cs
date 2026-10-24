@@ -1,6 +1,5 @@
 using Forge.Common.Render;
 using Forge.Theming;
-using Forge.UI.Controls;
 
 namespace Forge.UI;
 
@@ -13,8 +12,24 @@ public enum ActivityView
 	Extensions,
 }
 
+public enum ActivityBarControl
+{
+	ToggleSidebar,
+	TogglePanel,
+	ToggleAuxiliaryBar,
+	Manage,
+}
+
 public sealed class ActivityBar
 {
+	private const float ActionHeight = 34f;
+	private const float ActionGap = 4f;
+	private const float IndicatorRadius = 9f;
+	private const float IconSize = 18f;
+	private const float BottomActionHeight = 28f;
+	private const float BottomIconSize = 16f;
+	private const float BottomPadding = 6f;
+
 	private static readonly ActivityView[] Views =
 	[
 		ActivityView.Explorer,
@@ -24,31 +39,53 @@ public sealed class ActivityBar
 		ActivityView.Extensions,
 	];
 
+	private static readonly ActivityBarControl[] Controls =
+	[
+		ActivityBarControl.ToggleSidebar,
+		ActivityBarControl.TogglePanel,
+		ActivityBarControl.ToggleAuxiliaryBar,
+		ActivityBarControl.Manage,
+	];
+
 	private int _hoverIndex = -1;
 
 	public ActivityView Active { get; set; } = ActivityView.Explorer;
 
 	public int SourceControlCount { get; set; }
 
+	public bool SidebarVisible { get; set; } = true;
+
+	public bool PanelVisible { get; set; }
+
+	public bool AuxiliaryBarVisible { get; set; }
+
+	public IVectorIcon? ExplorerIcon { get; set; }
+
 	public static float Width(float scale) => (Metrics.CardMargin + Metrics.ActivityBarWidth) * scale;
 
-	private static float ItemHeight(float scale) => Metrics.ActivityBarWidth * scale;
-
-	private static float ItemGap(float scale) => Metrics.CardMargin * scale;
+	public static float CentreX(float scale) => (Metrics.CardMargin + (Metrics.ActivityBarWidth / 2f)) * scale;
 
 	public int IndexAt(float x, float y, float top, float height, float scale) {
 		float left = Metrics.CardMargin * scale;
-		float bottom = top + height - (Metrics.CardMargin * scale);
 
-		if (x < left || x > Width(scale) || y < top || y > bottom) return -1;
+		if (x < left || x > Width(scale) || y < top || y > top + height) return -1;
 
-		float item = ItemHeight(scale);
+		float bottom = top + height - (BottomPadding * scale);
+		float row = BottomActionHeight * scale;
+		float controlsTop = bottom - (row * Controls.Length);
 
-		if (y >= bottom - item) return Views.Length;
+		if (y >= controlsTop) {
+			int control = (int)((y - controlsTop) / row);
+			return control >= 0 && control < Controls.Length ? Views.Length + control : -1;
+		}
 
-		int index = (int)((y - top) / (item + ItemGap(scale)));
-		return index >= 0 && index < Views.Length ? index : -1;
+		float step = (ActionHeight + ActionGap) * scale;
+		int index = (int)((y - top) / step);
+
+		return index >= 0 && index < Views.Length && y - top - (index * step) < ActionHeight * scale ? index : -1;
 	}
+
+	public static ActivityBarControl? ControlAt(int index) => index >= Views.Length && index < Views.Length + Controls.Length ? Controls[index - Views.Length] : null;
 
 	public bool SetHover(int index) {
 		bool changed = _hoverIndex != index;
@@ -66,81 +103,74 @@ public sealed class ActivityBar
 	}
 
 	public void Render(IPainter painter, float x, float y, float height, float scale) {
-		float gutter = Metrics.CardMargin * scale;
-		float item = ItemHeight(scale);
-		float gap = ItemGap(scale);
-		float iconSize = Metrics.ActivityIconSize * scale;
-
-		x += gutter;
-		height -= gutter;
-
+		float left = x + (Metrics.CardMargin * scale);
 		float width = Metrics.ActivityBarWidth * scale;
-		float radius = Metrics.RadiusSmall * scale;
+		float centreX = left + (width / 2f);
+		float item = ActionHeight * scale;
+		float step = (ActionHeight + ActionGap) * scale;
 
 		for (int i = 0; i < Views.Length; i++) {
-			float top = y + (i * (item + gap));
+			float top = y + (i * step);
 			bool isActive = Views[i] == Active;
 			bool isHovered = i == _hoverIndex;
 
-			if (isActive) {
-				painter.FillRoundedRectangle(x, top, width, item, radius,
-					Theme.ActivityBarActiveBackground);
-			}
-			else if (isHovered) painter.FillRoundedRectangle(x, top, width, item, radius, Theme.ListHoverBackground);
+			if (isActive) painter.FillRoundedRectangle(centreX - (item / 2f), top, item, item, IndicatorRadius * scale, Theme.ActivityBarActiveBackground);
 
-			Color color = isActive
-				? Theme.ActivityBarActiveForeground
-				: isHovered ? Theme.ActivityBarActiveForeground : Theme.ActivityBarForeground;
+			Color color = isActive ? Theme.ActivityBarActiveForeground : isHovered ? Theme.Foreground : Theme.ActivityBarForeground;
 
-			DrawIcon(painter, Views[i], x + (width / 2f), top + (item / 2f), iconSize, color);
+			DrawView(painter, Views[i], centreX, top + (item / 2f), IconSize * scale, color);
 
-			if (Views[i] == ActivityView.SourceControl && SourceControlCount > 0) {
-				float badgeWidth = Badge.Width(painter.GetUiSmall(), SourceControlCount, scale);
-
-				Badge.Draw(painter, SourceControlCount,
-					x + width - (2f * scale) - badgeWidth,
-					top + (18f * scale) + (Badge.Height * scale / 2f), scale,
-					Theme.Accent, Theme.TabActiveForeground);
-			}
+			if (Views[i] == ActivityView.SourceControl && SourceControlCount > 0) DrawBadge(painter, SourceControlCount, centreX + (item / 2f), top + item, scale);
 		}
 
-		float settingsTop = y + height - item;
-		bool settingsHovered = _hoverIndex == Views.Length;
+		float row = BottomActionHeight * scale;
+		float controlsTop = y + height - (BottomPadding * scale) - (row * Controls.Length);
 
-		if (settingsHovered) {
-			painter.FillRoundedRectangle(x, settingsTop, width, item, radius, Theme.ListHoverBackground);
+		for (int i = 0; i < Controls.Length; i++) {
+			bool hovered = _hoverIndex == Views.Length + i;
+			Color color = hovered ? Theme.ActivityBarActiveForeground : Theme.ActivityBarForeground;
+
+			painter.DrawIcon(ControlIcon(Controls[i]), centreX, controlsTop + (i * row) + (row / 2f), BottomIconSize * scale, color);
 		}
-
-		painter.DrawIcon(
-			Codicon.SettingsGear,
-			x + (width / 2f),
-			settingsTop + (item / 2f),
-			iconSize,
-			settingsHovered ? Theme.ActivityBarActiveForeground : Theme.ActivityBarForeground);
 	}
 
-	private static void DrawIcon(IPainter painter, ActivityView view, float centreX, float centreY, float size,
-		Color color) {
-		switch (view) {
-			case ActivityView.Explorer:
-				painter.DrawIcon(Codicon.Files, centreX, centreY, size, color);
-				break;
+	private void DrawBadge(IPainter painter, int count, float right, float bottom, float scale) {
+		ITextFont font = painter.GetUiSmall();
+		Span<char> text = stackalloc char[8];
+		count.TryFormat(text, out int length);
 
-			case ActivityView.Search:
-				painter.DrawIcon(Codicon.Search, centreX, centreY, size, color);
-				break;
+		float height = 14f * scale;
+		float width = Math.Max(font.Measure(text[..length]) + (6f * scale), height);
+		float badgeRight = right - (2f * scale);
+		float badgeBottom = bottom - scale;
 
-			case ActivityView.SourceControl:
-				painter.DrawIcon(Codicon.SourceControl, centreX, centreY, size, color);
-				break;
+		painter.FillRoundedRectangle(badgeRight - width, badgeBottom - height, width, height, height / 2f, Theme.ActivityBarBadgeBackground);
 
-			case ActivityView.Run:
-				painter.DrawIcon(Codicon.DebugAlt, centreX, centreY, size, color);
-				break;
+		float baseline = badgeBottom - height + ((height - font.GetLineHeight()) / 2f) + font.GetBaseline();
+		painter.DrawText(font, text[..length], badgeRight - width + ((width - font.Measure(text[..length])) / 2f), baseline, Theme.ActivityBarBadgeForeground);
+	}
 
-			case ActivityView.Extensions:
-				painter.DrawIcon(Codicon.Extensions, centreX, centreY, size, color);
-				break;
+	private Codicon ControlIcon(ActivityBarControl control) => control switch {
+		ActivityBarControl.ToggleSidebar => SidebarVisible ? Codicon.LayoutSidebarLeft : Codicon.LayoutSidebarLeftOff,
+		ActivityBarControl.TogglePanel => PanelVisible ? Codicon.LayoutPanel : Codicon.LayoutPanelOff,
+		ActivityBarControl.ToggleAuxiliaryBar => AuxiliaryBarVisible ? Codicon.LayoutSidebarRight : Codicon.LayoutSidebarRightOff,
+		_ => Codicon.SettingsGear,
+	};
+
+	private void DrawView(IPainter painter, ActivityView view, float centreX, float centreY, float size, Color color) {
+		if (view == ActivityView.Explorer && ExplorerIcon is { } folder) {
+			painter.DrawVectorIcon(folder, centreX, centreY, size, color);
+			return;
 		}
+
+		Codicon icon = view switch {
+			ActivityView.Explorer => Codicon.Files,
+			ActivityView.Search => Codicon.Search,
+			ActivityView.SourceControl => Codicon.SourceControl,
+			ActivityView.Run => Codicon.DebugAlt,
+			_ => Codicon.Extensions,
+		};
+
+		painter.DrawIcon(icon, centreX, centreY, size, color);
 	}
 }

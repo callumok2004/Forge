@@ -15,7 +15,7 @@ public static class WebviewTheme
 
 		builder.Append(":root{");
 
-		Append(builder, "font-family", "\"Segoe WPC\", \"Segoe UI\", sans-serif");
+		Append(builder, "font-family", "\"Geist\", \"Segoe WPC\", \"Segoe UI\", sans-serif");
 		Append(builder, "font-size", "13px");
 		Append(builder, "font-weight", "normal");
 		Append(builder, "editor-font-family",
@@ -364,11 +364,33 @@ public static class WebviewTheme
 		Append(builder, "symbolIcon-unitForeground", Theme.SuggestHighlightForeground);
 		Append(builder, "symbolIcon-variableForeground", Theme.SuggestHighlightForeground);
 
+		AppendThemeColours(builder);
+
 		builder.Append('}');
 
 		builder.Append(DefaultStyles);
 
 		return builder.ToString();
+	}
+
+	public static string? OverridesFor(string? extensionId) {
+		if (extensionId is not { Length: > 0 }) return null;
+
+		using Stream? stream = typeof(WebviewTheme).Assembly.GetManifestResourceStream($"Forge.Common.Webview.Overrides.{extensionId.ToLowerInvariant()}.css");
+
+		if (stream is null) return null;
+
+		using StreamReader reader = new(stream);
+		return reader.ReadToEnd();
+	}
+
+	private static void AppendThemeColours(StringBuilder builder) {
+		using Stream? stream = typeof(WebviewTheme).Assembly.GetManifestResourceStream("Forge.Common.Webview.theme.json");
+
+		if (stream is null || System.Text.Json.Nodes.JsonNode.Parse(stream)?["colors"] is not System.Text.Json.Nodes.JsonObject colours) return;
+
+		foreach ((string key, System.Text.Json.Nodes.JsonNode? value) in colours)
+			if (value?.GetValue<string>() is { } colour) Append(builder, key.Replace('.', '-'), colour);
 	}
 
 	private const string DefaultStyles = "@layer vscode-default{html{scrollbar-color:var(--vscode-scrollbarSlider-background) var(--vscode-editor-background);}body{overscroll-behavior-x:none;background-color:transparent;color:var(--vscode-editor-foreground);font-family:var(--vscode-font-family);font-weight:var(--vscode-font-weight);font-size:var(--vscode-font-size);margin:0;padding:0 20px;}img,video{max-width:100%;max-height:100%;}a,a code{color:var(--vscode-textLink-foreground);}p > a{text-decoration:var(--text-link-decoration);}a:hover{color:var(--vscode-textLink-activeForeground);}a:focus,input:focus,select:focus,textarea:focus{outline:1px solid -webkit-focus-ring-color;outline-offset:-1px;}code{font-family:var(--monaco-monospace-font);color:var(--vscode-textPreformat-foreground);background-color:var(--vscode-textPreformat-background);padding:1px 3px;border-radius:4px;}pre code{padding:0;}blockquote{background:var(--vscode-textBlockQuote-background);border-color:var(--vscode-textBlockQuote-border);}kbd{background-color:var(--vscode-keybindingLabel-background);color:var(--vscode-keybindingLabel-foreground);border-style:solid;border-width:1px;border-radius:3px;border-color:var(--vscode-keybindingLabel-border);border-bottom-color:var(--vscode-keybindingLabel-bottomBorder);box-shadow:inset 0 -1px 0 var(--vscode-widget-shadow);vertical-align:middle;padding:1px 3px;}::-webkit-scrollbar{width:10px;height:10px;}::-webkit-scrollbar-corner{background-color:var(--vscode-editor-background);}::-webkit-scrollbar-thumb{background-color:var(--vscode-scrollbarSlider-background);}::-webkit-scrollbar-thumb:hover{background-color:var(--vscode-scrollbarSlider-hoverBackground);}::-webkit-scrollbar-thumb:active{background-color:var(--vscode-scrollbarSlider-activeBackground);}::highlight(find-highlight){background-color:var(--vscode-editor-findMatchHighlightBackground);}::highlight(current-find-highlight){background-color:var(--vscode-editor-findMatchBackground);}}";

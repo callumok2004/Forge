@@ -10,6 +10,7 @@ public enum MenuCommand
 
 	OpenFile,
 	OpenFolder,
+	NewWindow,
 	Save,
 	SaveAs,
 	CloseEditor,
@@ -40,15 +41,19 @@ public enum MenuCommand
 
 	ShowCommands,
 
+	OpenRemote,
+	CopyRemote,
+
 	RunCommand,
 }
 
-public readonly record struct MenuEntry(string? Label, MenuCommand Command, string? Keybinding = null,
-	string? CommandId = null)
+public readonly record struct MenuEntry(string? Label, MenuCommand Command, string? Keybinding = null, string? CommandId = null, MenuEntry[]? Children = null)
 {
 	public bool IsSeparator => Label is null;
 
 	public static MenuEntry Separator => new(null, MenuCommand.None);
+
+	public static MenuEntry Submenu(string label, MenuEntry[] children) => new(label, MenuCommand.None, Children: children);
 }
 
 public sealed class MenuPopup
@@ -57,14 +62,15 @@ public sealed class MenuPopup
 	private const float SeparatorHeight = 7f;
 	private const float PaddingY = 4f;
 	private const float PaddingX = 10f;
-
 	private const float KeybindingGap = 28f;
+	private const float ChevronWidth = 16f;
 
-	private static readonly MenuEntry[][] Menus =
+	public static readonly MenuEntry[] CodeMenu =
 	[
-		[
+		MenuEntry.Submenu("File", [
 			new("Open File…", MenuCommand.OpenFile, "Ctrl+O"),
 			new("Open Folder…", MenuCommand.OpenFolder, "Ctrl+K Ctrl+O"),
+			new("New Window", MenuCommand.NewWindow, "Ctrl+Shift+N"),
 			MenuEntry.Separator,
 			new("Save", MenuCommand.Save, "Ctrl+S"),
 			new("Save As…", MenuCommand.SaveAs, "Ctrl+Shift+S"),
@@ -73,22 +79,19 @@ public sealed class MenuPopup
 			MenuEntry.Separator,
 			new("Close Editor", MenuCommand.CloseEditor, "Ctrl+W"),
 			new("Exit", MenuCommand.Exit, "Alt+F4"),
-		],
-
-		[
+		]),
+		MenuEntry.Submenu("Edit", [
 			new("Undo", MenuCommand.Undo, "Ctrl+Z"),
 			new("Redo", MenuCommand.Redo, "Ctrl+Y"),
 			MenuEntry.Separator,
 			new("Cut", MenuCommand.Cut, "Ctrl+X"),
 			new("Copy", MenuCommand.Copy, "Ctrl+C"),
 			new("Paste", MenuCommand.Paste, "Ctrl+V"),
-		],
-
-		[
+		]),
+		MenuEntry.Submenu("Selection", [
 			new("Select All", MenuCommand.SelectAll, "Ctrl+A"),
-		],
-
-		[
+		]),
+		MenuEntry.Submenu("View", [
 			new("Toggle Primary Sidebar", MenuCommand.ToggleSidebar, "Ctrl+B"),
 			new("Toggle Secondary Side Bar", MenuCommand.ToggleAuxiliaryBar, "Ctrl+Alt+B"),
 			new("Toggle Panel", MenuCommand.TogglePanel, "Ctrl+J"),
@@ -102,103 +105,163 @@ public sealed class MenuPopup
 			new("Zoom In", MenuCommand.ZoomIn, "Ctrl+="),
 			new("Zoom Out", MenuCommand.ZoomOut, "Ctrl+-"),
 			new("Reset Zoom", MenuCommand.ZoomReset, "Ctrl+0"),
-		],
-
-		[
+		]),
+		MenuEntry.Submenu("Go", [
 			new("Go to File…", MenuCommand.GoToFile, "Ctrl+P"),
-		],
-
-		[
+		]),
+		MenuEntry.Submenu("Run", [
 			new("Show All Commands", MenuCommand.ShowCommands, "Ctrl+Shift+P"),
-		],
-
-		[
+		]),
+		MenuEntry.Submenu("Help", [
 			new("Forge", MenuCommand.None),
-		],
+		]),
 	];
 
-	private int _menuIndex = -1;
+	private MenuEntry[] _entries = [];
+	private float _anchorLeft;
+	private float _anchorTop;
+
 	private int _selected = -1;
-	private float _left;
-	private float _top;
-	private float _width;
-	private float _height;
+	private int _child = -1;
+	private int _childSelected = -1;
+	private bool _inChild;
 
-	public bool IsOpen => _menuIndex >= 0;
+	private Panel _rootPanel;
+	private Panel _childPanel;
+	private float _renderScale = 1f;
 
-	public int MenuIndex => _menuIndex;
+	private readonly record struct Panel(float Left, float Top, float Width, float Height)
+	{
+		public bool Contains(float x, float y) => Width > 0f && x >= Left && x < Left + Width && y >= Top && y < Top + Height;
+	}
 
-	public void Open(int menuIndex) {
-		_menuIndex = menuIndex >= 0 && menuIndex < Menus.Length ? menuIndex : -1;
-		_selected = -1;
+	public bool IsOpen { get; private set; }
+
+	public string? CommandId { get; private set; }
+
+	public void Open(MenuEntry[] entries, float left, float top) {
+		_entries = entries;
+		_anchorLeft = left;
+		_anchorTop = top;
+		_selected = _child = _childSelected = -1;
+		_inChild = false;
+		_childPanel = default;
+		IsOpen = true;
 	}
 
 	public void Close() {
-		_menuIndex = -1;
-		_selected = -1;
-	}
-
-	public void Cycle(int delta) {
-		if (!IsOpen) return;
-
-		Open(((_menuIndex + delta) % Menus.Length + Menus.Length) % Menus.Length);
+		IsOpen = false;
+		_entries = [];
+		_selected = _child = _childSelected = -1;
+		_inChild = false;
+		_rootPanel = _childPanel = default;
 	}
 
 	public void MoveSelection(int delta) {
 		if (!IsOpen) return;
 
-		MenuEntry[] entries = Menus[_menuIndex];
-		int index = _selected;
+		if (_inChild && ChildEntries is { } children) _childSelected = Step(children, _childSelected, delta);
+		else {
+			_selected = Step(_entries, _selected, delta);
+			_child = -1;
+		}
+	}
 
-		for (int step = 0; step < entries.Length; step++) {
-			index = ((index + delta) % entries.Length + entries.Length) % entries.Length;
+	public void MoveHorizontal(int delta) {
+		if (!IsOpen) return;
 
-			if (!entries[index].IsSeparator) {
-				_selected = index;
-				return;
-			}
+		if (delta > 0 && !_inChild && _selected >= 0 && _entries[_selected].Children is { } children) {
+			_child = _selected;
+			_inChild = true;
+			_childSelected = Step(children, -1, 1);
+		}
+		else if (delta < 0 && _inChild) {
+			_inChild = false;
+			_childSelected = -1;
 		}
 	}
 
 	public MenuCommand Accept() {
-		if (!IsOpen || _selected < 0 || _selected >= Menus[_menuIndex].Length) return MenuCommand.None;
+		if (!IsOpen) return MenuCommand.None;
 
-		MenuEntry entry = Menus[_menuIndex][_selected];
-		CommandId = entry.CommandId;
+		if (_inChild && ChildEntries is { } children && _childSelected >= 0) return Pick(children[_childSelected]);
 
-		return entry.Command;
+		if (_selected < 0) return MenuCommand.None;
+
+		if (_entries[_selected].Children is not null) {
+			MoveHorizontal(1);
+			return MenuCommand.None;
+		}
+
+		return Pick(_entries[_selected]);
 	}
 
 	public bool Hover(float x, float y) {
-		int row = RowAt(x, y);
+		if (_childPanel.Contains(x, y) && ChildEntries is { } children) {
+			_inChild = true;
+			_childSelected = RowAt(children, _childPanel, y);
+			return true;
+		}
 
-		if (row != _selected && (row >= 0 || Contains(x, y))) _selected = row;
+		if (_rootPanel.Contains(x, y)) {
+			int row = RowAt(_entries, _rootPanel, y);
 
-		return Contains(x, y);
+			if (row >= 0) {
+				_selected = row;
+				_inChild = false;
+				_childSelected = -1;
+				_child = _entries[row].Children is not null ? row : -1;
+			}
+
+			return true;
+		}
+
+		return false;
 	}
 
-	public PixelRect Bounds => IsOpen
-		? PixelRect.Around(_left - 2f, _top - 2f, _width + 4f, _height + 4f)
-		: PixelRect.Empty;
+	public PixelRect Bounds {
+		get {
+			if (!IsOpen) return PixelRect.Empty;
 
-	public bool Contains(float x, float y) =>
-		IsOpen && x >= _left && x < _left + _width && y >= _top && y < _top + _height;
+			float right = Math.Max(_rootPanel.Left + _rootPanel.Width, _childPanel.Left + _childPanel.Width);
+			float bottom = Math.Max(_rootPanel.Top + _rootPanel.Height, _childPanel.Top + _childPanel.Height);
+
+			return PixelRect.Around(_rootPanel.Left - 2f, _rootPanel.Top - 2f, right - _rootPanel.Left + 4f, bottom - _rootPanel.Top + 4f);
+		}
+	}
+
+	public bool Contains(float x, float y) => IsOpen && (_rootPanel.Contains(x, y) || _childPanel.Contains(x, y));
 
 	public MenuCommand CommandAt(float x, float y) {
-		int row = RowAt(x, y);
+		if (_childPanel.Contains(x, y) && ChildEntries is { } children) {
+			int childRow = RowAt(children, _childPanel, y);
+			return childRow >= 0 ? Pick(children[childRow]) : MenuCommand.None;
+		}
 
-		CommandId = row >= 0 ? Menus[_menuIndex][row].CommandId : null;
+		int row = _rootPanel.Contains(x, y) ? RowAt(_entries, _rootPanel, y) : -1;
 
-		return row >= 0 ? Menus[_menuIndex][row].Command : MenuCommand.None;
+		return row >= 0 && _entries[row].Children is null ? Pick(_entries[row]) : MenuCommand.None;
 	}
 
-	public string? CommandId { get; private set; }
+	private MenuEntry[]? ChildEntries => _child >= 0 && _child < _entries.Length ? _entries[_child].Children : null;
 
-	private int RowAt(float x, float y) {
-		if (!Contains(x, y)) return -1;
+	private MenuCommand Pick(MenuEntry entry) {
+		CommandId = entry.CommandId;
+		return entry.Command;
+	}
 
-		MenuEntry[] entries = Menus[_menuIndex];
-		float cursor = _top + (PaddingY * _renderScale);
+	private static int Step(MenuEntry[] entries, int index, int delta) {
+		for (int step = 0; step < entries.Length; step++) {
+			index = ((index + delta) % entries.Length + entries.Length) % entries.Length;
+
+			if (!entries[index].IsSeparator) return index;
+		}
+
+		return -1;
+	}
+
+	private int RowAt(MenuEntry[] entries, Panel panel, float y) {
+		float cursor = panel.Top + (PaddingY * _renderScale);
 
 		for (int i = 0; i < entries.Length; i++) {
 			float height = (entries[i].IsSeparator ? SeparatorHeight : RowHeight) * _renderScale;
@@ -211,15 +274,32 @@ public sealed class MenuPopup
 		return -1;
 	}
 
-	private float _renderScale = 1f;
+	private float RowTop(MenuEntry[] entries, Panel panel, int row) {
+		float cursor = panel.Top + (PaddingY * _renderScale);
 
-	public void Render(IPainter painter, float titleLeft, float top, float windowWidth, float scale) {
+		for (int i = 0; i < row; i++) cursor += (entries[i].IsSeparator ? SeparatorHeight : RowHeight) * _renderScale;
+
+		return cursor;
+	}
+
+	public void Render(IPainter painter, float windowWidth, float scale) {
 		if (!IsOpen) return;
 
 		_renderScale = scale;
 
+		_rootPanel = DrawPanel(painter, _entries, _anchorLeft, _anchorTop, windowWidth, _selected, !_inChild, scale);
+
+		if (ChildEntries is { } children) {
+			float top = RowTop(_entries, _rootPanel, _child) - (PaddingY * scale);
+			float left = _rootPanel.Left + _rootPanel.Width - (Metrics.Space2 * scale);
+
+			_childPanel = DrawPanel(painter, children, left, top, windowWidth, _childSelected, _inChild, scale);
+		}
+		else _childPanel = default;
+	}
+
+	private Panel DrawPanel(IPainter painter, MenuEntry[] entries, float left, float top, float windowWidth, int selected, bool focused, float scale) {
 		ITextFont font = painter.GetUi();
-		MenuEntry[] entries = Menus[_menuIndex];
 
 		float padX = PaddingX * scale;
 		float padY = PaddingY * scale;
@@ -232,62 +312,56 @@ public sealed class MenuPopup
 
 			if (entry.IsSeparator) continue;
 
-			float row = font.Measure(entry.Label!) +
-				(entry.Keybinding is null ? 0f : (KeybindingGap * scale) + font.Measure(entry.Keybinding));
+			float trailing = entry.Children is not null ? KeybindingGap * scale : entry.Keybinding is null ? 0f : (KeybindingGap * scale) + font.Measure(entry.Keybinding);
 
-			widest = Math.Max(widest, row);
+			widest = Math.Max(widest, font.Measure(entry.Label!) + trailing);
 		}
 
-		_width = widest + (padX * 2f);
-		_height = content + (padY * 2f);
+		float width = widest + (padX * 2f) + (ChevronWidth * scale);
+		float height = content + (padY * 2f);
 
-		_left = Math.Max(0f, Math.Min(titleLeft, windowWidth - _width));
-		_top = top;
+		left = Math.Max(0f, Math.Min(left, windowWidth - width));
 
 		float radius = Metrics.RadiusLarge * scale;
 
-		painter.PushRoundedClip(_left, _top, _width, _height, radius);
-		painter.FillRoundedRectangle(_left, _top, _width, _height, radius, Theme.WidgetBackground);
+		painter.PushRoundedClip(left, top, width, height, radius);
+		painter.FillRoundedRectangle(left, top, width, height, radius, Theme.MenuBackground);
 
-		float cursor = _top + padY;
+		float cursor = top + padY;
 
 		for (int i = 0; i < entries.Length; i++) {
 			MenuEntry entry = entries[i];
 
 			if (entry.IsSeparator) {
 				float ruleY = cursor + ((SeparatorHeight * scale) / 2f);
-				painter.DrawHorizontalLine(ruleY, _left + padX, _left + _width - padX, Theme.WidgetBorder);
+				painter.DrawHorizontalLine(ruleY, left + padX, left + width - padX, Theme.MenuSeparatorBackground);
 				cursor += SeparatorHeight * scale;
 				continue;
 			}
 
 			float rowHeight = RowHeight * scale;
+			bool highlighted = i == selected;
 
-			if (i == _selected) {
+			if (highlighted) {
 				float inset = Metrics.Space4 * scale;
-				painter.FillRoundedRectangle(_left + inset, cursor, _width - (inset * 2f), rowHeight,
-					Metrics.RadiusSmall * scale, Theme.ListActiveSelectionBackground);
+				painter.FillRoundedRectangle(left + inset, cursor, width - (inset * 2f), rowHeight, Metrics.RadiusSmall * scale, focused ? Theme.MenuSelectionBackground : Theme.MenubarSelectionBackground);
 			}
 
 			float baseline = cursor + ((rowHeight - font.GetLineHeight()) / 2f) + font.GetBaseline();
 
-			Color color = entry.Command == MenuCommand.None
-				? Theme.SectionHeaderForeground
-				: i == _selected ? Theme.TabActiveForeground : Theme.EditorForeground;
+			Color color = entry.Command == MenuCommand.None && entry.Children is null ? Theme.DescriptionForeground : highlighted ? Theme.MenuSelectionForeground : Theme.MenuForeground;
 
-			painter.DrawText(font, entry.Label!, _left + padX, baseline, color);
+			painter.DrawText(font, entry.Label!, left + padX, baseline, color);
 
-			if (entry.Keybinding is { } keybinding) {
-				float keyX = _left + _width - padX - font.Measure(keybinding);
-				painter.DrawText(font, keybinding, keyX, baseline, Theme.SectionHeaderForeground);
-			}
+			if (entry.Children is not null) painter.DrawIcon(Codicon.ChevronRight, left + width - padX - (6f * scale), cursor + (rowHeight / 2f), 14f * scale, color);
+			else if (entry.Keybinding is { } keybinding) painter.DrawText(font, keybinding, left + width - padX - font.Measure(keybinding), baseline, Theme.DescriptionForeground);
 
 			cursor += rowHeight;
 		}
 
 		painter.PopRoundedClip();
+		painter.StrokeRoundedRectangle(left, top, width, height, radius, Metrics.StrokeThickness * scale, Theme.MenuBorder);
 
-		painter.StrokeRoundedRectangle(_left, _top, _width, _height, radius,
-			Metrics.StrokeThickness * scale, Theme.WidgetBorder);
+		return new Panel(left, top, width, height);
 	}
 }

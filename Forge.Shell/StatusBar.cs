@@ -1,4 +1,5 @@
 using Forge.Common.Render;
+using Forge.Core.Native;
 using Forge.Editor;
 using Forge.Text;
 using Forge.Theming;
@@ -7,7 +8,7 @@ namespace Forge.Shell;
 
 public sealed class StatusBar
 {
-	private const int MaxSegments = 12;
+	private const int MaxSegments = 16;
 
 	private readonly Segment[] _segments = new Segment[MaxSegments];
 	private int _count;
@@ -96,7 +97,7 @@ public sealed class StatusBar
 
 		if (!string.IsNullOrEmpty(branchName)) {
 			float start = cursor - (Metrics.SpaceSm * scale);
-			painter.DrawIcon(Codicon.GitBranch, cursor + (7f * scale), centreY, 14f * scale, Theme.StatusBarForeground);
+			painter.DrawIcon(Codicon.GitBranch, cursor + (7f * scale), centreY, 14f * scale, IconColor(Codicon.GitBranch));
 			cursor += 20f * scale;
 
 			painter.DrawText(font, branchName, cursor, baseline, Theme.StatusBarForeground);
@@ -111,13 +112,13 @@ public sealed class StatusBar
 
 			Span<char> count = stackalloc char[12];
 
-			painter.DrawIcon(Codicon.Error, cursor + (6f * scale), centreY, 14f * scale, Theme.StatusBarForeground);
+			painter.DrawIcon(Codicon.Error, cursor + (6f * scale), centreY, 14f * scale, IconColor(Codicon.Error));
 			cursor += 17f * scale;
 			Errors.TryFormat(count, out int errorDigits);
 			painter.DrawText(font, count[..errorDigits], cursor, baseline, Theme.StatusBarForeground);
-			cursor += font.Measure(count[..errorDigits]) + (Metrics.SpaceMd * scale);
+			cursor += font.Measure(count[..errorDigits]) + font.Measure(" ") + (6f * scale);
 
-			painter.DrawIcon(Codicon.Warning, cursor + (6f * scale), centreY, 14f * scale, Theme.StatusBarForeground);
+			painter.DrawIcon(Codicon.Warning, cursor + (6f * scale), centreY, 14f * scale, IconColor(Codicon.Warning));
 			cursor += 17f * scale;
 			Warnings.TryFormat(count, out int warningDigits);
 			painter.DrawText(font, count[..warningDigits], cursor, baseline, Theme.StatusBarForeground);
@@ -134,7 +135,7 @@ public sealed class StatusBar
 
 			float start = cursor - (Metrics.SpaceSm * scale);
 
-			painter.DrawIcon(item.Icon, cursor + (6f * scale), centreY, 14f * scale, Theme.StatusBarForeground);
+			painter.DrawIcon(item.Icon, cursor + (6f * scale), centreY, 14f * scale, IconColor(item.Icon));
 			cursor += 17f * scale;
 
 			painter.DrawText(font, item.Text, cursor, baseline, Theme.StatusBarForeground);
@@ -170,10 +171,53 @@ public sealed class StatusBar
 
 		Span<char> position = stackalloc char[64];
 		int positionLength = FormatPosition(position, view);
-		DrawRightSegment(painter, font, position[..positionLength], right, baseline, scale);
+		right = DrawRightSegment(painter, font, position[..positionLength], right, baseline, scale);
+
+		if (Resources is { } resources) DrawResources(painter, font, resources, right, baseline, centreY, scale);
 
 		DrawHover(painter, y, height);
 	}
+
+	public ResourceUsage? Resources { get; set; }
+
+	private void DrawResources(IPainter painter, ITextFont font, ResourceUsage resources, float right, float baseline, float centreY, float scale) {
+		Span<char> cpu = stackalloc char[16];
+		resources.CpuPercent.TryFormat(cpu, out int cpuLength, "F1");
+		cpu[cpuLength++] = '%';
+
+		Span<char> memory = stackalloc char[16];
+		double megabytes = resources.MemoryBytes / (1024.0 * 1024.0);
+
+		bool gigabytes = megabytes >= 1024;
+		(gigabytes ? megabytes / 1024 : Math.Round(megabytes)).TryFormat(memory, out int memoryLength, gigabytes ? "F2" : "F0");
+		memoryLength += Write(memory[memoryLength..], gigabytes ? " GB" : " MB");
+
+		float icon = 17f * scale;
+		float gap = font.Measure("  ");
+		float width = icon + font.Measure(cpu[..cpuLength]) + gap + icon + font.Measure(memory[..memoryLength]);
+		float cursor = right - width;
+
+		AddSegment(cursor - (Metrics.SpaceSm * scale), width + (Metrics.SpaceLg * scale), rightAligned: true);
+
+		painter.DrawIcon(Codicon.Pulse, cursor + (6f * scale), centreY, 14f * scale, Theme.StatusBarForeground);
+		cursor += icon;
+		painter.DrawText(font, cpu[..cpuLength], cursor, baseline, Theme.StatusBarForeground);
+		cursor += font.Measure(cpu[..cpuLength]) + gap;
+
+		painter.DrawIcon(Codicon.Server, cursor + (6f * scale), centreY, 14f * scale, Theme.StatusBarForeground);
+		cursor += icon;
+		painter.DrawText(font, memory[..memoryLength], cursor, baseline, Theme.StatusBarForeground);
+	}
+
+	private static Color IconColor(Codicon icon) => icon switch {
+		Codicon.Error => Theme.ProblemsErrorIcon,
+		Codicon.Warning => Theme.ProblemsWarningIcon,
+		Codicon.Info => Theme.ProblemsInfoIcon,
+		Codicon.GitBranch or Codicon.SourceControl or Codicon.Sync => Theme.ActivityBarBadgeBackground,
+		Codicon.Run or Codicon.Check or Codicon.DebugAlt or Codicon.DebugContinue or Codicon.DebugPause or Codicon.DebugRestart or Codicon.DebugStop or Codicon.DebugDisconnect => Theme.ChartsGreen,
+		Codicon.Globe => Theme.ChartsBlue,
+		_ => Theme.StatusBarForeground,
+	};
 
 	private void DrawHover(IPainter painter, float y, float height) {
 		if (_hoverIndex >= 0 && _hoverIndex < _count) {

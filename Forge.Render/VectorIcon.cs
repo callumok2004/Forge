@@ -17,19 +17,26 @@ public sealed class VectorIcon : IVectorIcon, IDisposable
 
 	private bool _disposed;
 
-	private readonly struct Shape(D2D.ID2D1Geometry geometry, Color fill)
+	private readonly D2D.ID2D1StrokeStyle? _strokeStyle;
+
+	private readonly struct Shape(D2D.ID2D1Geometry geometry, Color fill, Color stroke, float strokeWidth)
 	{
 		public readonly D2D.ID2D1Geometry Geometry = geometry;
 		public readonly Color Fill = fill;
+		public readonly Color Stroke = stroke;
+		public readonly float StrokeWidth = strokeWidth;
 	}
 
-	private readonly struct Inherited(Color? rootFill, Color gradientFallback)
+	private readonly struct Inherited(Color? rootFill, Color gradientFallback, Color? rootStroke, float rootStrokeWidth)
 	{
 		public readonly Color? RootFill = rootFill;
 		public readonly Color GradientFallback = gradientFallback;
+		public readonly Color? RootStroke = rootStroke;
+		public readonly float RootStrokeWidth = rootStrokeWidth;
 	}
 
-	private VectorIcon(Shape[] shapes, float viewBox, float minX, float minY) {
+	private VectorIcon(Shape[] shapes, float viewBox, float minX, float minY, D2D.ID2D1StrokeStyle? strokeStyle) {
+		_strokeStyle = strokeStyle;
 		_shapes = shapes;
 		_viewBox = viewBox;
 		_minX = minX;
@@ -88,13 +95,17 @@ public sealed class VectorIcon : IVectorIcon, IDisposable
 
 		Color gradientFallback = FirstStopColour(source);
 
-		Inherited inherited = new(RootFill(source), gradientFallback);
+		Inherited inherited = new(RootFill(source), gradientFallback, RootPaint(source, "stroke"), RootNumber(source, "stroke-width"));
 
 		CollectPaths(factory, source, shapes, inherited);
 		CollectCircles(factory, source, shapes, inherited);
 		CollectRectangles(factory, source, shapes, inherited);
 
-		return shapes.Count > 0 ? new VectorIcon([.. shapes], viewBox, minX, minY) : null;
+		if (shapes.Count == 0) return null;
+
+		D2D.ID2D1StrokeStyle? strokeStyle = shapes.Exists(static shape => shape.StrokeWidth > 0f) ? factory.CreateStrokeStyle(new D2D.StrokeStyleProperties { StartCap = D2D.CapStyle.Round, EndCap = D2D.CapStyle.Round, LineJoin = D2D.LineJoin.Round }) : null;
+
+		return new VectorIcon([.. shapes], viewBox, minX, minY, strokeStyle);
 	}
 
 	internal void Draw(D2D.ID2D1DeviceContext context, D2D.ID2D1SolidColorBrush brush, float centreX,
@@ -111,10 +122,19 @@ public sealed class VectorIcon : IVectorIcon, IDisposable
 			previous;
 
 		for (int i = 0; i < _shapes.Length; i++) {
-			Color fill = tint ?? _shapes[i].Fill;
-			brush.Color = new Vortice.Mathematics.Color4(fill.R, fill.G, fill.B, fill.A);
+			Shape shape = _shapes[i];
 
-			context.FillGeometry(_shapes[i].Geometry, brush);
+			if (shape.Fill.A > 0f) {
+				Color fill = tint ?? shape.Fill;
+				brush.Color = new Vortice.Mathematics.Color4(fill.R, fill.G, fill.B, fill.A);
+				context.FillGeometry(shape.Geometry, brush);
+			}
+
+			if (shape.StrokeWidth > 0f && shape.Stroke.A > 0f) {
+				Color stroke = tint ?? shape.Stroke;
+				brush.Color = new Vortice.Mathematics.Color4(stroke.R, stroke.G, stroke.B, stroke.A);
+				context.DrawGeometry(shape.Geometry, brush, shape.StrokeWidth, _strokeStyle);
+			}
 		}
 
 		context.Transform = previous;
@@ -142,7 +162,7 @@ public sealed class VectorIcon : IVectorIcon, IDisposable
 				continue;
 			}
 
-			shapes.Add(new Shape(geometry, Fill(element, inherited)));
+			shapes.Add(CreateShape(geometry, element, inherited));
 		}
 	}
 
@@ -157,7 +177,7 @@ public sealed class VectorIcon : IVectorIcon, IDisposable
 			D2D.ID2D1EllipseGeometry geometry = factory.CreateEllipseGeometry(
 				new D2D.Ellipse(new Vector2(Number(element, "cx"), Number(element, "cy")), radius, radius));
 
-			shapes.Add(new Shape(geometry, Fill(element, inherited)));
+			shapes.Add(CreateShape(geometry, element, inherited));
 		}
 	}
 
@@ -174,9 +194,7 @@ public sealed class VectorIcon : IVectorIcon, IDisposable
 			float x = Number(element, "x");
 			float y = Number(element, "y");
 
-			shapes.Add(new Shape(
-				factory.CreateRectangleGeometry(new Vortice.Mathematics.Rect(x, y, width, height)),
-				Fill(element, inherited)));
+			shapes.Add(CreateShape(factory.CreateRectangleGeometry(new Vortice.Mathematics.Rect(x, y, width, height)), element, inherited));
 		}
 	}
 
@@ -203,6 +221,31 @@ public sealed class VectorIcon : IVectorIcon, IDisposable
 		element = svg.Slice(start, end);
 		position = start + end;
 		return true;
+	}
+
+	private static Shape CreateShape(D2D.ID2D1Geometry geometry, ReadOnlySpan<char> element, Inherited inherited) {
+		ReadOnlySpan<char> stroke = Attribute(element, "stroke");
+		Color strokeColour = stroke.IsEmpty ? inherited.RootStroke ?? Color.Transparent : Resolve(stroke, inherited.GradientFallback) ?? Theme.EditorForeground;
+
+		float width = Number(element, "stroke-width");
+		if (width <= 0f) width = inherited.RootStrokeWidth > 0f ? inherited.RootStrokeWidth : strokeColour.A > 0f ? 1f : 0f;
+
+		return new Shape(geometry, Fill(element, inherited), strokeColour, width);
+	}
+
+	private static Color? RootPaint(ReadOnlySpan<char> svg, ReadOnlySpan<char> name) {
+		int position = 0;
+
+		if (!TryFindElement(svg, "<svg", ref position, out ReadOnlySpan<char> root)) return null;
+
+		ReadOnlySpan<char> value = Attribute(root, name);
+		return value.IsEmpty ? null : Resolve(value, Theme.EditorForeground) ?? Theme.EditorForeground;
+	}
+
+	private static float RootNumber(ReadOnlySpan<char> svg, ReadOnlySpan<char> name) {
+		int position = 0;
+
+		return TryFindElement(svg, "<svg", ref position, out ReadOnlySpan<char> root) ? Number(root, name) : 0f;
 	}
 
 	private static Color Fill(ReadOnlySpan<char> element, Inherited inherited) {
@@ -319,5 +362,7 @@ public sealed class VectorIcon : IVectorIcon, IDisposable
 		_disposed = true;
 
 		for (int i = 0; i < _shapes.Length; i++) _shapes[i].Geometry.Dispose();
+
+		_strokeStyle?.Dispose();
 	}
 }

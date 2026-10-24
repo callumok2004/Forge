@@ -12,4 +12,9 @@
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection" />
 	</ItemGroup>
+
+	<ItemGroup>
+		<EmbeddedResource Include="Webview\theme.json" LogicalName="Forge.Common.Webview.theme.json" />
+		<EmbeddedResource Include="Webview\Overrides\*.css" LogicalName="Forge.Common.Webview.Overrides.%(Filename)%(Extension)" />
+	</ItemGroup>
 </Project>

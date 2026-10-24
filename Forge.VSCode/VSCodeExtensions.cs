@@ -4,8 +4,7 @@ namespace Forge.VSCode;
 
 public sealed record VSCodeCommand(string Id, string Title, string? Category);
 
-public sealed record WebviewViewEntry(string ViewId, string Title, string Directory, string ExtensionId,
-	string? When, string Location);
+public sealed record WebviewViewEntry(string ViewId, string Title, string Directory, string ExtensionId, string? When, string Location, string? IconPath = null);
 
 public sealed record VSCodeWebviewView(string Id, string Name, string? When);
 

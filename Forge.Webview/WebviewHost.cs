@@ -82,6 +82,7 @@ public sealed class WebviewHost(nint window, string userDataFolder, Action<Actio
 	private sealed class View
 	{
 		public string Html = string.Empty;
+		public string? Overrides;
 		public string? Root;
 		public PixelRect Bounds;
 		public bool Wanted;
@@ -130,10 +131,11 @@ public sealed class WebviewHost(nint window, string userDataFolder, Action<Actio
 
 	public bool IsShowing(string id) => _views.TryGetValue(id, out View? view) && view is { Wanted: true, Loaded: true };
 
-	public void Show(string id, string html, string? rootDirectory, PixelRect bounds) {
+	public void Show(string id, string html, string? rootDirectory, PixelRect bounds, string? extensionId = null) {
 		if (_disposed || _unavailable) return;
 
 		View view = Track(id);
+		view.Overrides = WebviewTheme.OverridesFor(extensionId);
 
 		bool changed = !string.Equals(view.Html, html, StringComparison.Ordinal);
 
@@ -378,7 +380,7 @@ public sealed class WebviewHost(nint window, string userDataFolder, Action<Actio
 		view.Loaded = false;
 
 		try {
-			File.WriteAllText(Path.Combine(PageDirectory(id), "index.html"), WithTheme(view.Html));
+			File.WriteAllText(Path.Combine(PageDirectory(id), "index.html"), WithTheme(view.Html, view.Overrides));
 		}
 		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
 			Fail($"Could not stage the page for {id}: {exception.Message}");
@@ -407,14 +409,18 @@ public sealed class WebviewHost(nint window, string userDataFolder, Action<Actio
 		return new string(buffer);
 	}
 
-	private string WithTheme(string html) {
+	private string WithTheme(string html, string? overrides) {
 		string nonce = NonceOf(html);
+		string nonceAttribute = nonce.Length > 0 ? $" nonce=\"{nonce}\"" : string.Empty;
 
-		string style = nonce.Length > 0
-			? $"<style id=\"forge-theme\" nonce=\"{nonce}\">{ThemeCss}</style>"
-			: $"<style id=\"forge-theme\">{ThemeCss}</style>";
+		if (overrides is not null) {
+			string overrideStyle = $"<style id=\"_forgeOverrides\"{nonceAttribute}>{overrides}</style>";
+			int headEnd = html.IndexOf("</head>", StringComparison.OrdinalIgnoreCase);
 
-		string prologue = $"<base href=\"https://{VirtualHost}/\">{style}";
+			html = headEnd < 0 ? overrideStyle + html : html[..headEnd] + overrideStyle + html[headEnd..];
+		}
+
+		string prologue = $"<base href=\"https://{VirtualHost}/\"><style id=\"forge-theme\"{nonceAttribute}>{ThemeCss}</style>";
 
 		int head = html.IndexOf("<head", StringComparison.OrdinalIgnoreCase);
 

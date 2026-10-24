@@ -30,8 +30,7 @@ public sealed class TextFont : ITextFont, IDisposable
 
 	private bool _disposed;
 
-	public TextFont(DWrite.IDWriteFactory factory, string[] familyCandidates, float sizeInPixels,
-		TextWeight textWeight = TextWeight.Regular, float lineHeightOverride = 0f) {
+	public TextFont(DWrite.IDWriteFactory factory, DWrite.IDWriteFontCollection? bundled, string[] familyCandidates, float sizeInPixels, TextWeight textWeight = TextWeight.Regular, float lineHeightOverride = 0f) {
 		DWrite.FontWeight weight = textWeight switch {
 			TextWeight.SemiBold => DWrite.FontWeight.SemiBold,
 			TextWeight.Bold => DWrite.FontWeight.Bold,
@@ -44,15 +43,24 @@ public sealed class TextFont : ITextFont, IDisposable
 
 		uint familyIndex = 0;
 		FamilyName = familyCandidates.Length > 0 ? familyCandidates[0] : "Segoe UI";
+		DWrite.IDWriteFontCollection source = _collection;
 
 		foreach (string candidate in familyCandidates) {
-			if (_collection.FindFamilyName(candidate, out familyIndex)) {
+			if (bundled is not null && bundled.FindFamilyName(candidate, out uint bundledIndex)) {
+				source = bundled;
+				familyIndex = bundledIndex;
+				FamilyName = candidate;
+				break;
+			}
+
+			if (_collection.FindFamilyName(candidate, out uint systemIndex)) {
+				familyIndex = systemIndex;
 				FamilyName = candidate;
 				break;
 			}
 		}
 
-		_family = _collection.GetFontFamily(familyIndex);
+		_family = source.GetFontFamily(familyIndex);
 		_font = _family.GetFirstMatchingFont(weight, DWrite.FontStretch.Normal, DWrite.FontStyle.Normal);
 		_fontFace = _font.CreateFontFace();
 

@@ -120,10 +120,8 @@ public sealed class Ambient : IAmbient, IDisposable
 
 			bool building = _outstanding[Index(AmbientSignal.Build)] + _outstanding[Index(AmbientSignal.Tests)] > 0;
 
-			(Vector4 target, float depth) = building ? (Opaque(Theme.ChartsYellow), 1f)
-				: _resultSeconds > 0f ? (Opaque(_result), 0f)
-				: _outstanding[Index(AmbientSignal.Debug)] > 0 ? (Opaque(Theme.ChartsBlue), 0f)
-				: (Vector4.Zero, 0f);
+			bool debugging = _outstanding[Index(AmbientSignal.Debug)] > 0;
+			(Vector4 target, float depth) = building ? (Opaque(Theme.ChartsYellow), 1f) : _resultSeconds > 0f ? (Opaque(_result), 0f) : debugging ? (Opaque(Theme.ChartsBlue), 0f) : (Vector4.Zero, 0f);
 
 			float blend = 1f - MathF.Exp(-TransitionRate * dt);
 			_glow = Vector4.Lerp(_glow, target, blend);

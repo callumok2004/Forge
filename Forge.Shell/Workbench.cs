@@ -186,7 +186,11 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	public float AuxiliaryWidth => Auxiliary is { IsOpen: true, HasViews: true } ? Auxiliary.Width * _scale : 0f;
 
-	public float AuxiliaryLeft(float windowWidth) => windowWidth - AuxiliaryWidth - (Metrics.CardMargin * _scale);
+	public float AuxiliaryStripWidth => Auxiliary.HasViews ? AuxiliaryBar.StripWidth(_scale) : 0f;
+
+	public float AuxiliaryStripLeft(float windowWidth) => windowWidth - AuxiliaryStripWidth;
+
+	public float AuxiliaryLeft(float windowWidth) => windowWidth - AuxiliaryStripWidth - AuxiliaryWidth - (Metrics.CardMargin * _scale);
 
 	public float PanelHeight => Panel.IsOpen ? (Panel.Height * _scale) + (Metrics.CardInnerMargin * _scale) : 0f;
 
@@ -205,7 +209,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	public float EditorTop => ShellTop + TabStrip.Height(_scale) + Breadcrumbs.Height(_scale);
 
 	public float EditorWidth(float windowWidth) =>
-		Math.Max(0f, windowWidth - EditorLeft - EditorRightGutter - AuxiliaryWidth);
+		Math.Max(0f, windowWidth - EditorLeft - EditorRightGutter - AuxiliaryWidth - AuxiliaryStripWidth);
 
 	public float TextWidth(float windowWidth) =>
 		Math.Max(0f, EditorWidth(windowWidth) - (ShowMinimap ? Minimap.Width(_scale) : 0f));
@@ -293,7 +297,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	}
 
 	public void ResizeAuxiliary(float pointerX, float windowWidth) =>
-		Auxiliary.Resize((windowWidth - pointerX - (Metrics.CardMargin * _scale)) / _scale);
+		Auxiliary.Resize((windowWidth - AuxiliaryStripWidth - pointerX - (Metrics.CardMargin * _scale)) / _scale);
 
 	public bool IsOverPanelSplitter(float x, float y, float windowHeight) {
 		if (!Panel.IsOpen || x < EditorLeft) return false;
@@ -485,6 +489,10 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 			? counted.GetStaged().Count + counted.GetUnstaged().Count + counted.GetMerge().Count
 			: 0;
 
+		ActivityBar.SidebarVisible = ShowSidebar;
+		ActivityBar.PanelVisible = Panel.IsOpen;
+		ActivityBar.AuxiliaryBarVisible = AuxiliaryWidth > 0f;
+
 		if (painter.NeedsPaint(0f, ShellTop, ActivityBarWidth, statusTop - ShellTop)) {
 			ActivityBar.Render(painter, 0f, ShellTop, statusTop - ShellTop, _scale);
 		}
@@ -535,6 +543,8 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 				Metrics.StrokeThickness * _scale, Theme.PanelBorder);
 		}
 
+		if (AuxiliaryStripWidth > 0f && painter.NeedsPaint(AuxiliaryStripLeft(width), ShellTop, AuxiliaryStripWidth, statusTop - ShellTop)) Auxiliary.RenderStrip(painter, AuxiliaryStripLeft(width), ShellTop, _scale);
+
 		if (AuxiliaryWidth > 0f) {
 			float auxiliaryLeft = AuxiliaryLeft(width);
 
@@ -558,7 +568,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		if (ShowFrameStats && FrameStats is { } stats) DrawFrameStats(painter, stats, width, statusTop);
 
 		if (Menu.IsOpen) {
-			Menu.Render(painter, TitleBar.MenuLeftAt(painter, Menu.MenuIndex, _scale), ShellTop, width, _scale);
+			Menu.Render(painter, width, _scale);
 		}
 
 		Sidebar.SourceControl.Menu.Render(painter, width, height, _scale);

@@ -8,7 +8,7 @@ public interface IWebviewHost
 
 	bool IsShowing(string id);
 
-	void Show(string id, string html, string? rootDirectory, PixelRect bounds);
+	void Show(string id, string html, string? rootDirectory, PixelRect bounds, string? extensionId = null);
 
 	void SetBounds(string id, PixelRect bounds);
 
