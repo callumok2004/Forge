@@ -81,6 +81,10 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	public bool ShowSidebar { get; set; } = true;
 
+	public bool PanelFocused { get; set; }
+
+	public ProcessExplorer? ProcessExplorer { get; set; }
+
 	public bool ShowMinimap { get; set; } = true;
 
 	public string? RootPath { get; set; }
@@ -99,10 +103,8 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	public bool RunCommand(string id, ICommandHost host) {
 		CommandInvoked?.Invoke(id);
-		return Commands.Execute(id, host);
+		return Registry.Execute(id, host);
 	}
-
-	public ICommandRegistry Commands { get; } = new CommandRegistry();
 
 	public LaunchPicker LaunchPicker { get; } = new();
 
@@ -160,7 +162,6 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		}
 
 		ThreadPool.UnsafeQueueUserWorkItem(_ => {
-			repository.Refresh();
 			Diff.Refresh(repository, path);
 			refreshed();
 		}, null);
@@ -423,15 +424,13 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	public bool SaveActive() {
 		if (WillSave is { } willSave) EditActiveDocument(willSave);
 
-		bool saved = ActiveDocument?.Save() ?? false;
+		if (ActiveDocument is not { } document || !document.Save()) return false;
 
-		if (saved && ActiveDocument?.Path is { } savedPath) {
-			PublishDocument(DocumentEvent.Saved, savedPath, ActiveDocument.Buffer.GetText());
-		}
+		if (document.Path is { } savedPath && _documentObservers.Length > 0) PublishDocument(DocumentEvent.Saved, savedPath, document.Buffer.GetText());
 
-		if (saved) ActiveDocumentChanged?.Invoke();
-
-		return saved;
+		Repository?.Refresh();
+		ActiveDocumentChanged?.Invoke();
+		return true;
 	}
 
 	public Action? ActiveDocumentChanged;
@@ -577,6 +576,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 		QuickOpen.Render(painter, width, height, _scale);
 		Palette.Render(painter, width, height, _scale);
+		ProcessExplorer?.Render(painter, width, height, _scale);
 	}
 
 	private static void DrawEmptyState(IPainter painter, float x, float y, float width, float height) {

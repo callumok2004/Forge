@@ -6,5 +6,6 @@ public interface ICommandRegistry
 
 	bool Register(ICommand command);
 	ICommand? Find(string id);
+	ICommand? Resolve(uint key, bool control, bool shift, bool alt);
 	bool Execute(string id, ICommandHost host);
 }

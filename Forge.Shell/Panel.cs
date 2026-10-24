@@ -1,6 +1,5 @@
 using System.Diagnostics;
 
-using Forge.Commands;
 using Forge.Common.Commands;
 using Forge.Common.Render;
 using Forge.Terminal;
@@ -72,8 +71,6 @@ public sealed class Panel : IDisposable
 	public PanelView Active { get; private set; } = PanelView.Terminal;
 
 	public float Height { get; set; } = 240f;
-
-	public IOutputChannels Channels { get; } = new OutputChannels();
 
 	public IOutputChannel Output { get; }
 

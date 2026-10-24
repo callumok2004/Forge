@@ -19,6 +19,7 @@ using Forge.Extensions.TrailingSpaces;
 using Forge.Git;
 using Forge.Language;
 using Forge.Render;
+using Forge.Shell.Actions;
 using Forge.Terminal;
 using Forge.Theming;
 using Forge.UI.Controls;
@@ -32,64 +33,6 @@ namespace Forge.Shell;
 public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 {
 	public static void Link(IServiceCollection services) => services.AddSingleton<IForgeApplication, ShellApplication>();
-
-
-	#region Virtual keys
-
-	private const uint VkBack = 0x08;
-	private const uint VkReturn = 0x0D;
-	private const uint VkEscape = 0x1B;
-	private const uint VkPageUp = 0x21;
-	private const uint VkPageDown = 0x22;
-	private const uint VkEnd = 0x23;
-	private const uint VkHome = 0x24;
-	private const uint VkLeft = 0x25;
-	private const uint VkUp = 0x26;
-	private const uint VkRight = 0x27;
-	private const uint VkDown = 0x28;
-	private const uint VkDelete = 0x2E;
-	private const uint Vk0 = 0x30;
-	private const uint VkNumpad0 = 0x60;
-	private const uint VkPlus = 0x6B;
-	private const uint VkMinus = 0x6D;
-	private const uint VkOemPlus = 0xBB;
-	private const uint VkOemMinus = 0xBD;
-	private const uint VkA = 0x41;
-	private const uint VkB = 0x42;
-	private const uint VkC = 0x43;
-	private const uint VkF = 0x46;
-	private const uint VkJ = 0x4A;
-	private const uint VkM = 0x4D;
-	private const uint VkP = 0x50;
-	private const uint VkU = 0x55;
-	private const uint VkS = 0x53;
-	private const uint VkV = 0x56;
-	private const uint VkW = 0x57;
-	private const uint VkX = 0x58;
-	private const uint VkY = 0x59;
-	private const uint VkZ = 0x5A;
-	private const uint VkTab = 0x09;
-	private const uint VkK = 0x4B;
-	private const uint VkL = 0x4C;
-	private const uint VkOemSlash = 0xBF;
-
-	private const uint VkD = 0x44;
-
-	private const uint VkOemBackslash = 0xDC;
-
-	private const uint VkOemOpenBrackets = 0xDB;
-	private const uint VkOemCloseBrackets = 0xDD;
-
-	private const uint VkF5 = 0x74;
-	private const uint VkF6 = 0x75;
-	private const uint VkF9 = 0x78;
-	private const uint VkF10 = 0x79;
-	private const uint VkF11 = 0x7A;
-	private const uint VkF12 = 0x7B;
-
-	private const uint VkOemTilde = 0xC0;
-
-	#endregion
 
 	public int Run(string[] args) {
 		try {
@@ -149,10 +92,13 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		workbench.Auxiliary.IconLoader = path => VectorIcon.Load(device.Factory, path);
 
 		ProcessTree processTree = new();
+		workbench.ProcessExplorer = new ProcessExplorer(processTree);
 
 		using Timer resourceTimer = new(_ => {
 			workbench.StatusBar.Resources = processTree.Sample();
 			window.Invalidate(workbench.StatusBarRect(device.Width, device.Height));
+
+			if (workbench.ProcessExplorer.IsOpen) window.Invalidate(workbench.ProcessExplorer.Bounds);
 		}, null, TimeSpan.Zero, TimeSpan.FromSeconds(2));
 
 		string rootPath = ResolveWorkspaceRoot(args);
@@ -345,8 +291,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 					: -1;
 		};
 
-		DebugCommands.Register(workbench.Commands, debugger,
-			(id, title, category, handler) => new Forge.Commands.Command(id, title, category, handler));
+		DebugCommands.Register(Registry, debugger);
 
 		ThreadPool.UnsafeQueueUserWorkItem(_ => LoadExtensions(workbench, window.Invalidate, Post), null);
 
@@ -486,26 +431,6 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		window.SetTitle(title);
 	}
 
-	private static MenuEntry[] ProjectMenu(TitleBar bar) {
-		MenuEntry[] common = [new("Open Folder…", MenuCommand.OpenFolder), new("New Window", MenuCommand.NewWindow)];
-
-		if (bar.RemoteRepository is not { Length: > 0 }) return common;
-
-		return [.. common, MenuEntry.Separator, new("Open on GitHub", MenuCommand.OpenRemote), new("Copy Repository URL", MenuCommand.CopyRemote)];
-	}
-
-	private static string? DebugKeyBinding(uint key, bool shift, bool control, DebugState state) => key switch {
-		VkF5 when control && shift => DebugCommands.Restart,
-		VkF5 when shift => DebugCommands.Stop,
-		VkF5 when control => DebugCommands.Run,
-		VkF5 => state == DebugState.Stopped ? DebugCommands.Continue : DebugCommands.Start,
-		VkF6 => DebugCommands.Pause,
-		VkF9 => DebugCommands.ToggleBreakpoint,
-		VkF10 => DebugCommands.StepOver,
-		VkF11 when shift => DebugCommands.StepOut,
-		VkF11 => DebugCommands.StepInto,
-		_ => null,
-	};
 
 	private static void WireEvents(AppWindow window, RenderDevice device, IPainter painter, FontSet fonts,
 		Settings settings, Workbench workbench, Ambient ambient, DebugService debugger,
@@ -515,8 +440,6 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		bool draggingAuxiliary = false;
 		bool draggingPanel = false;
 		bool selectingOutput = false;
-
-		bool panelFocused = false;
 
 		int dragX = 0;
 		int dragY = 0;
@@ -577,6 +500,21 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 			Refresh();
 		}
+
+		ShellContext context = new(workbench, window, device, painter, settings, debugger, rootPath) {
+			Refresh = Refresh,
+			RefreshEditor = RefreshEditor,
+			ApplyZoom = ApplyZoom,
+			Damage = Damage,
+		};
+
+		InputTargets.Register(context);
+		WorkbenchCommands.Register(Registry, context);
+		EditorCommands.Register(Registry, context);
+		InputCommands.Register(Registry, context);
+
+		workbench.Menu.KeybindingFor = id => Registry.Find(id)?.GetKeybinding();
+		workbench.Menu.IsEnabled = id => Registry.Find(id)?.IsEnabled() ?? false;
 
 		IFrameStats stats = new FrameStats();
 		workbench.FrameStats = stats;
@@ -741,162 +679,6 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			Damage(blinking.CaretRect(painter.GetCode(), workbench.EditorLeft, workbench.EditorTop,
 				workbench.TextWidth(device.Width), workbench.EditorHeight(device.Height)));
 		};
-
-		void ScrollToMatch(bool found) {
-			if (found && workbench.ActiveView is { } matched) {
-				matched.EnsureCaretVisible(painter.GetCode(), workbench.TextWidth(device.Width),
-					workbench.EditorHeight(device.Height));
-			}
-		}
-
-		void OpenMenu(MenuEntry[] entries, float left) {
-			workbench.Menu.Open(entries, left, workbench.ShellTop);
-			workbench.TitleBar.MenuOpen = entries == MenuPopup.CodeMenu;
-		}
-
-		void CloseMenu() {
-			workbench.Menu.Close();
-			workbench.TitleBar.MenuOpen = false;
-		}
-
-		void Invoke(MenuCommand command) {
-			string? commandId = workbench.Menu.CommandId;
-			CloseMenu();
-
-			TextView? view = workbench.ActiveView;
-
-			switch (command) {
-				case MenuCommand.NewWindow:
-					System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = true });
-					break;
-
-				case MenuCommand.OpenRemote when new CommandHost(workbench, Refresh).GetRemoteUrl() is { } remoteUrl:
-					System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(remoteUrl) { UseShellExecute = true });
-					break;
-
-				case MenuCommand.CopyRemote when new CommandHost(workbench, Refresh).GetRemoteUrl() is { } remoteUrl:
-					Clipboard.SetText(remoteUrl);
-					break;
-
-				case MenuCommand.RunCommand when commandId is { } id:
-					workbench.RunCommand(id, new CommandHost(workbench, Refresh));
-					break;
-
-				case MenuCommand.OpenFile when FileDialog.OpenFile(window.Handle) is { } path:
-					workbench.OpenFile(path);
-					break;
-
-				case MenuCommand.OpenFolder when FileDialog.OpenFolder(window.Handle) is { } folder:
-					System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!, folder) {
-						UseShellExecute = true,
-					});
-					break;
-
-				case MenuCommand.Save:
-					workbench.SaveActive();
-					break;
-
-				case MenuCommand.SaveAs when workbench.ActiveDocument is { } document:
-					if (FileDialog.SaveFile(window.Handle, document.Name) is { } target) document.SaveAs(target);
-					break;
-
-				case MenuCommand.CloseEditor:
-					workbench.CloseActive();
-					break;
-
-				case MenuCommand.OpenSettings:
-					workbench.OpenFile(UserData.SettingsPath);
-					break;
-
-				case MenuCommand.Exit:
-					window.CloseWindow();
-					return;
-
-				case MenuCommand.Undo:
-					view?.Undo();
-					break;
-
-				case MenuCommand.Redo:
-					view?.Redo();
-					break;
-
-				case MenuCommand.Cut when view is not null:
-					Clipboard.SetText(view.GetSelectedText());
-					view.DeleteSelection();
-					break;
-
-				case MenuCommand.Copy when view is not null:
-					Clipboard.SetText(view.GetSelectedText());
-					break;
-
-				case MenuCommand.Paste when view is not null:
-					view.InsertText(Clipboard.GetText());
-					break;
-
-				case MenuCommand.SelectAll:
-					view?.SelectAll();
-					break;
-
-				case MenuCommand.ToggleSidebar:
-					workbench.ShowSidebar = !workbench.ShowSidebar;
-					break;
-
-				case MenuCommand.ToggleAuxiliaryBar:
-					workbench.Auxiliary.Toggle();
-					break;
-
-				case MenuCommand.TogglePanel:
-					workbench.Panel.IsOpen = !workbench.Panel.IsOpen;
-					break;
-
-				case MenuCommand.ShowTerminal:
-					workbench.Panel.Show(PanelView.Terminal);
-					panelFocused = true;
-					break;
-
-				case MenuCommand.ShowProblems:
-					workbench.Panel.Show(PanelView.Problems);
-					break;
-
-				case MenuCommand.ShowOutput:
-					workbench.Panel.Show(PanelView.Output);
-					break;
-
-				case MenuCommand.ToggleMinimap:
-					workbench.ShowMinimap = !workbench.ShowMinimap;
-					settings.SetMinimapEnabled(workbench.ShowMinimap);
-					break;
-
-				case MenuCommand.ToggleFrameStats:
-					workbench.ShowFrameStats = !workbench.ShowFrameStats;
-					break;
-
-				case MenuCommand.ShowCommands:
-					workbench.Palette.Show(workbench.Commands);
-					break;
-
-				case MenuCommand.ZoomIn:
-					settings.AdjustZoom(1f);
-					ApplyZoom();
-					return;
-
-				case MenuCommand.ZoomOut:
-					settings.AdjustZoom(-1f);
-					ApplyZoom();
-					return;
-
-				case MenuCommand.ZoomReset:
-					settings.ResetZoom();
-					ApplyZoom();
-					return;
-
-				case MenuCommand.GoToFile:
-					workbench.QuickOpen.Show();
-					break;
-			}
-
-			Refresh();
-		}
 
 		string? lastRenderFailure = null;
 
@@ -1398,7 +1180,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			if (workbench.Menu.IsOpen) {
 				if (workbench.Menu.Contains(x, y)) return;
 
-				CloseMenu();
+				context.CloseMenu();
 				Refresh();
 				return;
 			}
@@ -1436,72 +1218,14 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 			if (workbench.Find.Contains(x, y, workbench.Scale)) {
 				workbench.Find.Press(workbench.Find.ButtonAt(x, y, workbench.Scale), workbench.ActiveView);
-				ScrollToMatch(true);
+				context.ScrollToMatch(true);
 				Refresh();
 				return;
 			}
 
 			if (y < workbench.ShellTop) {
-				switch (workbench.TitleBar.PartAt(x, y, device.Width, workbench.Scale)) {
-					case TitleBarPart.Menu:
-						OpenMenu(MenuPopup.CodeMenu, workbench.TitleBar.MenuLeft);
-						break;
+				if (workbench.TitleBar.CommandAt(x, y, device.Width, workbench.Scale) is { } titleCommand) context.Run(titleCommand);
 
-					case TitleBarPart.Project:
-						OpenMenu(ProjectMenu(workbench.TitleBar), workbench.TitleBar.ProjectLeft);
-						break;
-
-					case TitleBarPart.CommandCentre:
-						workbench.QuickOpen.Show();
-						break;
-
-					case TitleBarPart.Run:
-						debugger.StartDebugging(null, noDebug: true);
-						break;
-
-					case TitleBarPart.Debug:
-						debugger.StartDebugging(null, noDebug: false);
-						break;
-
-					case TitleBarPart.Continue:
-						debugger.Continue();
-						break;
-
-					case TitleBarPart.Pause:
-						debugger.Pause();
-						break;
-
-					case TitleBarPart.Stop:
-						debugger.StopSession(disconnect: false, suspend: false);
-						break;
-
-					case TitleBarPart.Restart:
-						debugger.RestartSession();
-						break;
-
-					case TitleBarPart.ShowNextStatement when debugger.GetFocusedFrame() is { SourcePath: { } source } frame:
-						workbench.GoTo(source, frame.Line, frame.Column);
-						break;
-
-					case TitleBarPart.StepInto:
-						debugger.StepInto();
-						break;
-
-					case TitleBarPart.StepOver:
-						debugger.StepOver();
-						break;
-
-					case TitleBarPart.StepOut:
-						debugger.StepOut();
-						break;
-
-					case TitleBarPart.RunConfiguration:
-						workbench.LaunchPicker.Selected = debugger.GetSelectedConfiguration();
-						workbench.LaunchPicker.Open([.. debugger.GetConfigurations().Select(static configuration => configuration.Name)], workbench.TitleBar.RunConfigurationLeft, TitleBar.Height(workbench.Scale));
-						break;
-				}
-
-				Refresh();
 				return;
 			}
 
@@ -1509,12 +1233,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			if (y >= statusTop) {
 				int segment = workbench.StatusBar.IndexAt(x, y, statusTop, workbench.Scale);
 
-				if (workbench.StatusBar.CommandAt(segment) is { } statusCommand) {
-					if (statusCommand == "workbench.panel.problems") workbench.Panel.Show(PanelView.Problems);
-					else workbench.RunCommand(statusCommand, new CommandHost(workbench, Refresh));
-
-					Refresh();
-				}
+				if (workbench.StatusBar.CommandAt(segment) is { } statusCommand) context.Run(statusCommand);
 
 				return;
 			}
@@ -1522,26 +1241,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			if (x < workbench.ActivityBarWidth) {
 				int item = workbench.ActivityBar.IndexAt(x, y, workbench.ShellTop, statusTop - workbench.ShellTop, workbench.Scale);
 
-				if (ActivityBar.ControlAt(item) is { } control) {
-					switch (control) {
-						case ActivityBarControl.ToggleSidebar:
-							workbench.ShowSidebar = !workbench.ShowSidebar;
-							Refresh();
-							break;
-
-						case ActivityBarControl.TogglePanel:
-							Invoke(MenuCommand.TogglePanel);
-							break;
-
-						case ActivityBarControl.ToggleAuxiliaryBar:
-							Invoke(MenuCommand.ToggleAuxiliaryBar);
-							break;
-
-						case ActivityBarControl.Manage:
-							Invoke(MenuCommand.OpenSettings);
-							break;
-					}
-
+				if (ActivityBar.CommandAt(item) is { } activityCommand) {
+					context.Run(activityCommand);
 					return;
 				}
 
@@ -1600,7 +1301,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 				if (channel >= 0) {
 					workbench.Panel.ActivateChannel(channel);
-					panelFocused = true;
+					workbench.PanelFocused = true;
 				}
 				else workbench.Panel.CloseChannelMenu();
 
@@ -1613,7 +1314,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 				if (profile >= 0) {
 					workbench.Panel.NewTerminal(workbench.Panel.Profiles[profile]);
-					panelFocused = true;
+					workbench.PanelFocused = true;
 				}
 				else workbench.Panel.CloseProfileMenu();
 
@@ -1622,12 +1323,12 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			}
 
 			if (workbench.Panel.IsOpen && y >= workbench.PanelTop(device.Height) && x >= workbench.EditorLeft) {
-				panelFocused = true;
+				workbench.PanelFocused = true;
 
 				switch (workbench.Panel.ActionAt(x, y, workbench.Scale)) {
 					case Panel.PanelAction.Close:
 						workbench.Panel.IsOpen = false;
-						panelFocused = false;
+						workbench.PanelFocused = false;
 						break;
 
 					case Panel.PanelAction.ProfileMenu:
@@ -1671,7 +1372,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 				return;
 			}
 
-			panelFocused = false;
+			workbench.PanelFocused = false;
 
 			if (workbench.ShowSidebar && x < workbench.EditorLeft) {
 				if (workbench.Sidebar.View == ActivityView.SourceControl) {
@@ -1768,7 +1469,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			}
 
 			if (workbench.Menu.IsOpen && workbench.Menu.Contains(x, y)) {
-				if (workbench.Menu.CommandAt(x, y) is var picked && picked != MenuCommand.None) Invoke(picked);
+				if (workbench.Menu.CommandAt(x, y) is { } picked) context.Invoke(picked);
 
 				return;
 			}
@@ -1806,51 +1507,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		window.Events.CharacterTyped += character => {
 			if (character < ' ' || character == 0x7F || Win32.IsKeyDown(Win32.VkControl)) return;
 
-			if (workbench.Palette.IsOpen) {
-				workbench.Palette.Append(character);
-				Damage(workbench.Palette.Bounds);
-				return;
-			}
-
-			if (workbench.QuickOpen.IsOpen) {
-				workbench.QuickOpen.Append(character);
-				Damage(workbench.QuickOpen.Bounds);
-				return;
-			}
-
-			if (workbench.Sidebar.View == ActivityView.SourceControl &&
-				workbench.Sidebar.SourceControl.MessageFocused) {
-				workbench.Sidebar.SourceControl.Append(character);
-				Refresh();
-				return;
-			}
-
-			if (panelFocused && workbench.Panel.Active == PanelView.Terminal &&
-				workbench.Panel.Terminal is { } shell) {
-				shell.Write([character]);
-				return;
-			}
-
-			if (workbench.Find.IsOpen) {
-				workbench.Find.Append(character);
-				ScrollToMatch(workbench.Find.Restart(workbench.ActiveView));
-				Refresh();
-				return;
-			}
-
-			if (workbench.ActiveView is { } view) {
-				if (!view.TryAutoClose(character)) view.InsertText([character]);
-
-				view.EnsureCaretVisible(painter.GetCode(), workbench.TextWidth(device.Width),
-					workbench.EditorHeight(device.Height));
-
-				workbench.IntelliSense?.Typed(character);
-
-				RefreshEditor();
-				return;
-			}
-
-			Refresh();
+			context.Focused?.Type?.Invoke(character);
 		};
 
 		window.Events.KeyDown += key => {
@@ -1858,474 +1515,21 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			bool control = Win32.IsKeyDown(Win32.VkControl);
 			bool alt = Win32.IsKeyDown(Win32.VkMenu);
 
-			if (DebugKeyBinding(key, shift, control, debugger.GetState()) is { } debugCommand) {
-				workbench.RunCommand(debugCommand, new CommandHost(workbench, Refresh));
-				Refresh();
+			if (context.EditorFocused && workbench.IntelliSense is { } intelliSense && intelliSense.HandleKey(key, control)) return;
+
+			if (Registry.Resolve(key, control, shift, alt) is { } command) {
+				workbench.RunCommand(command.GetId(), context.Host);
 				return;
 			}
 
-			if (workbench.Palette.IsOpen) {
-				switch (key) {
-					case VkEscape:
-						workbench.Palette.Hide();
-						break;
+			if (context.Focused is not { } target) return;
 
-					case VkUp:
-						workbench.Palette.MoveSelection(-1);
-						break;
-
-					case VkDown:
-						workbench.Palette.MoveSelection(1);
-						break;
-
-					case VkBack:
-						workbench.Palette.Backspace();
-						break;
-
-					case VkReturn:
-						if (workbench.Palette.Accept() is { } picked) {
-							workbench.Palette.Hide();
-							picked.Run(new CommandHost(workbench, Refresh));
-						}
-
-						break;
-
-					default:
-						return;
-				}
-
-				Refresh();
+			if (key == VirtualKey.Back && !control && target.DeleteLeft is { } deleteLeft) {
+				deleteLeft();
 				return;
 			}
 
-			if (workbench.Sidebar.SourceControl.Menu.IsOpen && key == VkEscape) {
-				workbench.Sidebar.SourceControl.Menu.Close();
-				window.Invalidate();
-				return;
-			}
-
-			if (workbench.Menu.IsOpen) {
-				switch (key) {
-					case VkEscape:
-						CloseMenu();
-						break;
-
-					case VkUp:
-						workbench.Menu.MoveSelection(-1);
-						break;
-
-					case VkDown:
-						workbench.Menu.MoveSelection(1);
-						break;
-
-					case VkLeft:
-					case VkRight:
-						workbench.Menu.MoveHorizontal(key == VkLeft ? -1 : 1);
-						break;
-
-					case VkReturn when workbench.Menu.Accept() is var accepted && accepted != MenuCommand.None:
-						Invoke(accepted);
-						return;
-				}
-
-				Refresh();
-				return;
-			}
-
-			if (workbench.QuickOpen.IsOpen && HandleQuickOpenKey(workbench, key, window, Refresh)) return;
-
-			if (workbench.Sidebar.View == ActivityView.SourceControl &&
-				workbench.Sidebar.SourceControl.MessageFocused) {
-				switch (key) {
-					case VkEscape:
-						workbench.Sidebar.SourceControl.FocusMessage(false);
-						break;
-
-					case VkBack:
-						workbench.Sidebar.SourceControl.Backspace();
-						break;
-
-					case VkReturn when control:
-						SourceControlCommands.HandleCommit(workbench, Refresh);
-						break;
-
-					case VkReturn:
-						workbench.Sidebar.SourceControl.Append('\n');
-						break;
-
-					default:
-						return;
-				}
-
-				Refresh();
-				return;
-			}
-
-			if (workbench.Find.IsOpen) {
-				switch (key) {
-					case VkEscape:
-						workbench.Find.Hide();
-						break;
-
-					case VkBack:
-						workbench.Find.Backspace();
-						ScrollToMatch(workbench.Find.Restart(workbench.ActiveView));
-						break;
-
-					case VkReturn:
-						ScrollToMatch(workbench.Find.Step(workbench.ActiveView, shift ? -1 : 1));
-						break;
-
-					case VkUp:
-						ScrollToMatch(workbench.Find.Step(workbench.ActiveView, -1));
-						break;
-
-					case VkDown:
-						ScrollToMatch(workbench.Find.Step(workbench.ActiveView, 1));
-						break;
-
-					case VkC when control:
-						workbench.Find.ToggleMatchCase();
-						ScrollToMatch(workbench.Find.Restart(workbench.ActiveView));
-						break;
-
-					case VkF when control:
-						workbench.Find.Show(workbench.ActiveView);
-						ScrollToMatch(workbench.Find.Restart(workbench.ActiveView));
-						break;
-
-					default:
-						return;
-				}
-
-				Refresh();
-				return;
-			}
-
-			switch (key) {
-				case VkOemTilde when control:
-					workbench.Panel.Toggle(PanelView.Terminal);
-					panelFocused = workbench.Panel.IsOpen;
-					Refresh();
-					return;
-
-				case VkJ when control:
-					workbench.Panel.IsOpen = !workbench.Panel.IsOpen;
-					panelFocused = workbench.Panel.IsOpen;
-					Refresh();
-					return;
-
-				case VkM when control && shift:
-					workbench.Panel.Show(PanelView.Problems);
-					panelFocused = false;
-					Refresh();
-					return;
-
-				case VkU when control && shift:
-					workbench.Panel.Show(PanelView.Output);
-					panelFocused = false;
-					Refresh();
-					return;
-			}
-
-			if (panelFocused && workbench.Panel.Active == PanelView.Output && control) {
-				if (key == VkC) {
-					Clipboard.SetText(workbench.Panel.CopyOutput());
-					return;
-				}
-
-				if (key == VkA) {
-					workbench.Panel.SelectAllOutput();
-					Refresh();
-					return;
-				}
-			}
-
-			if (panelFocused && workbench.Panel.Active == PanelView.Terminal &&
-				workbench.Panel.Terminal is { } terminal) {
-				if (key == VkEscape) {
-					panelFocused = false;
-					Refresh();
-					return;
-				}
-
-				if (control && key is >= VkA and <= VkZ) {
-					terminal.SendControl((char)key);
-					Refresh();
-					return;
-				}
-
-				if (key == VkRight && !control && terminal.AcceptSuggestion()) return;
-
-				TerminalKey mapped = key switch {
-					VkReturn => TerminalKey.Enter,
-					VkBack => TerminalKey.Backspace,
-					VkUp => TerminalKey.Up,
-					VkDown => TerminalKey.Down,
-					VkLeft => TerminalKey.Left,
-					VkRight => TerminalKey.Right,
-					VkHome => TerminalKey.Home,
-					VkEnd => TerminalKey.End,
-					VkDelete => TerminalKey.Delete,
-					VkPageUp => TerminalKey.PageUp,
-					VkPageDown => TerminalKey.PageDown,
-					_ => TerminalKey.None,
-				};
-
-				if (terminal.SendKey(mapped, control)) return;
-			}
-
-			if (workbench.IntelliSense is { } intelliSense && intelliSense.HandleKey(key, control)) return;
-
-			switch (key) {
-				case VkP when control && shift:
-					workbench.Palette.Show(workbench.Commands);
-					Refresh();
-					return;
-
-				case VkP when control:
-					workbench.QuickOpen.Show();
-					Refresh();
-					return;
-
-				case VkF when control:
-					workbench.Find.Show(workbench.ActiveView);
-					ScrollToMatch(workbench.Find.Restart(workbench.ActiveView));
-					Refresh();
-					return;
-
-				case VkB when control && Win32.IsKeyDown(Win32.VkMenu):
-					workbench.Auxiliary.Toggle();
-					Refresh();
-					return;
-
-				case VkB when control:
-					workbench.ShowSidebar = !workbench.ShowSidebar;
-					Refresh();
-					return;
-
-				case VkS when control:
-					workbench.SaveActive();
-					Refresh();
-					return;
-
-				case VkW when control:
-					workbench.CloseActive();
-					Refresh();
-					return;
-
-				case VkF12 when control && shift:
-					workbench.ShowFrameStats = !workbench.ShowFrameStats;
-					Refresh();
-					return;
-
-				case VkF12 when shift:
-					workbench.RunCommand("dotnet.findAllReferences",
-						new CommandHost(workbench, Refresh));
-
-					return;
-
-				case VkF12 when control:
-					workbench.RunCommand("dotnet.goToImplementation",
-						new CommandHost(workbench, Refresh));
-
-					return;
-
-				case VkF12:
-					workbench.RunCommand("dotnet.goToDefinition",
-						new CommandHost(workbench, Refresh));
-
-					return;
-
-				case VkPlus when control:
-				case VkOemPlus when control:
-					settings.AdjustZoom(1f);
-					ApplyZoom();
-					return;
-
-				case VkMinus when control:
-				case VkOemMinus when control:
-					settings.AdjustZoom(-1f);
-					ApplyZoom();
-					return;
-
-				case VkNumpad0 when control:
-				case Vk0 when control:
-					settings.ResetZoom();
-					ApplyZoom();
-					return;
-			}
-
-			if (workbench.ActiveView is not { } view) return;
-
-			float lineHeight = painter.GetCode().GetLineHeight();
-			float viewportHeight = workbench.EditorHeight(device.Height);
-			int linesPerPage = Math.Max(1, (int)(viewportHeight / lineHeight) - 2);
-
-			switch (key) {
-				case VkLeft when control:
-					view.MoveWord(-1, shift);
-					break;
-
-				case VkRight when control:
-					view.MoveWord(1, shift);
-					break;
-
-				case VkLeft:
-					view.MoveHorizontal(-1, shift);
-					break;
-
-				case VkRight:
-					view.MoveHorizontal(1, shift);
-					break;
-
-				case VkUp when !alt:
-					view.MoveVertical(-1, shift);
-					break;
-
-				case VkDown when !alt:
-					view.MoveVertical(1, shift);
-					break;
-
-				case VkPageUp:
-					view.MoveVertical(-linesPerPage, shift);
-					break;
-
-				case VkPageDown:
-					view.MoveVertical(linesPerPage, shift);
-					break;
-
-				case VkHome when control:
-					view.MoveToDocumentStart(shift);
-					break;
-
-				case VkEnd when control:
-					view.MoveToDocumentEnd(shift);
-					break;
-
-				case VkHome:
-					view.MoveToLineStart(shift);
-					break;
-
-				case VkEnd:
-					view.MoveToLineEnd(shift);
-					break;
-
-				case VkBack when control:
-					view.DeleteWord(-1);
-					workbench.IntelliSense?.Deleted();
-					break;
-
-				case VkBack:
-					view.Backspace();
-
-					workbench.IntelliSense?.Deleted();
-					break;
-
-				case VkDelete when control:
-					view.DeleteWord(1);
-					workbench.IntelliSense?.Deleted();
-					break;
-
-				case VkDelete:
-					view.DeleteForward();
-					workbench.IntelliSense?.Deleted();
-					break;
-
-				case VkReturn when control:
-					view.InsertLine(shift ? -1 : 1);
-					break;
-
-				case VkReturn:
-					view.InsertNewLine();
-					break;
-
-				case VkTab when shift:
-					view.IndentLines(-1);
-					break;
-
-				case VkTab when view.HasSelection:
-					view.IndentLines(1);
-					break;
-
-				case VkTab:
-					view.InsertTab();
-					break;
-
-				case VkOemCloseBrackets when control:
-					view.IndentLines(1);
-					break;
-
-				case VkOemOpenBrackets when control:
-					view.IndentLines(-1);
-					break;
-
-				case VkK when control && shift:
-					view.DeleteLines();
-					break;
-
-				case VkOemSlash when control:
-					view.ToggleLineComment();
-					break;
-
-				case VkL when control:
-					view.SelectLine();
-					break;
-
-				case VkUp when alt && shift:
-				case VkDown when alt && shift:
-					view.CopyLines(key == VkUp ? -1 : 1);
-					break;
-
-				case VkUp when alt:
-				case VkDown when alt:
-					view.MoveLines(key == VkUp ? -1 : 1);
-					break;
-
-				case VkA when control:
-					view.SelectAll();
-					break;
-
-				case VkC when control:
-					Clipboard.SetText(view.CopyText());
-					break;
-
-				case VkX when control:
-					Clipboard.SetText(view.CopyText());
-					view.Cut();
-					break;
-
-				case VkD when control:
-					view.SelectNextOccurrence();
-					break;
-
-				case VkOemBackslash when control && shift:
-					view.GoToMatchingBracket();
-					break;
-
-				case VkV when control:
-					view.InsertText(Clipboard.GetText());
-					break;
-
-				case VkZ when control:
-					view.Undo();
-					break;
-
-				case VkY when control:
-					view.Redo();
-					break;
-
-				default:
-					return;
-			}
-
-			if (key is VkHome or VkEnd or VkLeft or VkRight or VkPageUp or VkPageDown) {
-				workbench.IntelliSense?.Suggest.Hide();
-			}
-
-			view.EnsureCaretVisible(painter.GetCode(), workbench.TextWidth(device.Width), viewportHeight);
-
-			RefreshEditor();
+			target.Key?.Invoke(key, control);
 		};
 	}
 
@@ -2335,7 +1539,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		ExtensionHost extensions = new(Settings.Current, BuiltInExtensions.All);
 		workbench.ExtensionHost = extensions;
 
-		int built = extensions.RegisterAll(workbench.Commands);
+		int built = extensions.RegisterAll(Registry);
 
 		TrailingSpacesExtension trailing = BuiltInExtensions.Get<TrailingSpacesExtension>();
 
@@ -2374,7 +1578,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 	}
 
 	private static void StartVSCodeBridge(Workbench workbench, CommandHost host, Action<Action> post) {
-		VSCodeBridge bridge = new(workbench.Commands, host);
+		VSCodeBridge bridge = new(Registry, host);
 		workbench.VSCode = bridge;
 
 		bridge.ViewsChanged = () => post(() => workbench.Auxiliary.SetViews(bridge.WebviewViews));
@@ -2404,38 +1608,6 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		if (workbench.ActiveDocument?.Path is not { } path || workbench.ActiveView is not { } view) return null;
 
 		return new HostEditor(path, view.CaretLine, view.CaretColumn, view.CaretLine, view.CaretColumn);
-	}
-
-	private static bool HandleQuickOpenKey(Workbench workbench, uint key, AppWindow window, Action refresh) {
-		switch (key) {
-			case VkEscape:
-				workbench.QuickOpen.Hide();
-				break;
-
-			case VkUp:
-				workbench.QuickOpen.MoveSelection(-1);
-				break;
-
-			case VkDown:
-				workbench.QuickOpen.MoveSelection(1);
-				break;
-
-			case VkBack:
-				workbench.QuickOpen.Backspace();
-				break;
-
-			case VkReturn:
-				if (workbench.QuickOpen.Accept() is { } path) workbench.OpenFile(path);
-
-				workbench.QuickOpen.Hide();
-				break;
-
-			default:
-				return false;
-		}
-
-		refresh();
-		return true;
 	}
 
 	private static float Overshoot(float value, float low, float high) {

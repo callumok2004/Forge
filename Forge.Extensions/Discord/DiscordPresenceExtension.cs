@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-using Forge.Commands;
 using Forge.Common.Commands;
 using Forge.Common.Extensions;
 using Forge.Core;
@@ -297,82 +296,75 @@ public sealed class DiscordPresenceExtension : ForgeExtension
 
 public static class DiscordLanguages
 {
-	private static readonly Lock Sync = new();
-	private static Dictionary<string, string>? _extensions;
-	private static Dictionary<string, string>? _languages;
+	private sealed record Rule(Regex? Pattern, string? Suffix, string Image);
+
+	private static readonly Lazy<(Rule[] Rules, Dictionary<string, string> Languages)> Table = new(Load);
+
+	private static string? _lastPath;
+	private static string _lastIcon = "text";
 
 	public static string IconFor(string path) {
-		Load();
+		if (string.Equals(path, Volatile.Read(ref _lastPath), StringComparison.Ordinal)) return _lastIcon;
 
-		string fileName = Path.GetFileName(path);
+		string icon = Resolve(Path.GetFileName(path));
 
-		if (_extensions is { } extensions) {
-			foreach ((string key, string image) in extensions) {
-				if (key.StartsWith('/')) {
-					int end = key.LastIndexOf('/');
-
-					if (end > 0) {
-						try {
-							RegexOptions options = key[(end + 1)..].Contains('i')
-								? RegexOptions.IgnoreCase
-								: RegexOptions.None;
-
-							if (Regex.IsMatch(fileName, key[1..end], options)) return image;
-						}
-						catch (ArgumentException) {
-						}
-					}
-
-					continue;
-				}
-
-				if (fileName.EndsWith(key, StringComparison.OrdinalIgnoreCase)) return image;
-			}
-		}
-
-		string suffix = Path.GetExtension(fileName).TrimStart('.');
-
-		return _languages is { } languages && languages.TryGetValue(suffix, out string? byLanguage)
-			? byLanguage
-			: "text";
+		_lastIcon = icon;
+		Volatile.Write(ref _lastPath, path);
+		return icon;
 	}
 
-	private static void Load() {
-		if (_extensions is not null) return;
+	private static string Resolve(string fileName) {
+		(Rule[] rules, Dictionary<string, string> languages) = Table.Value;
 
-		lock (Sync) {
-			if (_extensions is not null) return;
+		foreach (Rule rule in rules)
+			if (rule.Pattern is { } pattern ? pattern.IsMatch(fileName) : fileName.EndsWith(rule.Suffix!, StringComparison.OrdinalIgnoreCase)) return rule.Image;
 
-			Dictionary<string, string> extensions = [with(StringComparer.OrdinalIgnoreCase)];
-			Dictionary<string, string> languages = [with(StringComparer.OrdinalIgnoreCase)];
+		return languages.TryGetValue(Path.GetExtension(fileName).TrimStart('.'), out string? byLanguage) ? byLanguage : "text";
+	}
 
-			try {
-				string path = Path.Combine(AppContext.BaseDirectory, "Extensions", "Discord", "discord-languages.json");
+	private static (Rule[], Dictionary<string, string>) Load() {
+		List<Rule> rules = [];
+		Dictionary<string, string> languages = [with(StringComparer.OrdinalIgnoreCase)];
 
-				if (File.Exists(path)) {
-					using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
+		try {
+			string path = Path.Combine(AppContext.BaseDirectory, "Extensions", "Discord", "discord-languages.json");
 
-					if (document.RootElement.TryGetProperty("KNOWN_EXTENSIONS", out JsonElement known)) {
-						foreach (JsonProperty property in known.EnumerateObject()) {
-							if (property.Value.TryGetProperty("image", out JsonElement image) &&
-								image.GetString() is { } value) extensions[property.Name] = value;
-						}
-					}
+			if (!File.Exists(path)) return ([], languages);
 
-					if (document.RootElement.TryGetProperty("KNOWN_LANGUAGES", out JsonElement list)) {
-						foreach (JsonElement entry in list.EnumerateArray()) {
-							if (entry.TryGetProperty("language", out JsonElement language) &&
-								entry.TryGetProperty("image", out JsonElement image) &&
-								language.GetString() is { } id && image.GetString() is { } value) languages[id] = value;
-						}
-					}
+			using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
+
+			if (document.RootElement.TryGetProperty("KNOWN_EXTENSIONS", out JsonElement known)) {
+				foreach (JsonProperty property in known.EnumerateObject()) {
+					if (!property.Value.TryGetProperty("image", out JsonElement image) || image.GetString() is not { } value) continue;
+
+					if (ParsePattern(property.Name) is { } pattern) rules.Add(new Rule(pattern, null, value));
+					else if (!property.Name.StartsWith('/')) rules.Add(new Rule(null, property.Name, value));
 				}
 			}
-			catch (Exception exception) when (exception is IOException or JsonException) {
-			}
 
-			_languages = languages;
-			_extensions = extensions;
+			if (document.RootElement.TryGetProperty("KNOWN_LANGUAGES", out JsonElement list)) {
+				foreach (JsonElement entry in list.EnumerateArray())
+					if (entry.TryGetProperty("language", out JsonElement language) && entry.TryGetProperty("image", out JsonElement image) && language.GetString() is { } id && image.GetString() is { } value) languages[id] = value;
+			}
+		}
+		catch (Exception exception) when (exception is IOException or JsonException) {
+		}
+
+		return ([.. rules], languages);
+	}
+
+	private static Regex? ParsePattern(string key) {
+		if (!key.StartsWith('/')) return null;
+
+		int end = key.LastIndexOf('/');
+
+		if (end <= 0) return null;
+
+		try {
+			return new Regex(key[1..end], key[(end + 1)..].Contains('i') ? RegexOptions.IgnoreCase | RegexOptions.CultureInvariant : RegexOptions.CultureInvariant);
+		}
+		catch (ArgumentException) {
+			return null;
 		}
 	}
 }

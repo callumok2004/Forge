@@ -1,4 +1,3 @@
-using Forge.Commands;
 using Forge.Common.Commands;
 using Forge.Common.Render;
 using Forge.Editor;
@@ -34,7 +33,7 @@ public sealed class CommandHost(Workbench workbench, Action refresh) : ICommandH
 
 	public void ShowOutput(IOutputChannel channel) {
 		workbench.Panel.Show(PanelView.Output);
-		workbench.Panel.ActivateChannel(workbench.Panel.Channels.All().ToList().IndexOf(channel));
+		workbench.Panel.ActivateChannel(Channels.All().ToList().IndexOf(channel));
 	}
 
 	public void Refresh() => refresh();
@@ -75,5 +74,5 @@ public sealed class CommandHost(Workbench workbench, Action refresh) : ICommandH
 			workbench.Panel.Show(parsed);
 	}
 
-	public void ShowCommandPalette() => workbench.Palette.Show(ForgeDllMain.Commands);
+	public void ShowCommandPalette() => workbench.Palette.Show(Registry);
 }

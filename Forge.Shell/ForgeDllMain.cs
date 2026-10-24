@@ -19,7 +19,9 @@ public static class ForgeDllMain
 
 	[Dependency] public static IFontSet Fonts { get; private set; } = null!;
 
-	[Dependency] public static ICommandRegistry Commands { get; private set; } = null!;
+	[Dependency] public static ICommandRegistry Registry { get; private set; } = null!;
+
+	[Dependency] public static IOutputChannels Channels { get; private set; } = null!;
 
 	[Dependency] public static IEditorHost Editor { get; private set; } = null!;
 

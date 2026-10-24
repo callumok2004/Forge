@@ -125,7 +125,7 @@ public sealed class StatusBar
 			cursor += font.Measure(count[..warningDigits]);
 
 			AddSegment(start, cursor + (Metrics.SpaceSm * scale) - start, rightAligned: false,
-				"workbench.panel.problems");
+				"workbench.actions.view.problems");
 		}
 
 		foreach (Item item in items) {
@@ -197,7 +197,7 @@ public sealed class StatusBar
 		float width = icon + font.Measure(cpu[..cpuLength]) + gap + icon + font.Measure(memory[..memoryLength]);
 		float cursor = right - width;
 
-		AddSegment(cursor - (Metrics.SpaceSm * scale), width + (Metrics.SpaceLg * scale), rightAligned: true);
+		AddSegment(cursor - (Metrics.SpaceSm * scale), width + (Metrics.SpaceLg * scale), rightAligned: true, "workbench.action.openProcessExplorer");
 
 		painter.DrawIcon(Codicon.Pulse, cursor + (6f * scale), centreY, 14f * scale, Theme.StatusBarForeground);
 		cursor += icon;

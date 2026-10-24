@@ -43,25 +43,28 @@ public static class DebugCommands
 	private const string Category = "Debug";
 	private const string TaskCategory = "Tasks";
 
-	public static void Register(ICommandRegistry commands, DebugService debugger,
-		Func<string, string, string?, Action<ICommandHost>, ICommand> factory) {
-		void Add(string id, string title, Action<ICommandHost> handler, string category = Category) =>
-			commands.Register(factory(id, title, category, host => {
+	public static void Register(ICommandRegistry commands, DebugService debugger) {
+		void Add(string id, string title, Action<ICommandHost> handler, string category = Category, string? keybinding = null, Func<bool>? when = null) =>
+			commands.Register(new Command(id, title, category, host => {
 				handler(host);
 				host.Refresh();
-			}));
+			}, keybinding, when));
 
-		Add(Start, "Start Debugging", _ => debugger.StartDebugging(null, noDebug: false));
-		Add(Run, "Start Without Debugging", _ => debugger.StartDebugging(null, noDebug: true));
-		Add(Continue, "Continue", _ => debugger.Continue());
-		Add(Pause, "Pause", _ => debugger.Pause());
-		Add(StepOver, "Step Over", _ => debugger.StepOver());
-		Add(StepInto, "Step Into", _ => debugger.StepInto());
-		Add(StepOut, "Step Out", _ => debugger.StepOut());
+		bool Inactive() => debugger.GetState() == DebugState.Inactive;
+		bool Active() => debugger.GetState() != DebugState.Inactive;
+		bool Stopped() => debugger.GetState() == DebugState.Stopped;
+
+		Add(Start, "Start Debugging", _ => debugger.StartDebugging(null, noDebug: false), keybinding: "F5", when: () => !Stopped());
+		Add(Run, "Start Without Debugging", _ => debugger.StartDebugging(null, noDebug: true), keybinding: "Ctrl+F5");
+		Add(Continue, "Continue", _ => debugger.Continue(), keybinding: "F5", when: Stopped);
+		Add(Pause, "Pause", _ => debugger.Pause(), keybinding: "F6", when: Active);
+		Add(StepOver, "Step Over", _ => debugger.StepOver(), keybinding: "F10", when: Active);
+		Add(StepInto, "Step Into", _ => debugger.StepInto(), keybinding: "F11", when: Active);
+		Add(StepOut, "Step Out", _ => debugger.StepOut(), keybinding: "Shift+F11", when: Active);
 		Add(StepBack, "Step Back", _ => debugger.StepBack());
 		Add(ReverseContinue, "Reverse", _ => debugger.ReverseContinue());
-		Add(Restart, "Restart", _ => debugger.RestartSession());
-		Add(Stop, "Stop", _ => debugger.StopSession(disconnect: false, suspend: false));
+		Add(Restart, "Restart", _ => debugger.RestartSession(), keybinding: "Ctrl+Shift+F5", when: Active);
+		Add(Stop, "Stop", _ => debugger.StopSession(disconnect: false, suspend: false), keybinding: "Shift+F5", when: () => !Inactive());
 		Add(Disconnect, "Disconnect", _ => debugger.StopSession(disconnect: true, suspend: false));
 		Add(DisconnectAndSuspend, "Disconnect and Suspend",
 			_ => debugger.StopSession(disconnect: true, suspend: true));
@@ -83,10 +86,8 @@ public static class DebugCommands
 			host => OpenOrCreate(host, LaunchConfigurations.FileFor(Root(host, debugger)), DefaultLaunchJson));
 
 		Add(ToggleBreakpoint, "Toggle Breakpoint", host => {
-			if (host.GetActiveFilePath() is { Length: > 0 } path) {
-				debugger.ToggleBreakpoint(path, host.GetCaretLine());
-			}
-		});
+			if (host.GetActiveFilePath() is { Length: > 0 } path) debugger.ToggleBreakpoint(path, host.GetCaretLine());
+		}, keybinding: "F9");
 
 		Add(EnableAllBreakpoints, "Enable All Breakpoints",
 			_ => debugger.EnableOrDisableBreakpoints(true, null, 0));

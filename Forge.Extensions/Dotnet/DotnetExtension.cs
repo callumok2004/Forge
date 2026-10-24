@@ -1,6 +1,5 @@
 using System.Diagnostics;
 
-using Forge.Commands;
 using Forge.Common.Commands;
 using Forge.Common.Render;
 using Forge.Debug;
@@ -122,21 +121,10 @@ public sealed class DotnetExtension : ForgeExtension
 			host.Refresh();
 		}));
 
-		commands.Register(new Command("dotnet.goToDefinition", "Go to Definition", ".NET",
-			host => Navigate(host, "Definitions",
-				(path, line, column) => _server.DefinitionsAsync(path, line, column))));
-
-		commands.Register(new Command("dotnet.goToImplementation", "Go to Implementation", ".NET",
-			host => Navigate(host, "Implementations",
-				(path, line, column) => _server.ImplementationsAsync(path, line, column))));
-
-		commands.Register(new Command("dotnet.findAllReferences", "Find All References", ".NET",
-			host => Navigate(host, "References",
-				(path, line, column) => _server.ReferencesAsync(path, line, column),
-				alwaysList: true)));
-
-		commands.Register(new Command("dotnet.formatDocument", "Format Document", ".NET",
-			host => Format(host)));
+		commands.Register(new Command("dotnet.goToDefinition", "Go to Definition", ".NET", host => Navigate(host, "Definitions", (path, line, column) => _server.DefinitionsAsync(path, line, column)), "F12"));
+		commands.Register(new Command("dotnet.goToImplementation", "Go to Implementation", ".NET", host => Navigate(host, "Implementations", (path, line, column) => _server.ImplementationsAsync(path, line, column)), "Ctrl+F12"));
+		commands.Register(new Command("dotnet.findAllReferences", "Find All References", ".NET", host => Navigate(host, "References", (path, line, column) => _server.ReferencesAsync(path, line, column), alwaysList: true), "Shift+F12"));
+		commands.Register(new Command("dotnet.formatDocument", "Format Document", ".NET", host => Format(host), "Shift+Alt+F"));
 
 		commands.Register(new Command("dotnet.showOutput", "Show Language Server Log", ".NET", host => {
 			host.ShowOutput(_output ??= host.Channel(".NET"));

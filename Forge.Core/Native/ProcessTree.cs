@@ -4,6 +4,8 @@ namespace Forge.Core.Native;
 
 public readonly record struct ResourceUsage(double CpuPercent, long MemoryBytes);
 
+public readonly record struct ProcessUsage(uint Id, uint ParentId, int Depth, string Name, double CpuPercent, long MemoryBytes);
+
 public sealed partial class ProcessTree
 {
 	private const uint SnapProcess = 0x2;
@@ -11,73 +13,114 @@ public sealed partial class ProcessTree
 	private const uint VmRead = 0x0010;
 
 	private readonly uint _root = (uint)Environment.ProcessId;
-	private readonly Dictionary<uint, long> _cpuTicks = [];
+	private readonly List<(uint Id, uint Parent, int Depth)> _found = [];
+	private readonly List<(uint Id, uint Parent)> _all = [];
+	private readonly Dictionary<uint, string> _names = [];
+	private readonly List<ProcessUsage> _rows = [];
+	private readonly Lock _sync = new();
+
+	private Dictionary<uint, long> _cpuTicks = [];
+	private Dictionary<uint, long> _previousTicks = [];
 	private long _sampledAt;
+
+	public IReadOnlyList<ProcessUsage> Rows {
+		get {
+			lock (_sync) return [.. _rows];
+		}
+	}
 
 	public ResourceUsage Sample() {
 		long now = System.Diagnostics.Stopwatch.GetTimestamp();
 		double elapsedTicks = _sampledAt == 0 ? 0 : (now - _sampledAt) * (10_000_000.0 / System.Diagnostics.Stopwatch.Frequency);
+		double scale = elapsedTicks > 0 ? 100.0 / elapsedTicks / Environment.ProcessorCount : 0;
 
 		_sampledAt = now;
+		(_previousTicks, _cpuTicks) = (_cpuTicks, _previousTicks);
+		_cpuTicks.Clear();
+
+		CollectDescendants();
 
 		long busyTicks = 0;
 		long memory = 0;
-		Dictionary<uint, long> previous = new(_cpuTicks);
 
-		_cpuTicks.Clear();
+		lock (_sync) {
+			_rows.Clear();
 
-		foreach (uint id in Descendants()) {
-			nint process = OpenProcess(QueryLimitedInformation | VmRead, false, id);
+			foreach ((uint id, uint parent, int depth) in _found) {
+				nint process = OpenProcess(QueryLimitedInformation | VmRead, false, id);
 
-			if (process == 0) continue;
+				if (process == 0) continue;
 
-			try {
-				if (GetProcessTimes(process, out _, out _, out long kernel, out long user)) {
-					long total = kernel + user;
-					_cpuTicks[id] = total;
+				long busy = 0;
+				long working = 0;
 
-					if (previous.TryGetValue(id, out long before)) busyTicks += Math.Max(total - before, 0);
+				try {
+					if (GetProcessTimes(process, out _, out _, out long kernel, out long user)) {
+						long total = kernel + user;
+						_cpuTicks[id] = total;
+
+						if (_previousTicks.TryGetValue(id, out long before)) busy = Math.Max(total - before, 0);
+					}
+
+					MemoryCounters counters = new() { Size = (uint)Marshal.SizeOf<MemoryCounters>() };
+
+					if (GetProcessMemoryInfo(process, ref counters, counters.Size)) working = (long)counters.PrivateWorkingSetSize;
+				}
+				finally {
+					_ = CloseHandle(process);
 				}
 
-				MemoryCounters counters = new() { Size = (uint)Marshal.SizeOf<MemoryCounters>() };
-
-				if (GetProcessMemoryInfo(process, ref counters, counters.Size)) memory += (long)counters.PrivateWorkingSetSize;
-			}
-			finally {
-				_ = CloseHandle(process);
+				busyTicks += busy;
+				memory += working;
+				_rows.Add(new ProcessUsage(id, parent, depth, _names.GetValueOrDefault(id, "?"), Math.Clamp(busy * scale, 0, 100), working));
 			}
 		}
 
-		double cpu = elapsedTicks > 0 ? busyTicks / elapsedTicks / Environment.ProcessorCount * 100.0 : 0;
-
-		return new ResourceUsage(Math.Clamp(cpu, 0, 100), memory);
+		return new ResourceUsage(Math.Clamp(busyTicks * scale, 0, 100), memory);
 	}
 
-	private List<uint> Descendants() {
-		List<uint> found = [_root];
+	private unsafe void CollectDescendants() {
+		_found.Clear();
+		_all.Clear();
+		_found.Add((_root, 0, 0));
+
 		nint snapshot = CreateToolhelp32Snapshot(SnapProcess, 0);
 
-		if (snapshot is 0 or -1) return found;
+		if (snapshot is 0 or -1) return;
 
 		try {
-			List<(uint Id, uint Parent)> all = [];
-			ProcessEntry entry = new() { Size = (uint)Marshal.SizeOf<ProcessEntry>() };
+			ProcessEntry entry = new() { Size = (uint)sizeof(ProcessEntry) };
 
 			for (bool more = Process32FirstW(snapshot, ref entry); more; more = Process32NextW(snapshot, ref entry)) {
-				all.Add((entry.ProcessId, entry.ParentProcessId));
-			}
+				_all.Add((entry.ProcessId, entry.ParentProcessId));
 
-			for (int i = 0; i < found.Count; i++) {
-				foreach ((uint id, uint parent) in all) {
-					if (parent == found[i] && id != found[i] && !found.Contains(id)) found.Add(id);
-				}
+				if (!_names.ContainsKey(entry.ProcessId)) _names[entry.ProcessId] = new string(entry.ExeFile, 0, IndexOfNull(entry.ExeFile, 260));
 			}
 		}
 		finally {
 			_ = CloseHandle(snapshot);
 		}
 
-		return found;
+		for (int i = 0; i < _found.Count; i++) {
+			(uint current, _, int depth) = _found[i];
+
+			foreach ((uint id, uint parent) in _all)
+				if (parent == current && id != current && !Contains(id)) _found.Insert(i + 1, (id, parent, depth + 1));
+		}
+	}
+
+	private bool Contains(uint id) {
+		foreach ((uint existing, _, _) in _found)
+			if (existing == id) return true;
+
+		return false;
+	}
+
+	private static unsafe int IndexOfNull(char* text, int length) {
+		for (int i = 0; i < length; i++)
+			if (text[i] == '\0') return i;
+
+		return length;
 	}
 
 	[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]

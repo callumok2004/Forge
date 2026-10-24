@@ -4,56 +4,13 @@ using Forge.Theming;
 
 namespace Forge.UI;
 
-public enum MenuCommand
-{
-	None,
-
-	OpenFile,
-	OpenFolder,
-	NewWindow,
-	Save,
-	SaveAs,
-	CloseEditor,
-	OpenSettings,
-	Exit,
-
-	Undo,
-	Redo,
-	Cut,
-	Copy,
-	Paste,
-
-	SelectAll,
-
-	ToggleSidebar,
-	ToggleAuxiliaryBar,
-	TogglePanel,
-	ShowTerminal,
-	ShowProblems,
-	ShowOutput,
-	ToggleMinimap,
-	ToggleFrameStats,
-	ZoomIn,
-	ZoomOut,
-	ZoomReset,
-
-	GoToFile,
-
-	ShowCommands,
-
-	OpenRemote,
-	CopyRemote,
-
-	RunCommand,
-}
-
-public readonly record struct MenuEntry(string? Label, MenuCommand Command, string? Keybinding = null, string? CommandId = null, MenuEntry[]? Children = null)
+public readonly record struct MenuEntry(string? Label, string? CommandId = null, MenuEntry[]? Children = null)
 {
 	public bool IsSeparator => Label is null;
 
-	public static MenuEntry Separator => new(null, MenuCommand.None);
+	public static MenuEntry Separator => new(null);
 
-	public static MenuEntry Submenu(string label, MenuEntry[] children) => new(label, MenuCommand.None, Children: children);
+	public static MenuEntry Submenu(string label, MenuEntry[] children) => new(label, Children: children);
 }
 
 public sealed class MenuPopup
@@ -68,54 +25,94 @@ public sealed class MenuPopup
 	public static readonly MenuEntry[] CodeMenu =
 	[
 		MenuEntry.Submenu("File", [
-			new("Open File…", MenuCommand.OpenFile, "Ctrl+O"),
-			new("Open Folder…", MenuCommand.OpenFolder, "Ctrl+K Ctrl+O"),
-			new("New Window", MenuCommand.NewWindow, "Ctrl+Shift+N"),
+			new("Open File…", "workbench.action.files.openFile"),
+			new("Open Folder…", "workbench.action.files.openFolder"),
+			new("New Window", "workbench.action.newWindow"),
 			MenuEntry.Separator,
-			new("Save", MenuCommand.Save, "Ctrl+S"),
-			new("Save As…", MenuCommand.SaveAs, "Ctrl+Shift+S"),
+			new("Save", "workbench.action.files.save"),
+			new("Save As…", "workbench.action.files.saveAs"),
 			MenuEntry.Separator,
-			new("Settings", MenuCommand.OpenSettings, "Ctrl+,"),
+			new("Settings", "workbench.action.openSettings"),
 			MenuEntry.Separator,
-			new("Close Editor", MenuCommand.CloseEditor, "Ctrl+W"),
-			new("Exit", MenuCommand.Exit, "Alt+F4"),
+			new("Close Editor", "workbench.action.closeActiveEditor"),
+			new("Exit", "workbench.action.quit"),
 		]),
 		MenuEntry.Submenu("Edit", [
-			new("Undo", MenuCommand.Undo, "Ctrl+Z"),
-			new("Redo", MenuCommand.Redo, "Ctrl+Y"),
+			new("Undo", "undo"),
+			new("Redo", "redo"),
 			MenuEntry.Separator,
-			new("Cut", MenuCommand.Cut, "Ctrl+X"),
-			new("Copy", MenuCommand.Copy, "Ctrl+C"),
-			new("Paste", MenuCommand.Paste, "Ctrl+V"),
+			new("Cut", "editor.action.clipboardCutAction"),
+			new("Copy", "editor.action.clipboardCopyAction"),
+			new("Paste", "editor.action.clipboardPasteAction"),
+			MenuEntry.Separator,
+			new("Find", "actions.find"),
 		]),
 		MenuEntry.Submenu("Selection", [
-			new("Select All", MenuCommand.SelectAll, "Ctrl+A"),
+			new("Select All", "editor.action.selectAll"),
+			new("Expand Line Selection", "expandLineSelection"),
+			MenuEntry.Separator,
+			new("Copy Line Up", "editor.action.copyLinesUpAction"),
+			new("Copy Line Down", "editor.action.copyLinesDownAction"),
+			new("Move Line Up", "editor.action.moveLinesUpAction"),
+			new("Move Line Down", "editor.action.moveLinesDownAction"),
+			MenuEntry.Separator,
+			new("Add Next Occurrence", "editor.action.addSelectionToNextFindMatch"),
 		]),
 		MenuEntry.Submenu("View", [
-			new("Toggle Primary Sidebar", MenuCommand.ToggleSidebar, "Ctrl+B"),
-			new("Toggle Secondary Side Bar", MenuCommand.ToggleAuxiliaryBar, "Ctrl+Alt+B"),
-			new("Toggle Panel", MenuCommand.TogglePanel, "Ctrl+J"),
-			new("Toggle Minimap", MenuCommand.ToggleMinimap),
+			new("Command Palette…", "workbench.action.showCommands"),
 			MenuEntry.Separator,
-			new("Terminal", MenuCommand.ShowTerminal, "Ctrl+`"),
-			new("Problems", MenuCommand.ShowProblems, "Ctrl+Shift+M"),
-			new("Output", MenuCommand.ShowOutput, "Ctrl+Shift+U"),
-			new("Toggle Frame Statistics", MenuCommand.ToggleFrameStats, "F12"),
+			new("Toggle Primary Side Bar", "workbench.action.toggleSidebarVisibility"),
+			new("Toggle Secondary Side Bar", "workbench.action.toggleAuxiliaryBar"),
+			new("Toggle Panel", "workbench.action.togglePanel"),
+			new("Toggle Minimap", "editor.action.toggleMinimap"),
 			MenuEntry.Separator,
-			new("Zoom In", MenuCommand.ZoomIn, "Ctrl+="),
-			new("Zoom Out", MenuCommand.ZoomOut, "Ctrl+-"),
-			new("Reset Zoom", MenuCommand.ZoomReset, "Ctrl+0"),
+			new("Terminal", "workbench.action.terminal.toggleTerminal"),
+			new("Problems", "workbench.actions.view.problems"),
+			new("Output", "workbench.action.output.toggleOutput"),
+			new("Toggle Frame Statistics", "forge.toggleFrameStats"),
+			MenuEntry.Separator,
+			new("Zoom In", "workbench.action.zoomIn"),
+			new("Zoom Out", "workbench.action.zoomOut"),
+			new("Reset Zoom", "workbench.action.zoomReset"),
 		]),
 		MenuEntry.Submenu("Go", [
-			new("Go to File…", MenuCommand.GoToFile, "Ctrl+P"),
+			new("Go to File…", "workbench.action.quickOpen"),
+			MenuEntry.Separator,
+			new("Go to Definition", "dotnet.goToDefinition"),
+			new("Go to Implementation", "dotnet.goToImplementation"),
+			new("Go to References", "dotnet.findAllReferences"),
+			MenuEntry.Separator,
+			new("Go to Bracket", "editor.action.jumpToBracket"),
 		]),
 		MenuEntry.Submenu("Run", [
-			new("Show All Commands", MenuCommand.ShowCommands, "Ctrl+Shift+P"),
+			new("Start Debugging", "workbench.action.debug.start"),
+			new("Run Without Debugging", "workbench.action.debug.run"),
+			new("Stop Debugging", "workbench.action.debug.stop"),
+			new("Restart Debugging", "workbench.action.debug.restart"),
+			MenuEntry.Separator,
+			new("Step Over", "workbench.action.debug.stepOver"),
+			new("Step Into", "workbench.action.debug.stepInto"),
+			new("Step Out", "workbench.action.debug.stepOut"),
+			new("Continue", "workbench.action.debug.continue"),
+			MenuEntry.Separator,
+			new("Toggle Breakpoint", "editor.debug.action.toggleBreakpoint"),
+			MenuEntry.Separator,
+			new("Open Configurations", "workbench.action.debug.configure"),
+		]),
+		MenuEntry.Submenu("Terminal", [
+			new("Run Task…", "workbench.action.tasks.runTask"),
+			new("Run Build Task…", "workbench.action.tasks.build"),
+			MenuEntry.Separator,
+			new("Configure Tasks…", "workbench.action.tasks.configureTaskRunner"),
 		]),
 		MenuEntry.Submenu("Help", [
-			new("Forge", MenuCommand.None),
+			new("Show All Commands", "workbench.action.showCommands"),
 		]),
 	];
+
+	public Func<string, string?>? KeybindingFor { get; set; }
+
+	public Func<string, bool>? IsEnabled { get; set; }
 
 	private MenuEntry[] _entries = [];
 	private float _anchorLeft;
@@ -136,8 +133,6 @@ public sealed class MenuPopup
 	}
 
 	public bool IsOpen { get; private set; }
-
-	public string? CommandId { get; private set; }
 
 	public void Open(MenuEntry[] entries, float left, float top) {
 		_entries = entries;
@@ -181,16 +176,16 @@ public sealed class MenuPopup
 		}
 	}
 
-	public MenuCommand Accept() {
-		if (!IsOpen) return MenuCommand.None;
+	public string? Accept() {
+		if (!IsOpen) return null;
 
 		if (_inChild && ChildEntries is { } children && _childSelected >= 0) return Pick(children[_childSelected]);
 
-		if (_selected < 0) return MenuCommand.None;
+		if (_selected < 0) return null;
 
 		if (_entries[_selected].Children is not null) {
 			MoveHorizontal(1);
-			return MenuCommand.None;
+			return null;
 		}
 
 		return Pick(_entries[_selected]);
@@ -232,23 +227,24 @@ public sealed class MenuPopup
 
 	public bool Contains(float x, float y) => IsOpen && (_rootPanel.Contains(x, y) || _childPanel.Contains(x, y));
 
-	public MenuCommand CommandAt(float x, float y) {
+	public string? CommandAt(float x, float y) {
 		if (_childPanel.Contains(x, y) && ChildEntries is { } children) {
 			int childRow = RowAt(children, _childPanel, y);
-			return childRow >= 0 ? Pick(children[childRow]) : MenuCommand.None;
+			return childRow >= 0 ? Pick(children[childRow]) : null;
 		}
 
 		int row = _rootPanel.Contains(x, y) ? RowAt(_entries, _rootPanel, y) : -1;
 
-		return row >= 0 && _entries[row].Children is null ? Pick(_entries[row]) : MenuCommand.None;
+		return row >= 0 && _entries[row].Children is null ? Pick(_entries[row]) : null;
 	}
 
 	private MenuEntry[]? ChildEntries => _child >= 0 && _child < _entries.Length ? _entries[_child].Children : null;
 
-	private MenuCommand Pick(MenuEntry entry) {
-		CommandId = entry.CommandId;
-		return entry.Command;
-	}
+	private string? Pick(MenuEntry entry) => entry.CommandId is { } id && Enabled(entry) ? id : null;
+
+	private bool Enabled(MenuEntry entry) => entry.Children is not null || (entry.CommandId is { } id && (IsEnabled?.Invoke(id) ?? true));
+
+	private string? KeybindingOf(MenuEntry entry) => entry.CommandId is { } id && KeybindingFor?.Invoke(id) is { } keys ? keys.Split('|')[0] : null;
 
 	private static int Step(MenuEntry[] entries, int index, int delta) {
 		for (int step = 0; step < entries.Length; step++) {
@@ -312,7 +308,7 @@ public sealed class MenuPopup
 
 			if (entry.IsSeparator) continue;
 
-			float trailing = entry.Children is not null ? KeybindingGap * scale : entry.Keybinding is null ? 0f : (KeybindingGap * scale) + font.Measure(entry.Keybinding);
+			float trailing = entry.Children is not null ? KeybindingGap * scale : KeybindingOf(entry) is not { } keys ? 0f : (KeybindingGap * scale) + font.Measure(keys);
 
 			widest = Math.Max(widest, font.Measure(entry.Label!) + trailing);
 		}
@@ -349,12 +345,12 @@ public sealed class MenuPopup
 
 			float baseline = cursor + ((rowHeight - font.GetLineHeight()) / 2f) + font.GetBaseline();
 
-			Color color = entry.Command == MenuCommand.None && entry.Children is null ? Theme.DescriptionForeground : highlighted ? Theme.MenuSelectionForeground : Theme.MenuForeground;
+			Color color = !Enabled(entry) ? Theme.DisabledForeground : highlighted ? Theme.MenuSelectionForeground : Theme.MenuForeground;
 
 			painter.DrawText(font, entry.Label!, left + padX, baseline, color);
 
 			if (entry.Children is not null) painter.DrawIcon(Codicon.ChevronRight, left + width - padX - (6f * scale), cursor + (rowHeight / 2f), 14f * scale, color);
-			else if (entry.Keybinding is { } keybinding) painter.DrawText(font, keybinding, left + width - padX - font.Measure(keybinding), baseline, Theme.DescriptionForeground);
+			else if (KeybindingOf(entry) is { } keybinding) painter.DrawText(font, keybinding, left + width - padX - font.Measure(keybinding), baseline, Theme.DescriptionForeground);
 
 			cursor += rowHeight;
 		}

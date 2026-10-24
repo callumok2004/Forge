@@ -114,6 +114,27 @@ public sealed class TitleBar
 		return TitleBarPart.None;
 	}
 
+	public string? CommandAt(float x, float y, float windowWidth, float scale) => CommandFor(PartAt(x, y, windowWidth, scale));
+
+	public static string? CommandFor(TitleBarPart part) => part switch {
+		TitleBarPart.Menu => "forge.titleBar.openMenu",
+		TitleBarPart.Project => "forge.titleBar.openProjectMenu",
+		TitleBarPart.Branch => "git.checkout",
+		TitleBarPart.CommandCentre => "workbench.action.quickOpen",
+		TitleBarPart.RunConfiguration => "forge.debug.pickConfiguration",
+		TitleBarPart.Run => "workbench.action.debug.run",
+		TitleBarPart.Debug => "workbench.action.debug.start",
+		TitleBarPart.Continue => "workbench.action.debug.continue",
+		TitleBarPart.Pause => "workbench.action.debug.pause",
+		TitleBarPart.Stop => "workbench.action.debug.stop",
+		TitleBarPart.Restart => "workbench.action.debug.restart",
+		TitleBarPart.ShowNextStatement => "workbench.action.debug.callStackTop",
+		TitleBarPart.StepInto => "workbench.action.debug.stepInto",
+		TitleBarPart.StepOver => "workbench.action.debug.stepOver",
+		TitleBarPart.StepOut => "workbench.action.debug.stepOut",
+		_ => null,
+	};
+
 	public nint HitTest(float x, float y, float windowWidth, float scale) => PartAt(x, y, windowWidth, scale) switch {
 		TitleBarPart.Minimize => Win32.HtMinButton,
 		TitleBarPart.Maximize => Win32.HtMaxButton,

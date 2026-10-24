@@ -14,7 +14,8 @@ public sealed class Painter : IPainter, IDisposable
 	private readonly D2D.ID2D1Factory1 _factory;
 	private readonly D2D.ID2D1SolidColorBrush _brush;
 
-	private readonly List<DWrite.GlyphRun> _pendingRuns = [];
+	private readonly DWrite.GlyphRun _textRun = new() { IsSideways = false, BidiLevel = 0 };
+	private readonly DWrite.GlyphRun _iconRun = new() { Indices = new ushort[1], Advances = new float[1], IsSideways = false, BidiLevel = 0 };
 
 	private ushort[] _glyphIndices = new ushort[256];
 	private float[] _glyphAdvances = new float[256];
@@ -106,19 +107,11 @@ public sealed class Painter : IPainter, IDisposable
 
 		_brush.Color = ToColor4(color);
 
-		DWrite.GlyphRun run = new() {
-			FontFace = Icons.FontFace,
-			FontEmSize = emSize,
-			Indices = [glyph],
-			Advances = [0f],
-			IsSideways = false,
-			BidiLevel = 0,
-		};
+		_iconRun.FontFace = Icons.FontFace;
+		_iconRun.FontEmSize = emSize;
+		_iconRun.Indices![0] = glyph;
 
-		_context.DrawGlyphRun(new Vector2(originX, originY), run, _brush,
-			Vortice.DCommon.MeasuringMode.Natural);
-
-		_pendingRuns.Add(run);
+		_context.DrawGlyphRun(new Vector2(originX, originY), _iconRun, _brush, Vortice.DCommon.MeasuringMode.Natural);
 	}
 
 	public void FillRectangle(float x, float y, float width, float height, Color color) {
@@ -212,33 +205,15 @@ public sealed class Painter : IPainter, IDisposable
 
 		_brush.Color = ToColor4(color);
 
-		DWrite.GlyphRun run = new() {
-			FontFace = font.FontFace,
-			FontEmSize = font.SizeInPixels,
-			Indices = ExactIndices(count),
-			Advances = ExactAdvances(count),
-			IsSideways = false,
-			BidiLevel = 0,
-		};
+		_textRun.FontFace = font.FontFace;
+		_textRun.FontEmSize = font.SizeInPixels;
+		_textRun.Indices = ExactIndices(count);
+		_textRun.Advances = ExactAdvances(count);
 
-		_context.DrawGlyphRun(
-			new Vector2(x, baselineY),
-			run,
-			_brush,
-			Vortice.DCommon.MeasuringMode.Natural);
-
-		_pendingRuns.Add(run);
+		_context.DrawGlyphRun(new Vector2(x, baselineY), _textRun, _brush, Vortice.DCommon.MeasuringMode.Natural);
 	}
 
 	public void EndFrame() {
-		for (int i = 0; i < _pendingRuns.Count; i++) {
-			DWrite.GlyphRun run = _pendingRuns[i];
-
-			run.FontFace = null;
-			run.Dispose();
-		}
-
-		_pendingRuns.Clear();
 	}
 
 	public void FillTriangle(float x0, float y0, float x1, float y1, float x2, float y2, Color color) {
@@ -320,17 +295,13 @@ public sealed class Painter : IPainter, IDisposable
 	}
 
 	private ushort[] ExactIndices(int count) {
-		if (count >= _indexCache.Length) return _glyphIndices.AsSpan(0, count).ToArray();
-
-		ushort[] cached = _indexCache[count] ??= new ushort[count];
+		ushort[] cached = count < _indexCache.Length ? _indexCache[count] ??= new ushort[count] : new ushort[count];
 		_glyphIndices.AsSpan(0, count).CopyTo(cached);
 		return cached;
 	}
 
 	private float[] ExactAdvances(int count) {
-		if (count >= _advanceCache.Length) return _glyphAdvances.AsSpan(0, count).ToArray();
-
-		float[] cached = _advanceCache[count] ??= new float[count];
+		float[] cached = count < _advanceCache.Length ? _advanceCache[count] ??= new float[count] : new float[count];
 		_glyphAdvances.AsSpan(0, count).CopyTo(cached);
 		return cached;
 	}
@@ -349,6 +320,8 @@ public sealed class Painter : IPainter, IDisposable
 		if (_disposed) return;
 
 		_disposed = true;
+		_textRun.FontFace = null;
+		_iconRun.FontFace = null;
 		_brush.Dispose();
 	}
 }

@@ -12,14 +12,6 @@ public enum ActivityView
 	Extensions,
 }
 
-public enum ActivityBarControl
-{
-	ToggleSidebar,
-	TogglePanel,
-	ToggleAuxiliaryBar,
-	Manage,
-}
-
 public sealed class ActivityBar
 {
 	private const float ActionHeight = 34f;
@@ -39,12 +31,14 @@ public sealed class ActivityBar
 		ActivityView.Extensions,
 	];
 
-	private static readonly ActivityBarControl[] Controls =
+	private readonly record struct Control(string CommandId, Func<ActivityBar, Codicon> Icon);
+
+	private static readonly Control[] Controls =
 	[
-		ActivityBarControl.ToggleSidebar,
-		ActivityBarControl.TogglePanel,
-		ActivityBarControl.ToggleAuxiliaryBar,
-		ActivityBarControl.Manage,
+		new("workbench.action.toggleSidebarVisibility", static bar => bar.SidebarVisible ? Codicon.LayoutSidebarLeft : Codicon.LayoutSidebarLeftOff),
+		new("workbench.action.togglePanel", static bar => bar.PanelVisible ? Codicon.LayoutPanel : Codicon.LayoutPanelOff),
+		new("workbench.action.toggleAuxiliaryBar", static bar => bar.AuxiliaryBarVisible ? Codicon.LayoutSidebarRight : Codicon.LayoutSidebarRightOff),
+		new("workbench.action.openSettings", static _ => Codicon.SettingsGear),
 	];
 
 	private int _hoverIndex = -1;
@@ -85,7 +79,7 @@ public sealed class ActivityBar
 		return index >= 0 && index < Views.Length && y - top - (index * step) < ActionHeight * scale ? index : -1;
 	}
 
-	public static ActivityBarControl? ControlAt(int index) => index >= Views.Length && index < Views.Length + Controls.Length ? Controls[index - Views.Length] : null;
+	public static string? CommandAt(int index) => index >= Views.Length && index < Views.Length + Controls.Length ? Controls[index - Views.Length].CommandId : null;
 
 	public bool SetHover(int index) {
 		bool changed = _hoverIndex != index;
@@ -130,7 +124,7 @@ public sealed class ActivityBar
 			bool hovered = _hoverIndex == Views.Length + i;
 			Color color = hovered ? Theme.ActivityBarActiveForeground : Theme.ActivityBarForeground;
 
-			painter.DrawIcon(ControlIcon(Controls[i]), centreX, controlsTop + (i * row) + (row / 2f), BottomIconSize * scale, color);
+			painter.DrawIcon(Controls[i].Icon(this), centreX, controlsTop + (i * row) + (row / 2f), BottomIconSize * scale, color);
 		}
 	}
 
@@ -149,13 +143,6 @@ public sealed class ActivityBar
 		float baseline = badgeBottom - height + ((height - font.GetLineHeight()) / 2f) + font.GetBaseline();
 		painter.DrawText(font, text[..length], badgeRight - width + ((width - font.Measure(text[..length])) / 2f), baseline, Theme.ActivityBarBadgeForeground);
 	}
-
-	private Codicon ControlIcon(ActivityBarControl control) => control switch {
-		ActivityBarControl.ToggleSidebar => SidebarVisible ? Codicon.LayoutSidebarLeft : Codicon.LayoutSidebarLeftOff,
-		ActivityBarControl.TogglePanel => PanelVisible ? Codicon.LayoutPanel : Codicon.LayoutPanelOff,
-		ActivityBarControl.ToggleAuxiliaryBar => AuxiliaryBarVisible ? Codicon.LayoutSidebarRight : Codicon.LayoutSidebarRightOff,
-		_ => Codicon.SettingsGear,
-	};
 
 	private void DrawView(IPainter painter, ActivityView view, float centreX, float centreY, float size, Color color) {
 		if (view == ActivityView.Explorer && ExplorerIcon is { } folder) {
