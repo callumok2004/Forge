@@ -23,6 +23,7 @@ using Forge.Shell.Actions;
 using Forge.Terminal;
 using Forge.Theming;
 using Forge.UI.Controls;
+using Forge.UI.Framework;
 using Forge.UI;
 using Forge.Workspace;
 using Forge.VSCode;
@@ -98,7 +99,10 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			workbench.StatusBar.Resources = processTree.Sample();
 			window.Invalidate(workbench.StatusBarRect(device.Width, device.Height));
 
-			if (workbench.ProcessExplorer.IsOpen) window.Invalidate(workbench.ProcessExplorer.Bounds);
+			if (!workbench.ProcessExplorer.IsOpen) return;
+
+			uiWork.Enqueue(workbench.ProcessExplorer.Refresh);
+			window.Invalidate();
 		}, null, TimeSpan.Zero, TimeSpan.FromSeconds(2));
 
 		string rootPath = ResolveWorkspaceRoot(args);
@@ -300,9 +304,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		index.OnUpdated(() => {
 			ambient.Pulse(AmbientSignal.Search, 0.55f);
-			workbench.QuickOpen.OnIndexUpdated();
 
-			if (workbench.QuickOpen.IsOpen) window.Invalidate(workbench.QuickOpen.Bounds);
+			if (workbench.QuickInput.IsOpen && workbench.QuickInput.Provider == workbench.QuickOpen) Post(workbench.QuickInput.Refilter);
 		});
 
 		fileIcons.OnReady(window.Invalidate);
@@ -454,9 +457,12 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		DamageRegion frameDamage = new();
 		DamageRegion editorDamage = new();
 
+		Action<PixelRect>? notePaint = null;
+
 		void Damage(PixelRect rect) {
 			pending.Add(rect);
 			window.Invalidate(rect);
+			notePaint?.Invoke(rect);
 		}
 
 		void DamageCleared(ChromeRegions cleared) {
@@ -470,6 +476,30 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		void Refresh() {
 			UpdateTitle(window, workbench, rootPath);
 			Damage(PixelRect.FromSize(device.Width, device.Height));
+		}
+
+		static KeyModifiers Modifiers() => (Win32.IsKeyDown(Win32.VkControl) ? KeyModifiers.Control : 0) | (Win32.IsKeyDown(Win32.VkShift) ? KeyModifiers.Shift : 0) | (Win32.IsKeyDown(Win32.VkMenu) ? KeyModifiers.Alt : 0);
+
+		UiSystem ui = new(Damage, () => window.Invalidate(new PixelRect(0, 0, 1, 1)), () => workbench.Scale, Modifiers) { Fonts = fonts };
+
+		notePaint = ui.NotePaint;
+		ui.Root.AddChild(new LegacyWorkbenchPanel(workbench));
+		ui.CommandHandler = (command, _) => workbench.RunCommand(command, new CommandHost(workbench, Refresh));
+
+		bool uiOwnsPointer = false;
+
+		PopupRects occlusions = default;
+		int occlusionCount = 0;
+
+		void SyncOcclusions() {
+			PopupRects current = default;
+			int count = ui.CopyPopupBounds(current);
+
+			if (count == occlusionCount && ((ReadOnlySpan<PixelRect>)current)[..count].SequenceEqual(((ReadOnlySpan<PixelRect>)occlusions)[..count])) return;
+
+			occlusions = current;
+			occlusionCount = count;
+			workbench.Webviews.SetOcclusions(((ReadOnlySpan<PixelRect>)occlusions)[..count]);
 		}
 
 		void RefreshEditor() {
@@ -512,9 +542,10 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		WorkbenchCommands.Register(Registry, context);
 		EditorCommands.Register(Registry, context);
 		InputCommands.Register(Registry, context);
+		DeveloperCommands.Register(Registry, ui);
 
-		workbench.Menu.KeybindingFor = id => Registry.Find(id)?.GetKeybinding();
-		workbench.Menu.IsEnabled = id => Registry.Find(id)?.IsEnabled() ?? false;
+		ui.KeybindingLookup = id => Registry.Find(id)?.GetKeybinding();
+		ui.EnabledLookup = id => Registry.Find(id)?.IsEnabled() ?? false;
 
 		IFrameStats stats = new FrameStats();
 		workbench.FrameStats = stats;
@@ -594,6 +625,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			float delta = (float)((now - ambientStamp) / (double)System.Diagnostics.Stopwatch.Frequency);
 			ambientStamp = now;
 
+			ui.RunFrame(delta);
+
 			SyncWebviews();
 
 			while (uiWork.TryDequeue(out Action? work)) {
@@ -665,7 +698,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 				return;
 			}
 
-			if (id != caretTimerId || workbench.QuickOpen.IsOpen) return;
+			if (id != caretTimerId ) return;
 
 			Caret.Visible = !Caret.Visible;
 
@@ -718,6 +751,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			}
 
 			workbench.UpdateBeforeFrame();
+			ui.Layout(device.Width, device.Height);
+			SyncOcclusions();
 
 			ambient.Prepare(device);
 
@@ -734,7 +769,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 				device.Clear(Theme.EditorBackground);
 
 				try {
-					workbench.Render(painter, device.Width, device.Height);
+					ui.Paint(painter, repaint);
 				}
 				catch (Exception exception) {
 					painter.UnwindClips();
@@ -797,19 +832,13 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		};
 
 		window.Events.MouseWheel += (delta, x, _) => {
+			if (ui.InternalMouseWheeled(delta, x, LastMouseY)) return;
+
 			if (Win32.IsKeyDown(Win32.VkControl)) {
 				settings.AdjustZoom(delta > 0 ? 0.2f : -0.2f);
 				ApplyZoom();
 				return;
 			}
-
-			if (workbench.Palette.IsOpen) {
-				if (workbench.Palette.ScrollByWheel(delta)) Damage(workbench.Palette.Bounds);
-
-				return;
-			}
-
-			if (workbench.QuickOpen.IsOpen) return;
 
 			if (workbench.IntelliSense is { } scrolling &&
 				scrolling.Suggest.Contains(x, LastMouseY)) {
@@ -865,6 +894,10 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			LastMouseX = x;
 			LastMouseY = y;
 
+			uiOwnsPointer = ui.InternalCursorMoved(x, y);
+
+			if (uiOwnsPointer) return;
+
 			if (workbench.ActiveView is { } marginView) {
 				int gutterLine = x >= workbench.EditorLeft &&
 					x < workbench.EditorLeft + TextView.GlyphMarginWidth && y >= workbench.EditorTop
@@ -893,42 +926,13 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 				workbench.IsOverSplitter(x, device.Height, y) ? resizeWidthCursor :
 				workbench.IsOverAuxiliarySplitter(x, y, device.Width, device.Height) ? resizeWidthCursor :
 				workbench.IsOverPanelSplitter(x, y, device.Height) ? resizeHeightCursor :
-				workbench.ActiveView is not null && !workbench.Palette.IsOpen &&
-					!workbench.QuickOpen.IsOpen &&
+				workbench.ActiveView is not null &&
 					workbench.IntelliSense?.Suggest.Contains(x, y) != true &&
 					x >= workbench.EditorLeft + TextView.GlyphMarginWidth &&
 					y >= workbench.EditorTop &&
 					y < workbench.EditorBottom(device.Height)
 					? beamCursor
 					: arrowCursor;
-
-			if (workbench.Palette.IsOpen) {
-				if (workbench.Palette.SetHover(workbench.Palette.RowAt(x, y))) Damage(workbench.Palette.Bounds);
-
-				return;
-			}
-
-			if (workbench.QuickOpen.IsOpen) {
-				if (workbench.QuickOpen.SetHover(workbench.QuickOpen.RowAt(x, y))) Damage(workbench.QuickOpen.Bounds);
-
-				return;
-			}
-
-			if (workbench.Menu.IsOpen) {
-				if (y < workbench.ShellTop) {
-					HoverTitleBar(x, y);
-					return;
-				}
-
-				PixelRect before = workbench.Menu.Bounds;
-
-				if (workbench.Menu.Hover(x, y)) {
-					Damage(before);
-					Damage(workbench.Menu.Bounds);
-				}
-
-				return;
-			}
 
 			if (draggingSplitter) {
 				workbench.ResizeSidebar(x);
@@ -979,7 +983,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 				return;
 			}
 
-			workbench.Panel.SetHover(-1, Panel.PanelAction.None);
+			workbench.Panel.SetHover(-1, PanelPart.PanelAction.None);
 			workbench.Panel.SetTerminalHover(-1, false);
 
 			if (!selecting && workbench.Find.IsOpen) {
@@ -1120,6 +1124,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		};
 
 		window.Events.MouseMove += (x, y) => {
+			if (uiOwnsPointer) return;
+
 			if (!selecting) {
 				SetAutoScrolling(false);
 				return;
@@ -1139,67 +1145,11 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		};
 
 		window.Events.MouseDown += (x, y) => {
-			if (workbench.LaunchPicker.IsOpen && !workbench.LaunchPicker.Contains(x, y) &&
-				workbench.TitleBar.PartAt(x, y, device.Width, workbench.Scale) != TitleBarPart.RunConfiguration) {
-				workbench.LaunchPicker.Close();
-				Refresh();
-				return;
-			}
-
-			if (workbench.Palette.IsOpen) {
-				int row = workbench.Palette.RowAt(x, y);
-
-				if (row >= 0 && workbench.Palette.Select(row)) {
-					ICommand? picked = workbench.Palette.Accept();
-					workbench.Palette.Hide();
-
-					if (picked is { } command) workbench.RunCommand(command.GetId(), new CommandHost(workbench, Refresh));
-				}
-				else if (!workbench.Palette.Contains(x, y)) workbench.Palette.Hide();
-				else return;
-
-				Refresh();
-				return;
-			}
-
-			if (workbench.QuickOpen.IsOpen) {
-				int row = workbench.QuickOpen.RowAt(x, y);
-
-				if (row >= 0 && workbench.QuickOpen.Select(row)) {
-					if (workbench.QuickOpen.Accept() is { } path) workbench.OpenFile(path);
-
-					workbench.QuickOpen.Hide();
-				}
-				else if (!workbench.QuickOpen.Contains(x, y)) workbench.QuickOpen.Hide();
-				else return;
-
-				Refresh();
-				return;
-			}
-
-			if (workbench.Menu.IsOpen) {
-				if (workbench.Menu.Contains(x, y)) return;
-
-				context.CloseMenu();
-				Refresh();
-				return;
-			}
+			if (ui.InternalMousePressed(MouseButton.Left, x, y)) return;
 
 			if (workbench.Sidebar.SourceControl.Menu.IsOpen) {
 				if (!workbench.Sidebar.SourceControl.Menu.Contains(x, y)) workbench.Sidebar.SourceControl.Menu.Close();
 
-				Refresh();
-				return;
-			}
-
-			if (workbench.Palette.IsOpen) {
-				workbench.Palette.Hide();
-				Refresh();
-				return;
-			}
-
-			if (workbench.QuickOpen.IsOpen) {
-				workbench.QuickOpen.Hide();
 				Refresh();
 				return;
 			}
@@ -1326,25 +1276,25 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 				workbench.PanelFocused = true;
 
 				switch (workbench.Panel.ActionAt(x, y, workbench.Scale)) {
-					case Panel.PanelAction.Close:
+					case PanelPart.PanelAction.Close:
 						workbench.Panel.IsOpen = false;
 						workbench.PanelFocused = false;
 						break;
 
-					case Panel.PanelAction.ProfileMenu:
+					case PanelPart.PanelAction.ProfileMenu:
 						workbench.Panel.ToggleProfileMenu();
 						break;
 
-					case Panel.PanelAction.NewTerminal:
+					case PanelPart.PanelAction.NewTerminal:
 						workbench.Panel.NewTerminal(TerminalProfiles.Default(
 							workbench.Panel.Profiles, workbench.Panel.DefaultProfile));
 						break;
 
-					case Panel.PanelAction.ChannelMenu:
+					case PanelPart.PanelAction.ChannelMenu:
 						workbench.Panel.ToggleChannelMenu();
 						break;
 
-					case Panel.PanelAction.ClearOutput:
+					case PanelPart.PanelAction.ClearOutput:
 						workbench.Panel.ActiveChannel.Clear();
 						workbench.Panel.ClearOutputSelection();
 						break;
@@ -1458,21 +1408,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		};
 
 		window.Events.MouseUp += (x, y) => {
-			if (workbench.LaunchPicker.IsOpen && workbench.LaunchPicker.Contains(x, y)) {
-				if (workbench.LaunchPicker.Accept(x, y, workbench.Scale) is { } chosen) {
-					debugger.SelectConfiguration(chosen);
-				}
-
-				workbench.LaunchPicker.Close();
-				Refresh();
-				return;
-			}
-
-			if (workbench.Menu.IsOpen && workbench.Menu.Contains(x, y)) {
-				if (workbench.Menu.CommandAt(x, y) is { } picked) context.Invoke(picked);
-
-				return;
-			}
+			if (ui.InternalMouseReleased(MouseButton.Left, x, y)) return;
 
 			if (workbench.Sidebar.SourceControl.Menu is { IsOpen: true } gitMenu && gitMenu.Contains(x, y)) {
 				if (gitMenu.CommandAt(x, y) is var command && command != GitCommand.None) {
@@ -1507,6 +1443,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		window.Events.CharacterTyped += character => {
 			if (character < ' ' || character == 0x7F || Win32.IsKeyDown(Win32.VkControl)) return;
 
+			if (ui.InternalKeyTyped(character)) return;
+
 			context.Focused?.Type?.Invoke(character);
 		};
 
@@ -1514,6 +1452,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			bool shift = Win32.IsKeyDown(Win32.VkShift);
 			bool control = Win32.IsKeyDown(Win32.VkControl);
 			bool alt = Win32.IsKeyDown(Win32.VkMenu);
+
+			if (ui.InternalKeyCodePressed(key, Modifiers())) return;
 
 			if (context.EditorFocused && workbench.IntelliSense is { } intelliSense && intelliSense.HandleKey(key, control)) return;
 
@@ -1608,6 +1548,12 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		if (workbench.ActiveDocument?.Path is not { } path || workbench.ActiveView is not { } view) return null;
 
 		return new HostEditor(path, view.CaretLine, view.CaretColumn, view.CaretLine, view.CaretColumn);
+	}
+
+	[System.Runtime.CompilerServices.InlineArray(8)]
+	private struct PopupRects
+	{
+		private PixelRect _first;
 	}
 
 	private static float Overshoot(float value, float low, float high) {

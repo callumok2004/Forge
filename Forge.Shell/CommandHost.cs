@@ -74,5 +74,5 @@ public sealed class CommandHost(Workbench workbench, Action refresh) : ICommandH
 			workbench.Panel.Show(parsed);
 	}
 
-	public void ShowCommandPalette() => workbench.Palette.Show(Registry);
+	public void ShowCommandPalette() => workbench.QuickInput.Show(workbench.Palette);
 }

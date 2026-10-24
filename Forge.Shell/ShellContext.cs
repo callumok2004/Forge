@@ -1,10 +1,10 @@
 using Forge.Common.Render;
 using Forge.Core;
-using Forge.Core;
 using Forge.Debug;
 using Forge.Editor;
 using Forge.Render;
 using Forge.UI;
+using Forge.UI.Controls;
 
 namespace Forge.Shell;
 
@@ -67,22 +67,29 @@ public sealed class ShellContext(Workbench workbench, AppWindow window, RenderDe
 		if (found) RevealCaret();
 	}
 
+	private Menu? _applicationMenu;
+	private Menu? _openMenu;
+
 	public void OpenMenu(MenuEntry[] entries, float left) {
-		Workbench.Menu.Open(entries, left, Workbench.ShellTop);
-		Workbench.TitleBar.MenuOpen = entries == MenuPopup.CodeMenu;
+		bool application = entries == ApplicationMenu.CodeMenu;
+		OpenMenu(application ? _applicationMenu ??= ApplicationMenu.Build(entries) : ApplicationMenu.Build(entries), left, Workbench.ShellTop, application);
 	}
 
-	public void CloseMenu() {
-		Workbench.Menu.Close();
-		Workbench.TitleBar.MenuOpen = false;
-	}
-
-	public void Invoke(string? commandId) {
+	public void OpenMenu(Menu menu, float left, float top, bool application = false) {
 		CloseMenu();
 
-		if (commandId is not null) Run(commandId);
-		else Refresh();
+		_openMenu = menu;
+		Workbench.TitleBar.MenuOpen = application;
+		menu.Closed = () => {
+			Workbench.TitleBar.MenuOpen = false;
+			Damage(Workbench.TitleBarRect(Device.Width));
+		};
+
+		menu.Open(left, top);
+		Damage(Workbench.TitleBarRect(Device.Width));
 	}
+
+	public void CloseMenu() => _openMenu?.CloseAll();
 
 	public TextView? ActiveView => Workbench.ActiveView;
 }

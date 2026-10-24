@@ -49,13 +49,15 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	public StatusBar StatusBar { get; } = new();
 
-	public QuickOpen QuickOpen { get; } = new();
+	public QuickInput QuickInput { get; } = new();
 
-	public MenuPopup Menu { get; } = new();
+	public QuickOpen QuickOpen => field ??= new QuickOpen(OpenFile);
+
+	public CommandPalette Palette => field ??= new CommandPalette(Registry, static command => Common.UI.Panel.Ui?.PostCommand(command.GetId(), null));
 
 	public FindWidget Find { get; } = new();
 
-	public Panel Panel { get; } = new();
+	public PanelPart Panel { get; } = new();
 
 	public AuxiliaryBar Auxiliary { get; } = new();
 
@@ -106,13 +108,11 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		return Registry.Execute(id, host);
 	}
 
-	public LaunchPicker LaunchPicker { get; } = new();
 
 	public Func<int, BreakpointMark>? BreakpointMarkFor { get; set; }
 
 	public Func<string, int>? ExecutionLineFor { get; set; }
 
-	public CommandPalette Palette { get; } = new();
 
 	public EditorDecorations Decorations { get; } = new();
 
@@ -566,17 +566,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 		if (ShowFrameStats && FrameStats is { } stats) DrawFrameStats(painter, stats, width, statusTop);
 
-		if (Menu.IsOpen) {
-			Menu.Render(painter, width, _scale);
-		}
-
 		Sidebar.SourceControl.Menu.Render(painter, width, height, _scale);
-
-		LaunchPicker.Render(painter, _scale);
-
-		QuickOpen.Render(painter, width, height, _scale);
-		Palette.Render(painter, width, height, _scale);
-		ProcessExplorer?.Render(painter, width, height, _scale);
 	}
 
 	private static void DrawEmptyState(IPainter painter, float x, float y, float width, float height) {

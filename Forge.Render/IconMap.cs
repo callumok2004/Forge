@@ -40,7 +40,7 @@ internal sealed class IconMap
 		}
 	}
 
-	public int FindFile(string fileName) {
+	public int FindFile(ReadOnlySpan<char> fileName) {
 		Span<byte> scratch = stackalloc byte[MaxKeyBytes];
 
 		int line = Find(scratch, "name"u8, fileName);
@@ -50,17 +50,18 @@ internal sealed class IconMap
 		int dot = fileName.IndexOf('.');
 
 		while (dot >= 0 && dot < fileName.Length - 1) {
-			line = Find(scratch, "ext"u8, fileName.AsSpan(dot + 1));
+			line = Find(scratch, "ext"u8, fileName[(dot + 1)..]);
 
 			if (line >= 0) return line;
 
-			dot = fileName.IndexOf('.', dot + 1);
+			int next = fileName[(dot + 1)..].IndexOf('.');
+			dot = next < 0 ? -1 : dot + 1 + next;
 		}
 
 		return -1;
 	}
 
-	public int FindFolder(string folderName, bool isExpanded) {
+	public int FindFolder(ReadOnlySpan<char> folderName, bool isExpanded) {
 		Span<byte> scratch = stackalloc byte[MaxKeyBytes];
 
 		return Find(scratch, isExpanded ? "diropen"u8 : "dir"u8, folderName);

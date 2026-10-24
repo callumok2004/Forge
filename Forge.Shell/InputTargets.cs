@@ -6,10 +6,8 @@ namespace Forge.Shell;
 
 public static class InputTargets
 {
-	public const string ProcessExplorer = "processExplorerFocus";
-	public const string Menu = "menu";
+	public const string Popup = "popupFocus";
 	public const string GitMenu = "gitMenu";
-	public const string QuickInput = "inQuickInput";
 	public const string FindWidget = "findWidgetVisible";
 	public const string ScmInput = "scmInputFocused";
 	public const string Terminal = "terminalFocus";
@@ -19,27 +17,8 @@ public static class InputTargets
 	public static void Register(ShellContext context) {
 		Workbench workbench = context.Workbench;
 
-		context.AddTarget(new(ProcessExplorer, () => workbench.ProcessExplorer?.IsOpen == true));
-		context.AddTarget(new(Menu, () => workbench.Menu.IsOpen));
+		context.AddTarget(new(Popup, () => Common.UI.Panel.Ui?.GetFocus() is not null));
 		context.AddTarget(new(GitMenu, () => workbench.Sidebar.SourceControl.Menu.IsOpen));
-
-		context.AddTarget(new(QuickInput, () => workbench.Palette.IsOpen || workbench.QuickOpen.IsOpen,
-			character => {
-				if (workbench.Palette.IsOpen) {
-					workbench.Palette.Append(character);
-					context.Damage(workbench.Palette.Bounds);
-				}
-				else {
-					workbench.QuickOpen.Append(character);
-					context.Damage(workbench.QuickOpen.Bounds);
-				}
-			},
-			() => {
-				if (workbench.Palette.IsOpen) workbench.Palette.Backspace();
-				else workbench.QuickOpen.Backspace();
-
-				context.Refresh();
-			}));
 
 		context.AddTarget(new(FindWidget, () => workbench.Find.IsOpen,
 			character => {

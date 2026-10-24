@@ -46,9 +46,9 @@ public sealed class FileIconSet : IFileIconSet, IDisposable
 
 	public long GetMapBytes() => _map?.ApproximateBytes ?? 0;
 
-	public IVectorIcon? IconForFile(string fileName) => ForFile(fileName);
+	public IVectorIcon? IconForFile(ReadOnlySpan<char> fileName) => ForFile(fileName);
 
-	public VectorIcon? ForFile(string fileName) {
+	public VectorIcon? ForFile(ReadOnlySpan<char> fileName) {
 		if (_map is not { } map) return null;
 
 		int line = map.FindFile(fileName);
@@ -56,7 +56,7 @@ public sealed class FileIconSet : IFileIconSet, IDisposable
 		return line >= 0 ? Resolve(map, line) : Resolve(map.DefaultFile, DefaultFileSlot);
 	}
 
-	public VectorIcon? ForFolder(string folderName, bool isExpanded) {
+	public VectorIcon? ForFolder(ReadOnlySpan<char> folderName, bool isExpanded) {
 		if (_map is not { } map) return null;
 
 		int line = map.FindFolder(folderName, isExpanded);

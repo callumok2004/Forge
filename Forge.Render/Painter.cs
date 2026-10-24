@@ -77,14 +77,14 @@ public sealed class Painter : IPainter, IDisposable
 	void IPainter.DrawVectorIcon(IVectorIcon icon, float centreX, float centreY, float size, Color? tint) =>
 		DrawVectorIcon((VectorIcon)icon, centreX, centreY, size, tint);
 
-	public bool DrawFileIcon(string fileName, float centreX, float centreY, float size) {
+	public bool DrawFileIcon(ReadOnlySpan<char> fileName, float centreX, float centreY, float size) {
 		if (FileIcons?.ForFile(fileName) is not { } icon) return false;
 
 		DrawVectorIcon(icon, centreX, centreY, size);
 		return true;
 	}
 
-	public bool DrawFolderIcon(string folderName, bool expanded, float centreX, float centreY, float size) {
+	public bool DrawFolderIcon(ReadOnlySpan<char> folderName, bool expanded, float centreX, float centreY, float size) {
 		if (FileIcons?.ForFolder(folderName, expanded) is not { } icon) return false;
 
 		DrawVectorIcon(icon, centreX, centreY, size);

@@ -12,6 +12,8 @@ public interface IWebviewHost
 
 	void SetBounds(string id, PixelRect bounds);
 
+	void SetOcclusions(ReadOnlySpan<PixelRect> areas);
+
 	void Hide(string id);
 
 	void HideAll();

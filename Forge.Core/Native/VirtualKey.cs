@@ -19,6 +19,7 @@ public static class VirtualKey
 	public const uint Delete = 0x2E;
 	public const uint A = 0x41;
 	public const uint C = 0x43;
+	public const uint V = 0x56;
 	public const uint Z = 0x5A;
 	public const uint F1 = 0x70;
 }

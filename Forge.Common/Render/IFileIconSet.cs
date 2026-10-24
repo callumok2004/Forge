@@ -7,5 +7,5 @@ public interface IFileIconSet
 
 	void OnReady(Action handler);
 
-	IVectorIcon? IconForFile(string fileName);
+	IVectorIcon? IconForFile(ReadOnlySpan<char> fileName);
 }

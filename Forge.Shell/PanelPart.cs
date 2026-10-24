@@ -19,7 +19,7 @@ public enum PanelView
 
 public readonly record struct Problem(string File, int Line, int Column, string Message, bool IsError);
 
-public sealed class Panel : IDisposable
+public sealed class PanelPart : IDisposable
 {
 	private const float TitleHeight = 32f;
 	private const float RowHeight = 20f;
@@ -94,7 +94,7 @@ public sealed class Panel : IDisposable
 		IsChannelMenuOpen = false;
 	}
 
-	public Panel() {
+	public PanelPart() {
 		Output = Channels.Get("Forge");
 		ActiveChannel = Output;
 

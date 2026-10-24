@@ -16,6 +16,9 @@ public sealed class NullWebviewHost : IWebviewHost
 	public void Show(string id, string html, string? rootDirectory, PixelRect bounds, string? extensionId = null) {
 	}
 
+	public void SetOcclusions(ReadOnlySpan<PixelRect> areas) {
+	}
+
 	public void SetBounds(string id, PixelRect bounds) {
 	}
 

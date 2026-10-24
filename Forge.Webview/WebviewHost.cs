@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Runtime.InteropServices;
 
 using Forge.Core;
+using Forge.Core.Native;
 using Forge.Common.Webview;
 
 using Microsoft.Web.WebView2.Core;
@@ -88,8 +89,50 @@ public sealed class WebviewHost(nint window, string userDataFolder, Action<Actio
 		public bool Wanted;
 		public bool Loaded;
 		public CoreWebView2Controller? Controller;
+		public nint Container;
 		public List<string>? Queued;
 	}
+
+	private PixelRect[] _occlusions = [];
+
+	public void SetOcclusions(ReadOnlySpan<PixelRect> areas) {
+		_occlusions = areas.ToArray();
+
+		foreach (View view in _views.Values)
+			if (view.Container != 0) ApplyRegion(view);
+	}
+
+	private void Place(View view) {
+		if (view.Container == 0) return;
+
+		PixelRect bounds = view.Bounds;
+		_ = Win32.SetWindowPos(view.Container, 0, bounds.Left, bounds.Top, Math.Max(bounds.Width, 0), Math.Max(bounds.Height, 0), Win32.SwpNoZOrder | Win32.SwpNoActivate);
+
+		if (view.Controller is { } controller) controller.Bounds = new Rectangle(0, 0, Math.Max(bounds.Width, 0), Math.Max(bounds.Height, 0));
+
+		ApplyRegion(view);
+	}
+
+	private void ApplyRegion(View view) {
+		PixelRect bounds = view.Bounds;
+		nint region = 0;
+
+		foreach (PixelRect occluder in _occlusions) {
+			PixelRect overlap = occluder.Intersect(bounds);
+
+			if (overlap.IsEmpty) continue;
+
+			if (region == 0) region = Win32.CreateRectRgn(0, 0, bounds.Width, bounds.Height);
+
+			nint hole = Win32.CreateRectRgn(overlap.Left - bounds.Left, overlap.Top - bounds.Top, overlap.Right - bounds.Left, overlap.Bottom - bounds.Top);
+			_ = Win32.CombineRgn(region, region, hole, Win32.RegionDifference);
+			_ = Win32.DeleteObject(hole);
+		}
+
+		_ = Win32.SetWindowRgn(view.Container, region, true);
+	}
+
+	private nint CreateContainer(PixelRect bounds) => Win32.CreateWindowEx(0, "STATIC", string.Empty, Win32.WsChild | Win32.WsVisible | Win32.WsClipChildren | Win32.WsClipSiblings, bounds.Left, bounds.Top, Math.Max(bounds.Width, 1), Math.Max(bounds.Height, 1), window, 0, Win32.GetModuleHandle(null), 0);
 
 	private readonly Dictionary<string, View> _views = new(StringComparer.Ordinal);
 
@@ -145,7 +188,7 @@ public sealed class WebviewHost(nint window, string userDataFolder, Action<Actio
 		view.Wanted = true;
 
 		if (view.Controller is { } controller) {
-			controller.Bounds = ToRectangle(bounds);
+			Place(view);
 			controller.IsVisible = true;
 
 			if (changed) Navigate(id, view);
@@ -167,14 +210,14 @@ public sealed class WebviewHost(nint window, string userDataFolder, Action<Actio
 		}
 	}
 
-	public void ReleaseFocus() => Forge.Core.Native.Win32.SetFocus(window);
+	public void ReleaseFocus() => Win32.SetFocus(window);
 
 	public void SetBounds(string id, PixelRect bounds) {
 		if (!_views.TryGetValue(id, out View? view)) return;
 
 		view.Bounds = bounds;
 
-		if (view.Controller is { } controller && view.Wanted) controller.Bounds = ToRectangle(bounds);
+		if (view.Controller is not null && view.Wanted) Place(view);
 	}
 
 	public void Hide(string id) {
@@ -276,7 +319,9 @@ public sealed class WebviewHost(nint window, string userDataFolder, Action<Actio
 	private void CreateController(string id, View view) {
 		if (_environment is not { } environment || view.Controller is not null) return;
 
-		Complete(environment.CreateCoreWebView2ControllerAsync(window), controller => {
+		if (view.Container == 0) view.Container = CreateContainer(view.Bounds);
+
+		Complete(environment.CreateCoreWebView2ControllerAsync(view.Container), controller => {
 			if (_disposed || !view.Wanted) {
 				controller.Close();
 				return;
@@ -286,7 +331,7 @@ public sealed class WebviewHost(nint window, string userDataFolder, Action<Actio
 
 			Configure(id, view, controller);
 
-			controller.Bounds = ToRectangle(view.Bounds);
+			Place(view);
 			controller.ZoomFactor = _zoom;
 			controller.IsVisible = true;
 
@@ -451,16 +496,21 @@ public sealed class WebviewHost(nint window, string userDataFolder, Action<Actio
 	private static string Shorten(string value) => value.Length > 600 ? value[..600] + "..." : value;
 
 	private static void Release(View view) {
-		if (view.Controller is not { } controller) return;
+		if (view.Controller is { } controller) {
+			view.Controller = null;
 
-		view.Controller = null;
+			try {
+				controller.IsVisible = false;
+				controller.Close();
+			}
+			catch (Exception exception) when (exception is InvalidOperationException or ObjectDisposedException) {
+			}
+		}
 
-		try {
-			controller.IsVisible = false;
-			controller.Close();
-		}
-		catch (Exception exception) when (exception is InvalidOperationException or ObjectDisposedException) {
-		}
+		if (view.Container == 0) return;
+
+		_ = Win32.DestroyWindow(view.Container);
+		view.Container = 0;
 	}
 
 	private void Complete<T>(Task<T> task, Action<T> continuation) =>

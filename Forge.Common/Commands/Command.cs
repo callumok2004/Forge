@@ -8,7 +8,9 @@ public sealed record Command(string Id, string Title, string? Category, Action<I
 
 	public string? GetCategory() => Category;
 
-	public string GetLabel() => Category is { Length: > 0 } category ? $"{category}: {Title}" : Title;
+	private string? _label;
+
+	public string GetLabel() => _label ??= Category is { Length: > 0 } category ? $"{category}: {Title}" : Title;
 
 	public string? GetKeybinding() => Keybinding;
 

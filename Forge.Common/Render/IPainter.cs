@@ -46,8 +46,8 @@ public interface IPainter
 	void DrawVectorIcon(IVectorIcon icon, float centreX, float centreY, float size, Color? tint = null);
 	void DrawImage(IImage image, float centreX, float centreY, float size);
 
-	bool DrawFileIcon(string fileName, float centreX, float centreY, float size);
-	bool DrawFolderIcon(string folderName, bool expanded, float centreX, float centreY, float size);
+	bool DrawFileIcon(ReadOnlySpan<char> fileName, float centreX, float centreY, float size);
+	bool DrawFolderIcon(ReadOnlySpan<char> folderName, bool expanded, float centreX, float centreY, float size);
 
 	void DrawText(ITextFont font, ReadOnlySpan<char> text, float x, float baselineY, Color color);
 

@@ -1,10 +1,12 @@
 using System.Diagnostics;
 
 using Forge.Common.Commands;
+using Forge.Common.Debug;
 using Forge.Core;
 using Forge.Core.Native;
 using Forge.Debug;
 using Forge.UI;
+using Forge.UI.Controls;
 
 namespace Forge.Shell.Actions;
 
@@ -37,8 +39,8 @@ public static class WorkbenchCommands
 		Add("workbench.action.openSettings", "Open Settings", "Preferences", () => workbench.OpenFile(UserData.SettingsPath), "Ctrl+,");
 		Add("workbench.action.quit", "Quit", "File", context.Window.CloseWindow);
 
-		Add("workbench.action.showCommands", "Show All Commands", "View", () => workbench.Palette.Show(Registry), "Ctrl+Shift+P");
-		Add("workbench.action.quickOpen", "Go to File...", "Go", workbench.QuickOpen.Show, "Ctrl+P");
+		Add("workbench.action.showCommands", "Show All Commands", "View", () => workbench.QuickInput.Show(workbench.Palette), "Ctrl+Shift+P");
+		Add("workbench.action.quickOpen", "Go to File...", "Go", () => workbench.QuickInput.Show(workbench.QuickOpen), "Ctrl+P");
 
 		Add("actions.find", "Find", "Editor", () => {
 			workbench.Find.Show(workbench.ActiveView);
@@ -78,7 +80,7 @@ public static class WorkbenchCommands
 			context.ApplyZoom();
 		}, "Ctrl+0");
 
-		Add("forge.titleBar.openMenu", "Open Application Menu", "View", () => context.OpenMenu(MenuPopup.CodeMenu, workbench.TitleBar.MenuLeft));
+		Add("forge.titleBar.openMenu", "Open Application Menu", "View", () => context.OpenMenu(ApplicationMenu.CodeMenu, workbench.TitleBar.MenuLeft));
 		Add("forge.titleBar.openProjectMenu", "Open Project Menu", "View", () => context.OpenMenu(ProjectMenu(workbench.TitleBar), workbench.TitleBar.ProjectLeft));
 
 		Add("forge.openRemote", "Open on GitHub", "Git", () => {
@@ -90,8 +92,18 @@ public static class WorkbenchCommands
 		}, when: () => context.Host.GetRemoteUrl() is not null);
 
 		Add("forge.debug.pickConfiguration", "Select Launch Configuration", "Debug", () => {
-			workbench.LaunchPicker.Selected = context.Debugger.GetSelectedConfiguration();
-			workbench.LaunchPicker.Open([.. context.Debugger.GetConfigurations().Select(static configuration => configuration.Name)], workbench.TitleBar.RunConfigurationLeft, TitleBar.Height(workbench.Scale));
+			Menu menu = new();
+			string? selected = context.Debugger.GetSelectedConfiguration();
+
+			foreach (DebugConfiguration configuration in context.Debugger.GetConfigurations()) {
+				string name = configuration.Name;
+				menu.Add(new MenuItem(name, action: () => context.Debugger.SelectConfiguration(name)) { Checked = name == selected });
+			}
+
+			menu.AddSeparator();
+			menu.Add(new MenuItem("Edit Configurations...", DebugCommands.Configure));
+
+			context.OpenMenu(menu, workbench.TitleBar.RunConfigurationLeft, TitleBar.Height(workbench.Scale));
 		});
 	}
 
