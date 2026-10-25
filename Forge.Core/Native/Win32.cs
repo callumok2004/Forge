@@ -41,6 +41,12 @@ public static unsafe partial class Win32
 
 	public const uint WmMouseMove = 0x0200;
 	public const uint WmLeftButtonDown = 0x0201;
+	public const uint WmRightButtonDown = 0x0204;
+	public const uint WmRightButtonUp = 0x0205;
+	public const uint WmMiddleButtonDown = 0x0207;
+	public const uint WmMiddleButtonUp = 0x0208;
+	public const uint WmExtraButtonDown = 0x020B;
+	public const uint WmExtraButtonUp = 0x020C;
 	public const uint WmLeftButtonUp = 0x0202;
 	public const uint WmMouseWheel = 0x020A;
 	public const uint WmMouseHWheel = 0x020E;
@@ -320,6 +326,10 @@ public static unsafe partial class Win32
 
 	[LibraryImport(User32)]
 	public static partial nint GetForegroundWindow();
+
+	[LibraryImport(User32)]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	public static partial bool SetForegroundWindow(nint hwnd);
 
 	public const int VkShift = 0x10;
 	public const int VkControl = 0x11;

@@ -22,8 +22,8 @@ public sealed class WindowEvents
 
 	public Action? PointerLeftClient;
 
-	public Action<int, int>? MouseDown;
-	public Action<int, int>? MouseUp;
+	public Action<MouseButton, int, int>? MouseDown;
+	public Action<MouseButton, int, int>? MouseUp;
 	public Action<uint>? KeyDown;
 	public Action<char>? CharacterTyped;
 	public Action<uint>? DpiChanged;
@@ -385,14 +385,26 @@ public sealed unsafe class AppWindow : IAppWindow, IDisposable
 				return 1;
 
 			case Win32.WmLeftButtonDown:
+			case Win32.WmRightButtonDown:
+			case Win32.WmMiddleButtonDown:
 				Win32.SetCapture(hwnd);
-				window.Events.MouseDown?.Invoke(Win32.LowWord(lParam), Win32.HighWord(lParam));
+				window.Events.MouseDown?.Invoke(ButtonOf(message, wParam), Win32.LowWord(lParam), Win32.HighWord(lParam));
 				return 0;
 
 			case Win32.WmLeftButtonUp:
+			case Win32.WmRightButtonUp:
+			case Win32.WmMiddleButtonUp:
 				Win32.ReleaseCapture();
-				window.Events.MouseUp?.Invoke(Win32.LowWord(lParam), Win32.HighWord(lParam));
+				window.Events.MouseUp?.Invoke(ButtonOf(message, wParam), Win32.LowWord(lParam), Win32.HighWord(lParam));
 				return 0;
+
+			case Win32.WmExtraButtonDown:
+				window.Events.MouseDown?.Invoke(ButtonOf(message, wParam), Win32.LowWord(lParam), Win32.HighWord(lParam));
+				return 1;
+
+			case Win32.WmExtraButtonUp:
+				window.Events.MouseUp?.Invoke(ButtonOf(message, wParam), Win32.LowWord(lParam), Win32.HighWord(lParam));
+				return 1;
 
 			case Win32.WmKeyDown:
 				window.Events.KeyDown?.Invoke((uint)wParam);
@@ -427,6 +439,13 @@ public sealed unsafe class AppWindow : IAppWindow, IDisposable
 
 		return Win32.DefWindowProc(hwnd, message, wParam, lParam);
 	}
+
+	private static MouseButton ButtonOf(uint message, nint wParam) => message switch {
+		Win32.WmRightButtonDown or Win32.WmRightButtonUp => MouseButton.Right,
+		Win32.WmMiddleButtonDown or Win32.WmMiddleButtonUp => MouseButton.Middle,
+		Win32.WmExtraButtonDown or Win32.WmExtraButtonUp => Win32.HighWord(wParam) == 1 ? MouseButton.Back : MouseButton.Forward,
+		_ => MouseButton.Left,
+	};
 
 	public void Dispose() {
 		if (_disposed) return;

@@ -32,6 +32,8 @@ public sealed class NodeExtensionHost : IDisposable
 
 	public Func<string, JsonNode?, JsonNode?>? RequestHandler;
 
+	public Func<string, JsonNode?, Task<JsonNode?>?>? AsyncRequestHandler;
+
 	public bool Start(HostState state) {
 		lock (_sync) {
 			if (_connection is not null || _disposed) return false;
@@ -55,6 +57,7 @@ public sealed class NodeExtensionHost : IDisposable
 				connection.Log += message => Log?.Invoke(message);
 				connection.Notification += OnNotification;
 				connection.RequestHandler = (method, parameters) => RequestHandler?.Invoke(method, parameters);
+				connection.AsyncRequestHandler = (method, parameters) => AsyncRequestHandler?.Invoke(method, parameters);
 
 				_connection = connection;
 			}

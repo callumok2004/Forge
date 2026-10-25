@@ -145,7 +145,11 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	}
 
 	public void PublishActiveDocument() {
-		if (_documentObservers.Length == 0 || ActiveDocument is not { Path: { } path } document) return;
+		if (ActiveDocument is { } document) Publish(document);
+	}
+
+	public void Publish(Document document) {
+		if (_documentObservers.Length == 0 || document.Path is not { } path) return;
 
 		int version = document.Buffer.Version;
 
@@ -180,6 +184,16 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	public bool ShowFrameStats { get => FrameStatsOverlay.Visible; set => FrameStatsOverlay.Visible = value; }
 
 	public FrameStatsOverlay FrameStatsOverlay { get; } = new();
+
+	public NotificationToasts Notifications { get; } = new();
+
+	public Action<Action> Post { get; set; } = static action => action();
+
+	public Action? RevealCaret { get; set; }
+
+	public DebugStopPresenter? DebugStops { get; set; }
+
+	public NavigationHistory History => field ??= new NavigationHistory(this);
 
 	public IFrameStats? FrameStats { get => FrameStatsOverlay.Stats; set => FrameStatsOverlay.Stats = value; }
 
@@ -372,7 +386,31 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		}
 	}
 
+	public int IndexOf(string path) {
+		for (int i = 0; i < _documents.Count; i++) {
+			if (string.Equals(_documents[i].Path, path, StringComparison.OrdinalIgnoreCase)) return i;
+		}
+
+		return -1;
+	}
+
+	public TextView ViewAt(int index) => _views[index];
+
+	public void RestoreEditorFocus() => FocusEditor?.Invoke();
+
+	public void ShowReferences(string title, IReadOnlyList<HostLocation> locations) => Panel.SetReferences(title, locations);
+
+	public bool ApplyWorkspaceEdit(WorkspaceEdit edit) {
+		bool applied = new WorkspaceEditApplier(this).Apply(edit);
+
+		Repository?.Refresh();
+		ActiveDocumentChanged?.Invoke();
+		return applied;
+	}
+
 	public void GoTo(string path, int line, int column) {
+		History.Observe();
+		History.MarkJump();
 		OpenFile(path);
 
 		if (ActiveView is not { } view) return;
@@ -380,8 +418,9 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		int index = Math.Clamp(line - 1, 0, Math.Max(0, view.Snapshot.LineCount - 1));
 		Forge.Text.TextSpan span = view.Snapshot.GetLineSpan(index);
 
-		view.MoveTo(Math.Clamp(span.Start + Math.Max(0, column - 1), span.Start, span.End),
-			extend: false);
+		view.PushUndoStop();
+		view.MoveTo(Math.Clamp(span.Start + Math.Max(0, column - 1), span.Start, span.End), extend: false);
+		RevealCaret?.Invoke();
 	}
 
 	public bool EditActiveDocument(Func<string, string?> transform) {
@@ -411,6 +450,8 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		if (index < 0 || index >= _documents.Count) return;
 
 		bool wasLarge = _documents[index].Buffer.Length >= LargeDocumentChars;
+
+		if (_documents[index].Path is { } closedPath && _publishedVersions.Remove(closedPath)) PublishDocument(DocumentEvent.Closed, closedPath, null);
 
 		_documents.RemoveAt(index);
 		_views.RemoveAt(index);
@@ -467,6 +508,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		PublishActiveDocument();
 
 		IntelliSense?.Tick();
+		History.Observe();
 
 		int errors = 0;
 		int warnings = 0;
@@ -501,10 +543,11 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 		if (TrailingSpaces is { } trailing) {
 			float lineHeight = painter.GetCode().GetLineHeight();
-			int firstLine = (int)(view.ScrollY / lineHeight);
-			Decorations.UpdateVisible(view, trailing, firstLine, firstLine + (int)(height / lineHeight) + 1);
+			int firstLine = view.LineAtY(view.ScrollY, lineHeight);
+			Decorations.UpdateVisible(view, trailing, IntelliSense?.Occurrences.For(ActiveFilePath, view.Buffer.Version) ?? [], firstLine, firstLine + (int)(height / lineHeight) + 1);
 		}
 
+		view.Lightbulb = IntelliSense?.Actions.Current is { } bulb ? new TextView.LightbulbMark(bulb.Line, bulb.Column, bulb.InGutter, bulb.AutoFix) : null;
 		view.BreakpointProvider = BreakpointMarkFor;
 		view.ExecutionLine = ExecutionLineFor?.Invoke(ActiveFilePath ?? string.Empty) ?? -1;
 		view.Render(painter, left, top, textWidth, height);

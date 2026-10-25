@@ -28,6 +28,7 @@ public sealed class WorkbenchPanel : Panel
 		AddChild(_auxiliarySash = new Splitter(vertical: true) { Name = "AuxiliarySash", Dragged = (x, _) => Resize(() => workbench.ResizeAuxiliary(x, Wide)) });
 		AddChild(_panelSash = new Splitter(vertical: false) { Name = "PanelSash", Dragged = (_, y) => Resize(() => workbench.ResizePanel(y, Tall)) });
 		AddChild(workbench.FrameStatsOverlay);
+		AddChild(workbench.Notifications);
 	}
 
 	private readonly Splitter _sidebarSash;
@@ -80,6 +81,12 @@ public sealed class WorkbenchPanel : Panel
 		float statsWidth = FrameStatsOverlay.Width * scale;
 		float statsHeight = FrameStatsOverlay.BadgeHeight * scale;
 		_workbench.FrameStatsOverlay.SetBounds(windowWidth - _workbench.AuxiliaryWidth - (Metrics.SpaceLg * scale) - statsWidth, bottom - statsHeight - (Metrics.SpaceSm * scale), statsWidth, statsHeight);
+
+		NotificationToasts notifications = _workbench.Notifications;
+		float toastWidth = MathF.Min(NotificationToast.Width * scale, windowWidth - (Metrics.SpaceLg * 2f * scale));
+		float toastHeight = notifications.ContentHeight;
+		notifications.Visible = toastHeight > 0f;
+		notifications.SetBounds(windowWidth - toastWidth - (Metrics.SpaceLg * scale), bottom - toastHeight - (Metrics.SpaceSm * scale), toastWidth, toastHeight);
 	}
 
 	public override void PerformLayout() {

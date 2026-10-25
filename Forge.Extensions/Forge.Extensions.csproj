@@ -16,4 +16,27 @@
 		<None Include="IndentRainbow\package.json" CopyToOutputDirectory="PreserveNewest" Link="Extensions\IndentRainbow\package.json" />
 		<None Include="Discord\discord-languages.json" CopyToOutputDirectory="PreserveNewest" Link="Extensions\Discord\discord-languages.json" />
 	</ItemGroup>
+
+	<PropertyGroup>
+		<NetCoreDbgRoot>$(MSBuildThisFileDirectory)..\native\netcoredbg\</NetCoreDbgRoot>
+		<NetCoreDbgBin>$(NetCoreDbgRoot)bin\</NetCoreDbgBin>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<NetCoreDbgSource Include="$(NetCoreDbgRoot)src\**\*.cpp;$(NetCoreDbgRoot)src\**\*.h;$(NetCoreDbgRoot)src\**\*.cs;$(NetCoreDbgRoot)**\CMakeLists.txt" Exclude="$(NetCoreDbgRoot).coreclr\**;$(NetCoreDbgRoot)build\**" />
+	</ItemGroup>
+
+	<Target Name="BuildNetCoreDbg" BeforeTargets="BeforeBuild" Condition="Exists('$(NetCoreDbgRoot)CMakeLists.txt')" Inputs="@(NetCoreDbgSource)" Outputs="$(NetCoreDbgBin)netcoredbg.exe">
+		<Message Importance="high" Text="Building netcoredbg fork..." />
+		<Exec Condition="!Exists('$(NetCoreDbgRoot)build\CMakeCache.txt')" Command="cmake -S &quot;$(NetCoreDbgRoot.TrimEnd('\'))&quot; -B &quot;$(NetCoreDbgRoot)build&quot; -G &quot;Visual Studio 17 2022&quot; -A x64 -DCMAKE_INSTALL_PREFIX=&quot;$(NetCoreDbgBin.TrimEnd('\'))&quot;" />
+		<Exec Command="cmake --build &quot;$(NetCoreDbgRoot)build&quot; --config Release --target install -- -m -v:m" />
+		<Touch Files="$(NetCoreDbgBin)netcoredbg.exe" />
+	</Target>
+
+	<Target Name="CopyNetCoreDbg" AfterTargets="BuildNetCoreDbg" BeforeTargets="AssignTargetPaths">
+		<ItemGroup>
+			<NetCoreDbgFile Include="$(NetCoreDbgBin)**\*" />
+			<None Include="@(NetCoreDbgFile)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="Debugger\netcoredbg\%(NetCoreDbgFile.RecursiveDir)%(NetCoreDbgFile.Filename)%(NetCoreDbgFile.Extension)" Visible="false" />
+		</ItemGroup>
+	</Target>
 </Project>

@@ -7,7 +7,7 @@ using Forge.Common.Extensions;
 using Forge.Core;
 using Forge.Extensions.Host;
 
-namespace Forge.Extensions.Dotnet;
+namespace Forge.Extensions.Dotnet.Server;
 
 public static class LanguageServerAcquisition
 {

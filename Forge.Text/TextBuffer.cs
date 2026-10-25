@@ -13,7 +13,14 @@ public sealed class TextBuffer
 {
 	private readonly PieceTree _tree;
 
-	private readonly record struct UndoStep(int Start, int Count, int ArenaStart);
+	public readonly record struct Selection(int Anchor, int Caret)
+	{
+		public static Selection None => new(-1, -1);
+
+		public bool IsSet => Caret >= 0;
+	}
+
+	private readonly record struct UndoStep(int Start, int Count, int ArenaStart, int State, Selection Before, Selection After);
 
 	private readonly List<TextChange> _changes = [];
 	private readonly List<UndoStep> _undo = [];
@@ -51,11 +58,39 @@ public sealed class TextBuffer
 
 	public int Version => _version;
 
+	private int _stateCounter;
+
+	public int State => _groupDepth > 0 ? -1 : _undo.Count == 0 ? 0 : _undo[^1].State;
+
+	public Func<Selection>? CursorState { get; set; }
+
+	private bool _stackClosed;
+	private Selection _pendingBefore = Selection.None;
+
+	public void PushStackElement() {
+		CloseTopStep();
+		_stackClosed = true;
+	}
+
+	private void CloseTopStep() {
+		if (_undo.Count == 0 || CursorState is null) return;
+
+		_undo[^1] = _undo[^1] with { After = CursorState() };
+	}
+
+	private void CaptureBefore() {
+		if (_groupDepth > 0 && _changes.Count != _groupStart) return;
+
+		_pendingBefore = CursorState?.Invoke() ?? Selection.None;
+	}
+
 	public int Length => _tree.Length;
 
 	public int LineCount => _tree.LineCount;
 
 	public LineEnding LineEnding { get; set; }
+
+	public System.Text.Encoding Encoding { get; set; } = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
 	public bool CanUndo => _undo.Count > 0;
 
@@ -110,6 +145,7 @@ public sealed class TextBuffer
 
 		offset = Math.Clamp(offset, 0, Length);
 
+		CaptureBefore();
 		DropRedo();
 		(int insertedStart, int insertedLength) = Store(text);
 		TextChange change = new(offset, 0, 0, insertedStart, insertedLength);
@@ -125,6 +161,7 @@ public sealed class TextBuffer
 		count = Math.Min(count, Length - offset);
 		if (count <= 0) return;
 
+		CaptureBefore();
 		DropRedo();
 		(int removedStart, int removedLength) = Store(_tree, offset, count);
 		TextChange change = new(offset, removedStart, removedLength, 0, 0);
@@ -138,6 +175,7 @@ public sealed class TextBuffer
 		count = Math.Clamp(count, 0, Length - offset);
 		if (count == 0 && text.IsEmpty) return;
 
+		CaptureBefore();
 		DropRedo();
 		(int removedStart, int removedLength) = Store(_tree, offset, count);
 		(int insertedStart, int insertedLength) = Store(text);
@@ -169,11 +207,17 @@ public sealed class TextBuffer
 	}
 
 	private void RecordStep(int start, int count, int arenaStart) {
-		if (!ShouldPushStackElementBetween(_lastKind, _kind) && _undo.Count > 0) {
+		if (!_stackClosed && !ShouldPushStackElementBetween(_lastKind, _kind) && _undo.Count > 0) {
 			UndoStep last = _undo[^1];
-			_undo[^1] = last with { Count = last.Count + count };
+			_undo[^1] = last with { Count = last.Count + count, State = ++_stateCounter, After = Selection.None };
 		}
-		else _undo.Add(new UndoStep(start, count, arenaStart));
+		else {
+			if (!_stackClosed) CloseTopStep();
+
+			_undo.Add(new UndoStep(start, count, arenaStart, ++_stateCounter, _pendingBefore, Selection.None));
+		}
+
+		_stackClosed = false;
 
 		_lastKind = _kind;
 		_kind = EditKind.Other;
@@ -296,13 +340,20 @@ public sealed class TextBuffer
 		RecordStep(_groupStart, count, _groupArenaStart);
 	}
 
-	public bool Undo(out int caret) {
+	public bool Undo(out int caret) => Undo(out _, out caret);
+
+	public bool Undo(out Selection restore, out int caret) {
 		caret = -1;
+		restore = Selection.None;
 
 		if (_undo.Count == 0) return false;
 
+		if (!_undo[^1].After.IsSet) CloseTopStep();
+
 		UndoStep step = _undo[^1];
 		_undo.RemoveAt(_undo.Count - 1);
+		restore = step.Before;
+		_stackClosed = true;
 
 		_lastKind = EditKind.Other;
 
@@ -315,13 +366,18 @@ public sealed class TextBuffer
 		return true;
 	}
 
-	public bool Redo(out int caret) {
+	public bool Redo(out int caret) => Redo(out _, out caret);
+
+	public bool Redo(out Selection restore, out int caret) {
 		caret = -1;
+		restore = Selection.None;
 
 		if (_redo.Count == 0) return false;
 
 		UndoStep step = _redo[^1];
 		_redo.RemoveAt(_redo.Count - 1);
+		restore = step.After;
+		_stackClosed = true;
 
 		_lastKind = EditKind.Other;
 

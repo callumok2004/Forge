@@ -54,7 +54,10 @@ public sealed class SuggestWidget : Panel
 
 	private float RowHeight => Ui?.GetFonts().GetCode().GetLineHeight() ?? 1f;
 
+	public int Generation { get; private set; }
+
 	public void Show(IReadOnlyList<CompletionEntry> items, int line, int requestColumn, string leading, int caretColumn) {
+		Generation++;
 		_all.Clear();
 		_all.AddRange(items);
 

@@ -51,6 +51,7 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 		process.Log = Log;
 		process.Notification = OnNotification;
 		process.RequestHandler = OnRequest;
+		process.AsyncRequestHandler = OnDeferredRequest;
 
 		if (!process.Start(state)) {
 			process.Dispose();
@@ -159,11 +160,55 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 		"webview/postMessage" => WebviewSend(parameters),
 		"workspace/openTextDocument" => OpenTextDocument(parameters),
 		"window/showTextDocument" => ShowTextDocument(parameters),
-		"window/showMessage" => ShowMessage(parameters),
 		"commands/list" => CommandList(),
-		"window/showQuickPick" => null,
 		_ => Unhandled(method, parameters),
 	};
+
+	private Task<JsonNode?>? OnDeferredRequest(string method, JsonNode? parameters) => method switch {
+		"window/showMessage" => ShowMessageAsync(parameters),
+		"window/showQuickPick" => ShowQuickPickAsync(parameters),
+		_ => null,
+	};
+
+	private Task<JsonNode?> ShowMessageAsync(JsonNode? parameters) {
+		string message = parameters?["message"]?.GetValue<string>() ?? string.Empty;
+		JsonArray items = parameters?["items"] as JsonArray ?? [];
+		MessageSeverity severity = parameters?["level"]?.GetValue<string>() switch {
+			"error" => MessageSeverity.Error,
+			"warning" => MessageSeverity.Warning,
+			_ => MessageSeverity.Info,
+		};
+
+		List<string> titles = [with(items.Count)];
+
+		foreach (JsonNode? item in items) titles.Add(item is JsonObject value ? value["title"]?.GetValue<string>() ?? string.Empty : item?.GetValue<string>() ?? string.Empty);
+
+		TaskCompletionSource<JsonNode?> answer = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		host.ShowMessage(severity, message, titles, index => answer.TrySetResult(index >= 0 ? items[index]?.DeepClone() : null));
+
+		if (titles.Count == 0) answer.TrySetResult(null);
+
+		return answer.Task;
+	}
+
+	private Task<JsonNode?> ShowQuickPickAsync(JsonNode? parameters) {
+		JsonArray items = parameters?["items"] as JsonArray ?? [];
+		string placeholder = parameters?["options"]?["placeHolder"]?.GetValue<string>() ?? parameters?["options"]?["title"]?.GetValue<string>() ?? string.Empty;
+		List<QuickPickItem> entries = [with(items.Count)];
+
+		foreach (JsonNode? item in items) {
+			entries.Add(item is JsonObject value
+				? new QuickPickItem(value["label"]?.GetValue<string>() ?? string.Empty, value["description"]?.GetValue<string>() ?? string.Empty, value["detail"]?.GetValue<string>() ?? string.Empty)
+				: new QuickPickItem(item?.GetValue<string>() ?? string.Empty));
+		}
+
+		TaskCompletionSource<JsonNode?> answer = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		host.ShowQuickPick(placeholder, entries, index => answer.TrySetResult(index >= 0 ? items[index]?.DeepClone() : null));
+
+		return answer.Task;
+	}
 
 	private JsonNode? Unhandled(string method, JsonNode? parameters) {
 		Log($"Unhandled API call: {method} {Summarise(parameters)}");
@@ -260,11 +305,6 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 
 		if (File.Exists(path)) host.OpenFile(path);
 
-		return null;
-	}
-
-	private JsonNode? ShowMessage(JsonNode? parameters) {
-		Log(parameters?["message"]?.GetValue<string>() ?? string.Empty);
 		return null;
 	}
 

@@ -69,9 +69,9 @@ public static class ApplicationMenu
 		MenuEntry.Submenu("Go", [
 			new("Go to File…", "workbench.action.quickOpen"),
 			MenuEntry.Separator,
-			new("Go to Definition", "dotnet.goToDefinition"),
-			new("Go to Implementation", "dotnet.goToImplementation"),
-			new("Go to References", "dotnet.findAllReferences"),
+			new("Go to Definition", "editor.action.revealDefinition"),
+			new("Go to Implementations", "editor.action.goToImplementation"),
+			new("Go to References", "editor.action.goToReferences"),
 			MenuEntry.Separator,
 			new("Go to Bracket", "editor.action.jumpToBracket"),
 		]),

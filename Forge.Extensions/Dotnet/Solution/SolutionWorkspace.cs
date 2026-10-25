@@ -2,7 +2,7 @@ using Forge.Common.Extensions;
 using Forge.Core;
 using Forge.Extensions.Host;
 
-namespace Forge.Extensions.Dotnet;
+namespace Forge.Extensions.Dotnet.Solution;
 
 public sealed class SolutionWorkspace
 {

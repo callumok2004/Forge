@@ -5,6 +5,8 @@ public enum MouseButton : byte
 	Left,
 	Right,
 	Middle,
+	Back,
+	Forward,
 }
 
 [Flags]

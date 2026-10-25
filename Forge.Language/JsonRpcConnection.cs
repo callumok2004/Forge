@@ -85,6 +85,8 @@ public sealed class JsonRpcConnection : IDisposable
 
 	public Func<string, JsonNode?, JsonNode?>? RequestHandler { get; set; }
 
+	public Func<string, JsonNode?, Task<JsonNode?>?>? AsyncRequestHandler { get; set; }
+
 	public bool IsRunning => !_disposed && !_process.HasExited;
 
 	public async Task<JsonNode?> SendRequestAsync(string method, JsonNode? parameters,
@@ -231,18 +233,35 @@ public sealed class JsonRpcConnection : IDisposable
 		}
 
 		if (root["id"] is { } requestId) {
-			JsonNode? result = RequestHandler?.Invoke(method, root["params"]);
+			if (AsyncRequestHandler?.Invoke(method, root["params"]) is { } pending) {
+				_ = ReplyAsync(requestId.DeepClone(), pending);
+				return;
+			}
 
-			Write(new JsonObject {
-				["jsonrpc"] = "2.0",
-				["id"] = requestId.DeepClone(),
-				["result"] = result,
-			});
-
+			Reply(requestId.DeepClone(), RequestHandler?.Invoke(method, root["params"]));
 			return;
 		}
 
 		Notification?.Invoke(method, root["params"]);
+	}
+
+	private void Reply(JsonNode id, JsonNode? result) => Write(new JsonObject {
+		["jsonrpc"] = "2.0",
+		["id"] = id,
+		["result"] = result,
+	});
+
+	private async Task ReplyAsync(JsonNode id, Task<JsonNode?> pending) {
+		JsonNode? result = null;
+
+		try {
+			result = await pending.ConfigureAwait(false);
+		}
+		catch (Exception exception) when (exception is InvalidOperationException or OperationCanceledException or IOException) {
+			Log?.Invoke($"Deferred request failed: {exception.Message}");
+		}
+
+		if (!_disposed) Reply(id, result);
 	}
 
 	private void CompleteResponse(JsonObject root) {

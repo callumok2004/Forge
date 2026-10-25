@@ -11,5 +11,6 @@ public static class DeveloperCommands
 		registry.Register(new Command("forgeui_drawtree", "Toggle Panel Tree", "Developer", _ => tree.Toggle()));
 		registry.Register(new Command("forgeui_visualizelayout", "Toggle Layout Visualisation", "Developer", _ => ui.VisualizeLayout = !ui.VisualizeLayout));
 		registry.Register(new Command("forgeui_visualizepaint", "Toggle Paint Visualisation", "Developer", _ => ui.VisualizePaint = !ui.VisualizePaint));
+		registry.Register(new Command("forge_throwexception", "Throw Test Exception", "Developer", _ => throw new InvalidOperationException("forge_throwexception: test exception thrown on purpose.")));
 	}
 }

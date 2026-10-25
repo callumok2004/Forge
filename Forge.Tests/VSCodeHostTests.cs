@@ -166,6 +166,14 @@ internal sealed class RecordingHost : ICommandHost
 	public void ShowCommandPalette() {
 	}
 
+	public Task<bool> ApplyWorkspaceEditAsync(WorkspaceEdit edit) => Task.FromResult(false);
+
+	public string? GetDocumentText(string path) => null;
+
+	public void ShowQuickPick(string placeholder, IReadOnlyList<QuickPickItem> items, Action<int> picked) => picked(-1);
+
+	public void ShowMessage(MessageSeverity severity, string message, IReadOnlyList<string> actions, Action<int>? chosen) => chosen?.Invoke(-1);
+
 	public void SetStatusItem(string id, string icon, string text, string? commandId, bool rightAligned = false, int priority = 0) {
 	}
 

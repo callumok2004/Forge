@@ -88,7 +88,7 @@ public sealed class Minimap
 		float lineHeight = Math.Max(1f, view.LastLineHeight);
 		int visibleLines = Math.Max(1, (int)(view.LastViewportHeight / lineHeight));
 
-		int viewportFirst = Math.Max(0, (int)(view.ScrollY / lineHeight));
+		int viewportFirst = view.LineAtY(view.ScrollY, lineHeight);
 
 		float sliderTop = y + ((viewportFirst - firstLine) * rowHeight);
 		float sliderHeight = visibleLines * rowHeight;

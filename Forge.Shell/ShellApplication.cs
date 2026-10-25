@@ -177,14 +177,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			window.Invalidate();
 		}
 
-		debugger.RevealSource = (path, line) => Post(() => {
-			workbench.OpenFile(path);
+		workbench.Post = Post;
 
-			if (workbench.ActiveView is { } view)
-				view.MoveTo(view.Snapshot.GetLineStartOffset(Math.Max(line - 1, 0)), extend: false);
-
-			window.Invalidate();
-		});
 
 		using Forge.Webview.WebviewHost webviews = new(window.Handle, device, Path.Combine(UserData.Directory, "webview"), Post);
 
@@ -262,7 +256,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		workbench.Sidebar.Debug.ScopesLoader = debugger.ScopesAsync;
 		workbench.Sidebar.Debug.VariablesLoader = debugger.VariablesAsync;
 		workbench.Sidebar.Debug.Changed = window.Invalidate;
-		workbench.Sidebar.Debug.OpenBreakpoint = (path, line) => debugger.RevealSource?.Invoke(path, line);
+		workbench.Sidebar.Debug.OpenBreakpoint = (path, line) => workbench.GoTo(path, line, 1);
 
 		workbench.BreakpointMarkFor = line => {
 			if (workbench.ActiveFilePath is not { Length: > 0 } path) return BreakpointMark.None;
@@ -563,6 +557,17 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		};
 		workbench.FocusEditor = root.Editor.RequestFocus;
 		root.Editor.Typed = context.RevealCaret;
+
+		DebugStopPresenter stops = new(workbench, context, window.Handle);
+		workbench.DebugStops = stops;
+		debugger.RevealSource = reveal => workbench.Post(() => stops.Reveal(reveal));
+		debugger.ExceptionCleared = () => workbench.Post(stops.Clear);
+
+		if (workbench.IntelliSense is { } languageUi) {
+			languageUi.Actions.Changed = root.Editor.Repaint;
+			languageUi.Navigation.LinkChanged = root.Editor.SyncLink;
+		}
+		workbench.RevealCaret = context.RevealCaret;
 		root.Editor.RequestFocus();
 
 		workbench.Panel.Navigate = (path, line, column) => {
@@ -862,16 +867,24 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			if (!ui.InternalCursorMoved(x, y)) window.Cursor = arrowCursor;
 		};
 
-		window.Events.MouseDown += (x, y) => {
+		window.Events.MouseDown += (button, x, y) => {
+			if (button is MouseButton.Back or MouseButton.Forward) {
+				if (Settings.Current.GetBoolean("workbench.editor.mouseBackForwardToNavigate") ?? true) workbench.RunCommand(button == MouseButton.Back ? "workbench.action.navigateBack" : "workbench.action.navigateForward", context.Host);
+
+				return;
+			}
+
 			if (workbench.Auxiliary.ShownViewId is not null && !workbench.Auxiliary.ContentBounds.Contains(new PixelRect(x, y, x + 1, y + 1))) workbench.Webviews.ReleaseFocus();
 
-			if (ui.InternalMousePressed(MouseButton.Left, x, y)) return;
+			if (ui.InternalMousePressed(button, x, y)) return;
 
 			workbench.IntelliSense?.Dismiss();
 			workbench.PanelFocused = false;
 		};
 
-		window.Events.MouseUp += (x, y) => ui.InternalMouseReleased(MouseButton.Left, x, y);
+		window.Events.MouseUp += (button, x, y) => {
+			if (button is not (MouseButton.Back or MouseButton.Forward)) ui.InternalMouseReleased(button, x, y);
+		};
 
 		ui.KeyFallback = (key, modifiers) => {
 			if (Registry.Resolve(key, (modifiers & KeyModifiers.Control) != 0, (modifiers & KeyModifiers.Shift) != 0, (modifiers & KeyModifiers.Alt) != 0) is not { } command) return false;

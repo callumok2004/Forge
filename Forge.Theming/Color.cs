@@ -50,6 +50,8 @@ public readonly struct Color(float red, float green, float blue, float alpha = 1
 	public static Color FromBytes(byte r, byte g, byte b, byte a = 255) =>
 		new(r / 255f, g / 255f, b / 255f, a / 255f);
 
+	public uint ToArgb() => ((uint)MathF.Round(A * 255f) << 24) | ((uint)MathF.Round(R * 255f) << 16) | ((uint)MathF.Round(G * 255f) << 8) | (uint)MathF.Round(B * 255f);
+
 	public Color Over(Color background) {
 		if (A >= 1f) return new Color(R, G, B);
 

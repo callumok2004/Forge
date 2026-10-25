@@ -21,21 +21,67 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 
 	public HoverWidget Hover { get; } = new();
 
+	public OccurrenceHighlighter Occurrences => field ??= new OccurrenceHighlighter(workbench, () => Features, refresh);
+
+	public EditorMessageWidget Message { get; } = new();
+
+	private UiQueue Ui => field ??= new UiQueue(refresh);
+
+	public RenameController Renaming => field ??= new RenameController(workbench, Ui, Message);
+
+	private TypingAssist Typing => field ??= new TypingAssist(workbench, Ui);
+
+	public NavigationController Navigation => field ??= new NavigationController(workbench, Ui, Message);
+
+	public CodeActionController Actions => field ??= new CodeActionController(workbench, Ui, Message);
+
+	public void ShowCodeActions() {
+		if (Available && Features is { } features) Actions.Invoke(features);
+	}
+
+	public void OpenLightbulbMenu(float x, float y) {
+		if (Available && Features is { } features) Actions.OpenFromLightbulb(features, x, y);
+	}
+
+	public void RevealDefinition() {
+		if (Available && Features is { } features) Navigation.RevealDefinition(features);
+	}
+
+	public void GoToImplementation() {
+		if (Available && Features is { } features) Navigation.GoToImplementation(features);
+	}
+
+	public void FindReferences() {
+		if (Available && Features is { } features) Navigation.FindReferences(features);
+	}
+
+	public void LinkHover(int offset) {
+		if (Available && Features is { } features) Navigation.Hover(features, offset);
+	}
+
+	public void StartRename() {
+		if (!Available || Features is not { } features) return;
+
+		Dismiss();
+		Renaming.Start(features);
+	}
+
 	public Action<bool>? DetailsVisibleChanged;
 
 	public ILanguageFeatures? Features { get; set; }
 
-	private int _generation;
+	private int _signatureGeneration;
 
-	private bool _incomplete;
+	private SuggestSession Session => field ??= new SuggestSession(workbench, Suggest, Ui) { Shown = ResetResolved };
+
+	private void ResetResolved() {
+		_resolvedFor = -1;
+		_resolvedEdits = [];
+	}
 
 	private long _pointerRestingSince;
 
 	private bool _hoverRequested;
-
-	private static bool IsSuggestTrigger(char character) => character is '.' or ':' or '>' or ' ';
-
-	private static bool IsSignatureTrigger(char character) => character is '(' or ',' or '<';
 
 	private static bool IsWordCharacter(char character) =>
 		char.IsLetterOrDigit(character) || character == '_';
@@ -43,53 +89,39 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 	private bool Available =>
 		Features is { } features && workbench.GetActiveFilePath() is { } path && features.Handles(path);
 
-	public void Typed(char character) {
-		if (!Available) return;
+	private LanguageTriggers Triggers => Features?.GetTriggers() ?? LanguageTriggers.Default;
 
-		if (IsSignatureTrigger(character)) RequestSignature(character);
+	public void Typed(char character) {
+		if (!Available || Features is not { } features) return;
+
+		Typing.Typed(features, character);
+
+		if (character == '\n') {
+			Session.Cancel();
+			return;
+		}
+
+		LanguageTriggers triggers = Triggers;
+
+		if (triggers.Signature.Contains(character)) RequestSignature(character);
+		else if (Signature.IsOpen && triggers.SignatureRetrigger.Contains(character)) RequestSignature(character);
 		else if (character == ')') Signature.Hide();
 
-		if (Suggest.IsOpen) {
-			if (IsWordCharacter(character)) {
-				if (_incomplete) RequestSuggest('\0', CompletionTrigger.Incomplete);
-				else Refilter();
-
-				refresh();
-				return;
-			}
-
-			Suggest.Hide();
-		}
-
-		if (IsSuggestTrigger(character) && character != ' ') {
-			RequestSuggest(character, CompletionTrigger.Character);
-		}
-		else if (IsWordCharacter(character)) RequestSuggest('\0');
+		Session.Typed(features, character);
 	}
 
 	public void TriggerSuggest() {
-		if (Available) RequestSuggest('\0');
+		if (Available && Features is { } features) Session.Invoke(features);
 	}
 
-	public void Deleted() {
-		if (!Suggest.IsOpen) return;
+	public void Deleted() => CursorMoved();
 
-		if (workbench.GetActiveView() is not { } view || view.GetCaretLine() + 1 != Suggest.Line ||
-			view.GetCaretColumn() + 1 < Suggest.WordStartColumn) {
-			Suggest.Hide();
-			return;
-		}
-
-		if (_incomplete) {
-			RequestSuggest('\0', CompletionTrigger.Incomplete);
-			return;
-		}
-
-		Refilter();
+	public void CursorMoved() {
+		if (Features is { } features) Session.CursorChanged(features);
 	}
 
 	public void Dismiss() {
-		Suggest.Hide();
+		Session.Cancel();
 		Signature.Hide();
 		Hover.Hide();
 	}
@@ -118,7 +150,7 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 		if (Suggest.IsOpen) {
 			switch (key) {
 				case VkEscape:
-					Suggest.Hide();
+					Session.Cancel();
 					refresh();
 					return true;
 
@@ -173,7 +205,7 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 	public void Accept() {
 		if (Suggest.Current is not { } entry || workbench.GetActiveDocument() is not { } document ||
 			workbench.GetActiveView() is not { } view) {
-			Suggest.Hide();
+			Session.Cancel();
 			return;
 		}
 
@@ -198,7 +230,7 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 
 		if (imports.Count > 0) ApplyEdits(document, imports, view);
 
-		Suggest.Hide();
+		Session.Cancel();
 
 		if (resolvePending) ApplyImportsWhenResolved(entry.Index, document, view);
 
@@ -223,37 +255,7 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 	}
 
 	private static void ApplyEdits(IDocument document, IReadOnlyList<HostTextEdit> edits, ITextView view) {
-		List<HostTextEdit> ordered = [.. edits];
-
-		ordered.Sort(static (left, right) => right.StartLine != left.StartLine
-			? right.StartLine.CompareTo(left.StartLine)
-			: right.StartColumn.CompareTo(left.StartColumn));
-
-		int earliest = int.MaxValue;
-		int delta = 0;
-
-		document.GetBuffer().BeginEdit();
-
-		foreach (HostTextEdit edit in ordered) {
-			TextSnapshot snapshot = document.GetBuffer().CreateSnapshot();
-
-			if (edit.StartLine < 1 || edit.StartLine - 1 >= snapshot.LineCount) continue;
-
-			TextSpan line = snapshot.GetLineSpan(edit.StartLine - 1);
-			TextSpan endLine = edit.EndLine >= 1 && edit.EndLine - 1 < snapshot.LineCount
-				? snapshot.GetLineSpan(edit.EndLine - 1)
-				: line;
-
-			int start = Math.Clamp(line.Start + edit.StartColumn - 1, line.Start, line.End);
-			int end = Math.Clamp(endLine.Start + edit.EndColumn - 1, start, endLine.End);
-
-			document.GetBuffer().Replace(start, end - start, edit.NewText);
-
-			earliest = Math.Min(earliest, start);
-			delta += edit.NewText.Length - (end - start);
-		}
-
-		document.GetBuffer().EndEdit();
+		DocumentEdits.Apply(document.GetBuffer(), edits, out int earliest, out int delta);
 
 		if (earliest != int.MaxValue) view.ExternalEdit(earliest, delta);
 	}
@@ -261,31 +263,21 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 	private IReadOnlyList<HostTextEdit> _resolvedEdits = [];
 	private int _resolvedFor = -1;
 
-	private sealed record PendingList(int Generation, IReadOnlyList<CompletionEntry> Items, int Line,
-		int Column, bool IsIncomplete);
-
-	private volatile PendingList? _pending;
-
 	public void Tick() {
-		if (Interlocked.Exchange(ref _pending, null) is { } pending &&
-			pending.Generation == _generation && pending.Items.Count > 0) {
-			_incomplete = pending.IsIncomplete;
+		Ui.Drain();
 
-			_resolvedFor = -1;
-			_resolvedEdits = [];
+		if (Message.IsOpen && workbench.GetActiveView()?.GetCaretOffset() != Message.Offset) Message.Hide();
+		Occurrences.Tick();
 
-			(string leading, int caret) = LeadingText();
-
-			Suggest.Show(FillInRanges(pending.Items, leading, pending.Column), pending.Line,
-				pending.Column, leading, caret);
-		}
+		if (Available && Features is { } actionFeatures && Panel.Ui is { } actionUi) Actions.Tick(actionFeatures, actionUi.GetFonts().GetCode().GetCellWidth(), Panel.Scale);
+		else Actions.Clear();
 
 		if (Suggest.PendingDetail is { } index && Features is { } features) {
-			int generation = _generation;
+			int generation = Suggest.Generation;
 
 			_ = Task.Run(async () => {
 				if (await features.ResolveCompletionAsync(index).ConfigureAwait(false) is not
-					{ } detail || generation != _generation) return;
+					{ } detail || generation != Suggest.Generation) return;
 
 				_resolvedFor = index;
 				_resolvedEdits = detail.AdditionalEdits;
@@ -332,35 +324,13 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 		Hover.Hide();
 	}
 
-	private void RequestSuggest(char trigger, CompletionTrigger kind = CompletionTrigger.Invoked) {
-		if (Features is not { } features || workbench.GetActiveFilePath() is not { } path ||
-			workbench.GetActiveView() is not { } view) return;
-
-		workbench.PublishActiveDocument();
-
-		int generation = ++_generation;
-		int line = view.GetCaretLine() + 1;
-		int column = view.GetCaretColumn() + 1;
-
-		_ = Task.Run(async () => {
-			CompletionList list = await features
-				.CompletionsAsync(path, line, column, trigger, kind).ConfigureAwait(false);
-
-			if (generation != _generation || list.Items.Count == 0) return;
-
-			_pending = new PendingList(generation, list.Items, line, column, list.IsIncomplete);
-
-			refresh();
-		});
-	}
-
 	private void RequestSignature(char trigger) {
 		if (Features is not { } features || workbench.GetActiveFilePath() is not { } path ||
 			workbench.GetActiveView() is not { } view) return;
 
 		workbench.PublishActiveDocument();
 
-		int generation = _generation;
+		int generation = ++_signatureGeneration;
 		int line = view.GetCaretLine() + 1;
 		int column = view.GetCaretColumn() + 1;
 
@@ -368,7 +338,7 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 			SignatureHelp? help = await features.SignatureHelpAsync(path, line, column, trigger)
 				.ConfigureAwait(false);
 
-			if (generation != _generation) return;
+			if (generation != _signatureGeneration) return;
 
 			if (help is null) Signature.Hide();
 			else Signature.Show(help);
@@ -377,38 +347,7 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 		});
 	}
 
-	private static IReadOnlyList<CompletionEntry> FillInRanges(IReadOnlyList<CompletionEntry> items,
-		string leading, int column) {
-		int start = Math.Clamp(column - 1, 0, leading.Length);
-
-		while (start > 0 && (char.IsLetterOrDigit(leading[start - 1]) || leading[start - 1] == '_')) start--;
-
-		CompletionEntry[] filled = new CompletionEntry[items.Count];
-
-		for (int i = 0; i < items.Count; i++) {
-			filled[i] = items[i].ReplaceStartColumn > 0
-				? items[i]
-				: items[i] with { ReplaceStartColumn = start + 1, ReplaceEndColumn = column };
-		}
-
-		return filled;
-	}
-
-	private void Refilter() {
-		(string leading, int caret) = LeadingText();
-		Suggest.Filter(leading, caret);
-	}
-
-	private (string Leading, int Column) LeadingText() {
-		if (workbench.GetActiveView() is not { } view) return (string.Empty, 1);
-
-		TextSpan span = view.GetSnapshot().GetLineSpan(view.GetCaretLine());
-		int to = Math.Clamp(view.GetCaretOffset(), span.Start, span.End);
-
-		return (view.GetSnapshot().GetText(span.Start, to - span.Start), to - span.Start + 1);
-	}
-
-	public IEnumerable<Panel> Widgets => [Signature, Hover, Suggest, Suggest.Details];
+	public IEnumerable<Panel> Widgets => [Signature, Hover, Suggest, Suggest.Details, Renaming.Widget, Message];
 
 	public void Place(float originX, float originY, float editorLeft, float editorTop, float editorBottom, float editorRight) {
 		Suggest.Accepted ??= Accept;
@@ -438,5 +377,24 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 		else Signature.Visible = false;
 
 		Hover.Place(editorTop, editorBottom, editorRight, originX, originY);
+
+		if (Renaming.Widget.IsOpen) {
+			TextSnapshot snapshot = view.GetSnapshot();
+			TextSpan line = snapshot.GetLineSpan(Math.Clamp(Renaming.Widget.Line - 1, 0, Math.Max(0, snapshot.LineCount - 1)));
+			int anchor = Math.Clamp(line.Start + Renaming.Widget.StartColumn - 1, line.Start, line.End);
+			(float x, float y) = view.PointForOffset(font, anchor, editorLeft, editorTop);
+
+			Renaming.Widget.Place(x, y, lineHeight, editorRight, originX, originY);
+		}
+		else Renaming.Widget.Visible = false;
+
+		(float caretX, float caretY) = view.PointForOffset(font, view.GetCaretOffset(), editorLeft, editorTop);
+		Actions.MenuAnchor = (caretX, caretY + lineHeight);
+
+		if (Message.IsOpen) {
+			(float x, float y) = view.PointForOffset(font, Math.Min(Message.Offset, view.GetSnapshot().Length), editorLeft, editorTop);
+			Message.Place(x, y, editorRight, originX, originY);
+		}
+		else Message.Visible = false;
 	}
 }

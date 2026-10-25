@@ -38,6 +38,14 @@ public sealed class EditorPart : Panel
 		}
 
 		float left = _workbench.EditorLeft;
+
+		if (_workbench.DebugStops is { } stops && _workbench.ActiveView is { } view && Ui is { } ui) {
+			if (stops.Widget.Parent is null) AddChild(stops.Widget);
+
+			float gutter = view.GutterWidth(ui.GetFonts().GetCode());
+			stops.Place(left + gutter, _workbench.EditorTop, _workbench.TextWidth(windowWidth) - gutter, ui.GetFonts().GetCode().GetLineHeight(), left, top);
+		}
+
 		intelliSense.Place(left, top, left, _workbench.EditorTop, _workbench.EditorBottom(windowHeight), left + _workbench.EditorWidth(windowWidth));
 	}
 

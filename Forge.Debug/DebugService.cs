@@ -38,7 +38,9 @@ public sealed class DebugService : IDebug, IDisposable
 
 	public Func<ResolverContext>? ContextProvider { get; set; }
 
-	public Action<string, int>? RevealSource { get; set; }
+	public Action<DebugReveal>? RevealSource { get; set; }
+
+	public Action? ExceptionCleared { get; set; }
 
 	public DebugSession? Session => _session;
 
@@ -136,12 +138,7 @@ public sealed class DebugService : IDebug, IDisposable
 		DebugSession session = new($"session-{++_sessionCounter}", resolved, adapter);
 
 		session.StateChanged += state => {
-			if (state == DebugState.Stopped) {
-				_ = RefreshCallStackAsync(session);
-			}
-			else {
-				ClearCallStack();
-			}
+			if (state != DebugState.Stopped) ClearCallStack();
 
 			_stateChanged?.Invoke();
 		};
@@ -324,9 +321,7 @@ public sealed class DebugService : IDebug, IDisposable
 	public void FocusStackFrame(int frameId) {
 		_focusedFrameId = frameId;
 
-		if (GetFocusedFrame() is { SourcePath: { Length: > 0 } path } frame) {
-			RevealSource?.Invoke(path, frame.Line);
-		}
+		if (GetFocusedFrame() is { SourcePath: { Length: > 0 } path } frame) RevealSource?.Invoke(new DebugReveal(path, frame.Line, frame.Column, IsTopFrame(frame), null));
 
 		_modelChanged?.Invoke();
 	}
@@ -416,7 +411,9 @@ public sealed class DebugService : IDebug, IDisposable
 		if (frames.Count > 0) {
 			_focusedFrameId = frames[0].Id;
 
-			if (frames[0].SourcePath is { Length: > 0 } path) RevealSource?.Invoke(path, frames[0].Line);
+			DebugExceptionInfo? exception = session.StopReason == "exception" ? await session.ExceptionInfoAsync(thread).ConfigureAwait(false) : null;
+
+			if (frames[0].SourcePath is { Length: > 0 } path) RevealSource?.Invoke(new DebugReveal(path, frames[0].Line, frames[0].Column, true, exception));
 		}
 
 		_modelChanged?.Invoke();
@@ -426,7 +423,12 @@ public sealed class DebugService : IDebug, IDisposable
 		lock (_callStack) _callStack.Clear();
 
 		_focusedFrameId = -1;
+		ExceptionCleared?.Invoke();
 		_modelChanged?.Invoke();
+	}
+
+	private bool IsTopFrame(DebugStackFrame frame) {
+		lock (_callStack) return _callStack.Count > 0 && _callStack[0].Id == frame.Id;
 	}
 
 	private Task SendBreakpointsAsync() =>

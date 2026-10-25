@@ -263,6 +263,16 @@ public sealed class DebugSession : IDisposable
 			body["indexedVariables"]?.GetValue<int>() ?? 0);
 	}
 
+	public async Task<DebugExceptionInfo?> ExceptionInfoAsync(int threadId, CancellationToken cancellationToken = default) {
+		if (!Capabilities.ExceptionInfo) return null;
+
+		JsonNode? body = await SafeAsync("exceptionInfo", new JsonObject { ["threadId"] = threadId }, cancellationToken).ConfigureAwait(false);
+
+		if (body?["exceptionId"]?.GetValue<string>() is not { } id) return null;
+
+		return new DebugExceptionInfo(id, body["description"]?.GetValue<string>(), body["breakMode"]?.GetValue<string>() ?? "always", body["details"]?["stackTrace"]?.GetValue<string>());
+	}
+
 	public Task ContinueAsync(int threadId, CancellationToken cancellationToken = default) =>
 		SafeAsync("continue", new JsonObject { ["threadId"] = threadId }, cancellationToken);
 

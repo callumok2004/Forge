@@ -57,6 +57,10 @@ public sealed record DebugScope(string Name, int VariablesReference, bool Expens
 public sealed record DebugVariable(string Name, string Value, string? Type, int VariablesReference,
 	string? EvaluateName, bool ReadOnly, int NamedCount, int IndexedCount);
 
+public sealed record DebugExceptionInfo(string ExceptionId, string? Description, string BreakMode, string? StackTrace);
+
+public readonly record struct DebugReveal(string Path, int Line, int Column, bool IsTopFrame, DebugExceptionInfo? Exception);
+
 public sealed record DebugOutput(string Category, string Text, string? SourcePath, int Line);
 
 public sealed record DebugCapabilities

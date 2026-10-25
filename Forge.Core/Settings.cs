@@ -143,6 +143,8 @@ public sealed class Settings
 			?.GetValue<string>() ?? DefaultTerminalProfile;
 	}
 
+	public JsonNode? GetRaw(string key) => _raw[key]?.DeepClone();
+
 	public string? GetString(string key) =>
 		_raw[key] is JsonValue value && value.TryGetValue(out string? text) ? text : null;
 

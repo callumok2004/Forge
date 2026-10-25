@@ -31,4 +31,13 @@ public enum DocumentEvent
 	Closed,
 }
 
+public readonly record struct QuickPickItem(string Label, string Description = "", string Detail = "");
+
+public enum MessageSeverity
+{
+	Info,
+	Warning,
+	Error,
+}
+
 public readonly record struct Diagnostic(string File, int Line, int Column, string Message, bool IsError);

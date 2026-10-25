@@ -64,7 +64,7 @@ public sealed class EditorContent : Panel
 		if (_workbench.ActiveView is not { } view) return;
 
 		bool inGlyphMargin = x < TextView.GlyphMarginWidth;
-		Cursor = inGlyphMargin ? CursorCode.Arrow : CursorCode.IBeam;
+		Cursor = inGlyphMargin ? CursorCode.Arrow : _linkActive ? CursorCode.Hand : CursorCode.IBeam;
 
 		int gutterLine = inGlyphMargin ? view.Snapshot.GetLineAt(OffsetAt(view, x, y)) : -1;
 
@@ -90,6 +90,10 @@ public sealed class EditorContent : Panel
 
 		int offset = OffsetAt(view, x, y);
 		int line = view.Snapshot.GetLineAt(offset);
+
+
+		if (!inGlyphMargin && LinkGesture) intelliSense.LinkHover(offset);
+		else intelliSense.Navigation.Clear();
 		bool hoverWasOpen = intelliSense.Hover.IsOpen;
 		(float absX, float absY) = Absolute(x, y);
 
@@ -98,7 +102,25 @@ public sealed class EditorContent : Panel
 		if (hoverWasOpen) Changed?.Invoke();
 	}
 
+	private bool LinkGesture => ((Ui?.GetModifiers() ?? KeyModifiers.None) & (KeyModifiers.Control | KeyModifiers.Shift | KeyModifiers.Alt)) == KeyModifiers.Control;
+
+	public void SyncLink() {
+		if (_workbench.ActiveView is not { } view || _workbench.IntelliSense is not { } intelliSense) return;
+
+		view.Link = intelliSense.Navigation.Current is { } link ? new TextView.LinkRange(link.Line - 1, link.StartColumn - 1, link.EndColumn - 1) : null;
+		Cursor = view.Link is null ? CursorCode.IBeam : CursorCode.Hand;
+		_linkActive = view.Link is not null;
+
+		if (_linkActive) SetThinking(true);
+
+		Repaint();
+	}
+
+	private bool _linkActive;
+
+
 	public override void OnCursorExited() {
+		_workbench.IntelliSense?.Navigation.Clear();
 		_workbench.IntelliSense?.PointerLeft();
 
 		if (_workbench.ActiveView is not { HoverGutterLine: >= 0 } view) return;
@@ -123,6 +145,18 @@ public sealed class EditorContent : Panel
 		}
 
 		int offset = OffsetAt(view, x, y);
+		(float absoluteX, float absoluteY) = Absolute(x, y);
+
+		if (view.LightbulbBounds is { } bulb && absoluteX >= bulb.Left && absoluteX < bulb.Left + bulb.Width && absoluteY >= bulb.Top && absoluteY < bulb.Top + bulb.Height) {
+			_workbench.IntelliSense?.OpenLightbulbMenu(bulb.Left, bulb.Top + bulb.Height);
+			Pressed?.Invoke();
+			return true;
+		}
+
+		if (clicks == 1 && LinkGesture && _workbench.IntelliSense?.Navigation.Click(offset) == true) {
+			Pressed?.Invoke();
+			return true;
+		}
 
 		if (x < TextView.GlyphMarginWidth) {
 			BreakpointToggled?.Invoke(view.Snapshot.GetLineAt(offset) + 1);
@@ -130,6 +164,7 @@ public sealed class EditorContent : Panel
 			return true;
 		}
 
+		view.PushUndoStop();
 		_selecting = true;
 		_dragX = x;
 		_dragY = y;
@@ -160,8 +195,11 @@ public sealed class EditorContent : Panel
 	}
 
 	public override void OnThink(float deltaSeconds) {
+		if (_linkActive && !LinkGesture) _workbench.IntelliSense?.Navigation.Clear();
+
 		if (!_selecting || _workbench.ActiveView is not { } view) {
-			SetThinking(false);
+			if (!_linkActive) SetThinking(false);
+
 			return;
 		}
 

@@ -3,7 +3,9 @@ using System.Buffers;
 using Forge.Editor;
 using Forge.Extensions.IndentRainbow;
 using Forge.Extensions.TrailingSpaces;
+using Forge.Common.Commands;
 using Forge.Text;
+using Forge.Theming;
 
 namespace Forge.Shell;
 
@@ -13,6 +15,8 @@ public sealed class EditorDecorations
 
 	private readonly List<TextView.Decoration> _decorations = [];
 	private readonly List<IndentSpan> _indents = [];
+
+	private IReadOnlyList<DocumentHighlight>? _highlights;
 
 	private char[] _line = ArrayPool<char>.Shared.Rent(256);
 	private TextView? _view;
@@ -25,10 +29,11 @@ public sealed class EditorDecorations
 
 	public bool TrailingSpacesEnabled { get; set; } = true;
 
-	public void UpdateVisible(TextView? view, TrailingSpacesExtension trailing, int firstLine, int lastLine) {
-		if (ReferenceEquals(view, _view) && view is not null && view.Buffer.Version == _version && firstLine == _first && lastLine == _last && trailing.IncludeEmptyLines == _includeEmptyLines) return;
+	public void UpdateVisible(TextView? view, TrailingSpacesExtension trailing, IReadOnlyList<DocumentHighlight> highlights, int firstLine, int lastLine) {
+		if (ReferenceEquals(view, _view) && view is not null && view.Buffer.Version == _version && firstLine == _first && lastLine == _last && trailing.IncludeEmptyLines == _includeEmptyLines && ReferenceEquals(highlights, _highlights)) return;
 
 		_decorations.Clear();
+		_highlights = highlights;
 		_view = view;
 		_version = view?.Buffer.Version ?? -1;
 		_first = firstLine;
@@ -61,6 +66,21 @@ public sealed class EditorDecorations
 			}
 
 			if (TrailingSpacesEnabled && TrailingSpacesExtension.FindLine(text, line, _includeEmptyLines, out TrailingRange range)) _decorations.Add(new TextView.Decoration(line, range.Start, range.End, TrailingColor));
+
+			foreach (DocumentHighlight highlight in highlights) {
+				if (highlight.Line - 1 > line || highlight.EndLine - 1 < line) continue;
+
+				int start = highlight.Line - 1 == line ? highlight.StartColumn - 1 : 0;
+				int end = highlight.EndLine - 1 == line ? highlight.EndColumn - 1 : span.Length;
+
+				_decorations.Add(new TextView.Decoration(line, start, end, ColorOf(highlight.Kind)));
+			}
 		}
 	}
+
+	private static uint ColorOf(DocumentHighlightKind kind) => (kind switch {
+		DocumentHighlightKind.Write => Theme.WordHighlightStrongBackground,
+		DocumentHighlightKind.Read => Theme.WordHighlightBackground,
+		_ => Theme.WordHighlightTextBackground,
+	}).ToArgb();
 }

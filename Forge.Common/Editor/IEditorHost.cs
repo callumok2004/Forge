@@ -1,3 +1,5 @@
+using Forge.Common.Commands;
+
 namespace Forge.Common.Editor;
 
 public interface IEditorHost
@@ -7,4 +9,12 @@ public interface IEditorHost
 	ITextView? GetActiveView();
 
 	void PublishActiveDocument();
+
+	bool ApplyWorkspaceEdit(WorkspaceEdit edit);
+
+	void RestoreEditorFocus();
+
+	void GoTo(string path, int line, int column);
+
+	void ShowReferences(string title, IReadOnlyList<HostLocation> locations);
 }

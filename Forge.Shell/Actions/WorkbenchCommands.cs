@@ -41,6 +41,8 @@ public static class WorkbenchCommands
 
 		Add("workbench.action.showCommands", "Show All Commands", "View", () => workbench.QuickInput.Show(workbench.Palette), "Ctrl+Shift+P");
 		Add("workbench.action.quickOpen", "Go to File...", "Go", () => workbench.QuickInput.Show(workbench.QuickOpen), "Ctrl+P");
+		Add("workbench.action.navigateBack", "Go Back", "Go", workbench.History.GoBack, "Alt+Left", () => workbench.History.CanGoBack);
+		Add("workbench.action.navigateForward", "Go Forward", "Go", workbench.History.GoForward, "Alt+Right", () => workbench.History.CanGoForward);
 
 		Add("actions.find", "Find", "Editor", () => {
 			workbench.Find.Show(workbench.ActiveView);

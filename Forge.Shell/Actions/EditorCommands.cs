@@ -15,11 +15,13 @@ public static class EditorCommands
 			registry.Register(new Command(id, title, Category, _ => {
 				if (context.ActiveView is not { } view) return;
 
+				if (navigates) view.PushUndoStop();
+
 				action(view);
 
 				if (deletes) context.Workbench.IntelliSense?.Deleted();
 
-				if (navigates) context.Workbench.IntelliSense?.Suggest.Hide();
+				if (navigates) context.Workbench.IntelliSense?.CursorMoved();
 
 				context.RevealCaret();
 			}, keybinding, Focused));
@@ -49,7 +51,15 @@ public static class EditorCommands
 		Add("deleteWordLeft", "Delete Word Left", "Ctrl+Backspace", static view => view.DeleteWord(-1), deletes: true);
 		Add("deleteWordRight", "Delete Word Right", "Ctrl+Delete", static view => view.DeleteWord(1), deletes: true);
 
-		Add("editor.action.insertNewLine", "Insert New Line", "Enter", static view => view.InsertNewLine());
+		Add("editor.action.insertNewLine", "Insert New Line", "Enter", view => {
+			view.InsertNewLine();
+			context.Workbench.IntelliSense?.Typed('\n');
+		});
+		Add("editor.action.rename", "Rename Symbol", "F2", _ => context.Workbench.IntelliSense?.StartRename());
+		Add("editor.action.quickFix", "Quick Fix...", "Ctrl+.", _ => context.Workbench.IntelliSense?.ShowCodeActions());
+		Add("editor.action.revealDefinition", "Go to Definition", "F12", _ => context.Workbench.IntelliSense?.RevealDefinition());
+		Add("editor.action.goToImplementation", "Go to Implementations", "Ctrl+F12", _ => context.Workbench.IntelliSense?.GoToImplementation());
+		Add("editor.action.goToReferences", "Go to References", "Shift+F12", _ => context.Workbench.IntelliSense?.FindReferences());
 		Add("editor.action.insertLineAfter", "Insert Line Below", "Ctrl+Enter", static view => view.InsertLine(1));
 		Add("editor.action.insertLineBefore", "Insert Line Above", "Ctrl+Shift+Enter", static view => view.InsertLine(-1));
 

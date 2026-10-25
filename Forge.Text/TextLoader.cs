@@ -88,7 +88,7 @@ public static class TextLoader
 			lengths.Add(charCount);
 
 			LineEnding lineEnding = DetectLineEnding(chunks[0].AsSpan(0, lengths[0]));
-			return new TextBuffer([.. chunks], [.. lengths], lineEnding);
+			return new TextBuffer([.. chunks], [.. lengths], lineEnding) { Encoding = encoding };
 		}
 		finally {
 			ArrayPool<byte>.Shared.Return(scratch);
@@ -118,17 +118,17 @@ public static class TextLoader
 	private static Encoding DetectEncoding(ReadOnlySpan<byte> prefix, out int bomLength) {
 		if (prefix.Length >= 3 && prefix[0] == 0xEF && prefix[1] == 0xBB && prefix[2] == 0xBF) {
 			bomLength = 3;
-			return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+			return new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
 		}
 
 		if (prefix.Length >= 2 && prefix[0] == 0xFF && prefix[1] == 0xFE) {
 			bomLength = 2;
-			return new UnicodeEncoding(bigEndian: false, byteOrderMark: false);
+			return new UnicodeEncoding(bigEndian: false, byteOrderMark: true);
 		}
 
 		if (prefix.Length >= 2 && prefix[0] == 0xFE && prefix[1] == 0xFF) {
 			bomLength = 2;
-			return new UnicodeEncoding(bigEndian: true, byteOrderMark: false);
+			return new UnicodeEncoding(bigEndian: true, byteOrderMark: true);
 		}
 
 		bomLength = 0;

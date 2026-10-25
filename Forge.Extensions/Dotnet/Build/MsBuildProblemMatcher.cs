@@ -3,7 +3,7 @@ using Forge.Common.Extensions;
 using Forge.Core;
 using Forge.Extensions.Host;
 
-namespace Forge.Extensions.Dotnet;
+namespace Forge.Extensions.Dotnet.Build;
 
 public sealed class MsBuildProblemMatcher
 {

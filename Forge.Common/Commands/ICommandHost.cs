@@ -22,12 +22,16 @@ public interface ICommandHost
 	void ShowReferences(string title, IReadOnlyList<HostLocation> locations);
 
 	bool EditActiveDocument(Func<string, string?> transform);
+	string? GetDocumentText(string path);
+	Task<bool> ApplyWorkspaceEditAsync(WorkspaceEdit edit);
 	void SetSemanticTokens(string path, IReadOnlyList<SemanticToken> tokens);
 	void ReportProblems(IReadOnlyList<Diagnostic> problems);
 
 	void ShowPanel(string view);
 	void ShowCommandPalette();
 	void ShowOutput(IOutputChannel channel);
+	void ShowQuickPick(string placeholder, IReadOnlyList<QuickPickItem> items, Action<int> picked);
+	void ShowMessage(MessageSeverity severity, string message, IReadOnlyList<string> actions, Action<int>? chosen = null);
 
 	void RunInTerminal(string name, string commandLine, string? workingDirectory, Action<string>? lines, Action<int>? finished);
 

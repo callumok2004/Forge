@@ -13,6 +13,12 @@ public static class Theme
 	public static readonly Color EditorForeground = Color.Parse("#c9d1dc");
 	public static readonly Color CurrentLineBackground = Color.Parse("#121b2d");
 	public static readonly Color SelectionBackground = Color.Parse("#1f5bff40");
+	public static readonly Color EditorLinkActiveForeground = Color.Parse("#4e94ce");
+	public static readonly Color EditorLightBulbForeground = Color.Parse("#ffcc00");
+	public static readonly Color EditorLightBulbAutoFixForeground = Color.Parse("#75beff");
+	public static readonly Color WordHighlightBackground = Color.Parse("#575757b8");
+	public static readonly Color WordHighlightStrongBackground = Color.Parse("#004972b8");
+	public static readonly Color WordHighlightTextBackground = Color.Parse("#57575757");
 	public static readonly Color CursorForeground = Color.Parse("#6fb0ff");
 	public static readonly Color IndentGuide = Color.Parse("#161c27");
 	public static readonly Color IndentGuideActive = Color.Parse("#2a3446");
@@ -140,9 +146,10 @@ public static class Theme
 	public static readonly Color DebugBreakpointConditional = Color.Parse("#e5a000");
 	public static readonly Color DebugBreakpointLogPoint = Color.Parse("#5aa6e5");
 	public static readonly Color DebugBreakpointHover = Color.Parse("#ff5f6d55");
-	public static readonly Color DebugStackframeForeground = Color.Parse("#e3b341");
-	public static readonly Color DebugExecutionBackground = Color.Parse("#2a261480");
-	public static readonly Color DebugFocusedFrameBackground = Color.Parse("#11261d80");
+	public static readonly Color DebugStackframeForeground = Color.Parse("#ffcc00");
+	public static readonly Color DebugStackframeFocusedForeground = Color.Parse("#89d185");
+	public static readonly Color DebugExecutionBackground = Color.Parse("#ffff0033");
+	public static readonly Color DebugFocusedFrameBackground = Color.Parse("#7abd7a4d");
 	public static readonly Color DebugToolBarBackground = Color.Parse("#121722");
 	public static readonly Color DebugStatusBarBackground = Color.Parse("#0a0d12");
 

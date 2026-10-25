@@ -32,6 +32,7 @@ public enum Codicon : ushort
 	DebugStop = 0xEAD7,
 	DebugStart = 0xEAD3,
 	Close = 0xEA76,
+	Copy = 0xEBCC,
 	Sync = 0xEA77,
 	File = 0xEA7B,
 	Ellipsis = 0xEA7C,
@@ -62,6 +63,10 @@ public enum Codicon : ushort
 	Run = 0xEB2C,
 	SettingsGear = 0xEB51,
 	SymbolFile = 0xEB60,
+	LightBulb = 0xEA61,
+	LightbulbAutofix = 0xEB13,
+	Wrench = 0xEB65,
+	SurroundWith = 0xEC24,
 
 	SymbolEvent = 0xEA86,
 	SymbolVariable = 0xEA88,

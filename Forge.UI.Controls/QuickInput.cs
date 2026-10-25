@@ -36,6 +36,8 @@ public sealed class QuickInput : Panel
 	public IQuickPickProvider? Provider => _provider;
 
 	public void Show(IQuickPickProvider provider) {
+		if (IsPopup && _provider is { } previous && previous != provider) previous.Cancel();
+
 		_provider = provider;
 		_entry.Placeholder = provider.GetPlaceholder();
 		_entry.Clear();
@@ -61,6 +63,11 @@ public sealed class QuickInput : Panel
 		IQuickPickProvider? provider = _provider;
 		ClosePopup();
 		provider?.Accept(index);
+	}
+
+	public override void OnPopupDismissed() {
+		base.OnPopupDismissed();
+		_provider?.Cancel();
 	}
 
 	public override bool OnKeyCodePressed(uint key, KeyModifiers modifiers) => key is VirtualKey.Up or VirtualKey.Down or VirtualKey.PageUp or VirtualKey.PageDown or VirtualKey.Return && _list.Navigate(key);

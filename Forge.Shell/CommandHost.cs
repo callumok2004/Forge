@@ -48,6 +48,19 @@ public sealed class CommandHost(Workbench workbench, Action refresh) : ICommandH
 
 	public bool EditActiveDocument(Func<string, string?> transform) => workbench.EditActiveDocument(transform);
 
+	public string? GetDocumentText(string path) => workbench.IndexOf(path) is >= 0 and int index ? workbench.Documents[index].Buffer.GetText() : null;
+
+	public Task<bool> ApplyWorkspaceEditAsync(WorkspaceEdit edit) {
+		TaskCompletionSource<bool> applied = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		workbench.Post(() => {
+			applied.TrySetResult(workbench.ApplyWorkspaceEdit(edit));
+			refresh();
+		});
+
+		return applied.Task;
+	}
+
 	public void RunInTerminal(string name, string commandLine, string? workingDirectory,
 		Action<string>? lines, Action<int>? finished) =>
 		workbench.Panel.RunTask(name, commandLine, workingDirectory, lines, finished);
@@ -75,4 +88,8 @@ public sealed class CommandHost(Workbench workbench, Action refresh) : ICommandH
 	}
 
 	public void ShowCommandPalette() => workbench.QuickInput.Show(workbench.Palette);
+
+	public void ShowQuickPick(string placeholder, IReadOnlyList<QuickPickItem> items, Action<int> picked) => workbench.Post(() => workbench.QuickInput.Show(new Commands.ListQuickPick(placeholder, items, picked)));
+
+	public void ShowMessage(MessageSeverity severity, string message, IReadOnlyList<string> actions, Action<int>? chosen) => workbench.Post(() => workbench.Notifications.Show(severity, message, actions, chosen));
 }

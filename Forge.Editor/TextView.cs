@@ -9,8 +9,113 @@ using Forge.Theming;
 
 namespace Forge.Editor;
 
-public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
+public sealed class TextView : ITextView
 {
+	public TextView(TextBuffer buffer, string? path = null) {
+		Path = path;
+		Highlighter = new Highlighter(Languages.ForPath(path));
+		Buffer = buffer;
+		Snapshot = buffer.CreateSnapshot();
+		buffer.CursorState = CurrentSelection;
+		buffer.Changed += OnBufferChanged;
+	}
+
+	public readonly record struct ViewZone(int Id, int AfterLine, float Height);
+
+	private readonly List<ViewZone> _zones = [];
+	private int _zoneCounter;
+
+	public IReadOnlyList<ViewZone> Zones => _zones;
+
+	public int AddZone(int afterLine, float height) {
+		ViewZone zone = new(++_zoneCounter, afterLine, height);
+		int index = 0;
+
+		while (index < _zones.Count && _zones[index].AfterLine <= afterLine) index++;
+
+		_zones.Insert(index, zone);
+		return zone.Id;
+	}
+
+	public void ResizeZone(int id, float height) {
+		int index = _zones.FindIndex(zone => zone.Id == id);
+
+		if (index >= 0) _zones[index] = _zones[index] with { Height = height };
+	}
+
+	public void RemoveZone(int id) => _zones.RemoveAll(zone => zone.Id == id);
+
+	private float ZonesBefore(int line) {
+		float total = 0f;
+
+		foreach (ViewZone zone in _zones) {
+			if (zone.AfterLine >= line) break;
+
+			total += zone.Height;
+		}
+
+		return total;
+	}
+
+	public float TopOf(int line, float lineHeight) => (line * lineHeight) + ZonesBefore(line);
+
+	public float ZoneTop(int id, float lineHeight) {
+		float above = 0f;
+
+		foreach (ViewZone zone in _zones) {
+			if (zone.Id == id) return ((zone.AfterLine + 1) * lineHeight) + above;
+
+			above += zone.Height;
+		}
+
+		return 0f;
+	}
+
+	public float ContentHeight(float lineHeight) {
+		float total = Snapshot.LineCount * lineHeight;
+
+		foreach (ViewZone zone in _zones) total += zone.Height;
+
+		return total;
+	}
+
+	public int LineAtY(float contentY, float lineHeight) {
+		float consumed = 0f;
+
+		foreach (ViewZone zone in _zones) {
+			float zoneTop = ((zone.AfterLine + 1) * lineHeight) + consumed;
+
+			if (contentY < zoneTop) break;
+
+			if (contentY < zoneTop + zone.Height) return Math.Clamp(zone.AfterLine, 0, Math.Max(0, Snapshot.LineCount - 1));
+
+			consumed += zone.Height;
+		}
+
+		return Math.Clamp((int)((contentY - consumed) / lineHeight), 0, Math.Max(0, Snapshot.LineCount - 1));
+	}
+
+	private void OnBufferChanged(TextBuffer buffer, TextChange change) {
+		if (_zones.Count == 0) return;
+
+		int removed = buffer.RemovedText(change).Count('\n');
+		int inserted = buffer.InsertedText(change).Count('\n');
+
+		if (removed == inserted) return;
+
+		int line = Snapshot.GetLineAt(Math.Min(change.Offset, Snapshot.Length));
+
+		for (int i = 0; i < _zones.Count; i++) {
+			if (_zones[i].AfterLine < line) continue;
+
+			_zones[i] = _zones[i] with { AfterLine = Math.Max(line, _zones[i].AfterLine - removed + inserted) };
+		}
+	}
+
+	private TextBuffer.Selection CurrentSelection() => new(SelectionAnchor, CaretOffset);
+
+	public void PushUndoStop() => Buffer.PushStackElement();
+
 	public TextSnapshot GetSnapshot() => Snapshot;
 
 	public int GetCaretOffset() => CaretOffset;
@@ -58,13 +163,13 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 
 	public float LastViewportHeight { get; private set; }
 
-	public string? Path { get; } = path;
+	public string? Path { get; }
 
-	public Highlighter Highlighter { get; } = new Highlighter(Languages.ForPath(path));
+	public Highlighter Highlighter { get; }
 
-	public TextBuffer Buffer { get; private set; } = buffer;
+	public TextBuffer Buffer { get; private set; }
 
-	public TextSnapshot Snapshot { get; private set; } = buffer.CreateSnapshot();
+	public TextSnapshot Snapshot { get; private set; }
 
 	public float ScrollY { get; private set; }
 
@@ -93,7 +198,11 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 	public int CaretColumn => CaretOffset - Snapshot.GetLineStartOffset(CaretLine);
 
 	public void SetBuffer(TextBuffer buffer) {
+		Buffer.Changed -= OnBufferChanged;
 		Buffer = buffer;
+		buffer.CursorState = CurrentSelection;
+		buffer.Changed += OnBufferChanged;
+		_zones.Clear();
 		Snapshot = buffer.CreateSnapshot();
 		ScrollY = 0;
 		ScrollX = 0;
@@ -836,16 +945,26 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 	}
 
 	public void Undo() {
-		if (!Buffer.Undo(out int caret)) return;
+		if (!Buffer.Undo(out TextBuffer.Selection restore, out int caret)) return;
 
-		SyncSnapshot(caret < 0 ? 0 : caret);
-		MoveTo(caret < 0 ? Math.Min(CaretOffset, Snapshot.Length) : caret, extend: false);
+		Restore(restore, caret);
 	}
 
 	public void Redo() {
-		if (!Buffer.Redo(out int caret)) return;
+		if (!Buffer.Redo(out TextBuffer.Selection restore, out int caret)) return;
 
+		Restore(restore, caret);
+	}
+
+	private void Restore(TextBuffer.Selection restore, int caret) {
 		SyncSnapshot(caret < 0 ? 0 : caret);
+
+		if (restore.IsSet) {
+			MoveTo(restore.Anchor, extend: false);
+			MoveTo(restore.Caret, extend: true);
+			return;
+		}
+
 		MoveTo(caret < 0 ? Math.Min(CaretOffset, Snapshot.Length) : caret, extend: false);
 	}
 
@@ -877,13 +996,22 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 	}
 
 	private void ClampScroll(float lineHeight, float viewportHeight) {
-		float maxScroll = Math.Max(0f, ((Snapshot.LineCount - 1) * lineHeight) - viewportHeight + lineHeight);
+		float maxScroll = Math.Max(0f, ContentHeight(lineHeight) - viewportHeight);
 		ScrollY = Math.Clamp(ScrollY, 0f, maxScroll);
+	}
+
+	public void RevealLineInCenterIfOutsideViewport(int line, float lineHeight, float viewportHeight) {
+		float top = TopOf(line, lineHeight);
+
+		if (top >= ScrollY && top + lineHeight <= ScrollY + viewportHeight) return;
+
+		ScrollY = top - ((viewportHeight - lineHeight) / 2f);
+		ClampScroll(lineHeight, viewportHeight);
 	}
 
 	public void EnsureCaretVisible(ITextFont font, float viewportWidth, float viewportHeight) {
 		float lineHeight = font.GetLineHeight();
-		float caretTop = CaretLine * lineHeight;
+		float caretTop = TopOf(CaretLine, lineHeight);
 
 		if (caretTop < ScrollY) ScrollY = caretTop;
 		else if (caretTop + lineHeight > ScrollY + viewportHeight) {
@@ -911,8 +1039,7 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 	}
 
 	public int OffsetFromPoint(ITextFont font, float x, float y, float viewportX, float viewportY) {
-		int line = (int)((y - viewportY + ScrollY) / font.GetLineHeight());
-		line = Math.Clamp(line, 0, Snapshot.LineCount - 1);
+		int line = LineAtY(y - viewportY + ScrollY, font.GetLineHeight());
 
 		float textLeft = viewportX + GutterWidth(font) + TextPaddingLeft - ScrollX;
 
@@ -926,7 +1053,7 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 
 		return (viewportX + GutterWidth(font) + TextPaddingLeft - ScrollX +
 				(VisualColumnAt(line, offset) * font.GetCellWidth()),
-			viewportY + (line * font.GetLineHeight()) - ScrollY);
+			viewportY + TopOf(line, font.GetLineHeight()) - ScrollY);
 	}
 
 	public PixelRect CaretRect(ITextFont font, float viewportX, float viewportY, float viewportWidth,
@@ -1077,11 +1204,8 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 		LastViewportHeight = height;
 		ClampScrollX();
 
-		int firstLine = Math.Max(0, (int)(ScrollY / lineHeight));
-		int visibleLines = (int)(height / lineHeight) + 2;
-		int lastLine = Math.Min(Snapshot.LineCount - 1, firstLine + visibleLines);
-
-		float offset = ScrollY - (firstLine * lineHeight);
+		int firstLine = LineAtY(ScrollY, lineHeight);
+		int lastLine = Math.Min(Snapshot.LineCount - 1, LineAtY(ScrollY + height, lineHeight) + 1);
 
 		int caretLine = CaretLine;
 		TextSpan selection = Selection;
@@ -1089,7 +1213,7 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 		painter.PushClip(x, y, width, height);
 
 		for (int line = firstLine; line <= lastLine; line++) {
-			float lineTop = y + ((line - firstLine) * lineHeight) - offset;
+			float lineTop = y + TopOf(line, lineHeight) - ScrollY;
 
 			if (!painter.NeedsPaint(x, lineTop, width, lineHeight)) continue;
 
@@ -1108,10 +1232,14 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 			DrawExecutionLine(painter, line, x, lineTop, width, lineHeight);
 			DrawLineNumber(painter, line, caretLine, x, lineTop, gutterWidth);
 			DrawGlyphMargin(painter, line, x, lineTop, lineHeight);
-			DrawLineText(painter, line, textLeft, lineTop);
+
+			if (Link is { } link && link.Line == line) DrawLinkedLine(painter, link, textLeft, lineTop, lineHeight, x + width);
+			else DrawLineText(painter, line, textLeft, lineTop);
+
+			DrawLightbulb(painter, line, x, textLeft, lineTop, lineHeight);
 		}
 
-		if (CaretVisible) DrawCaret(painter, caretLine, firstLine, textLeft, y, offset, lineHeight);
+		if (CaretVisible) DrawCaret(painter, caretLine, firstLine, textLeft, y, lineHeight);
 
 		painter.PopClip();
 
@@ -1131,6 +1259,57 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 
 	public int HoverGutterLine { get; set; } = -1;
 
+	public readonly record struct LinkRange(int Line, int StartColumn, int EndColumn);
+
+	public readonly record struct LightbulbMark(int Line, int Column, bool InGutter, bool AutoFix);
+
+	public LightbulbMark? Lightbulb {
+		get;
+		set {
+			if (field == value) return;
+
+			field = value;
+			LightbulbBounds = null;
+		}
+	}
+
+	public (float Left, float Top, float Width, float Height)? LightbulbBounds { get; private set; }
+
+	private void DrawLightbulb(IPainter painter, int line, float glyphX, float textLeft, float lineTop, float lineHeight) {
+		if (Lightbulb is not { } mark || mark.Line != line) return;
+
+		float size = MathF.Min(lineHeight, GlyphMarginWidth);
+		float left = mark.InGutter ? glyphX : textLeft + (VisualColumnAt(line, Math.Min(Snapshot.GetLineSpan(line).Start + mark.Column, Snapshot.GetLineSpan(line).End)) * painter.GetCode().GetCellWidth());
+
+		LightbulbBounds = (left, lineTop, size, lineHeight);
+		painter.DrawIcon(mark.AutoFix ? Codicon.LightbulbAutofix : Codicon.LightBulb, left + (size / 2f), lineTop + (lineHeight / 2f), size, mark.AutoFix ? Theme.EditorLightBulbAutoFixForeground : Theme.EditorLightBulbForeground);
+	}
+
+	public LinkRange? Link { get; set; }
+
+	private void DrawLinkedLine(IPainter painter, LinkRange link, float textLeft, float lineTop, float lineHeight, float right) {
+		TextSpan span = Snapshot.GetLineSpan(link.Line);
+		int start = Math.Min(span.Start + link.StartColumn, span.End);
+		int end = Math.Min(span.Start + link.EndColumn, span.End);
+		float cellWidth = painter.GetCode().GetCellWidth();
+		float linkLeft = textLeft + (VisualColumnAt(link.Line, start) * cellWidth);
+		float linkRight = textLeft + (VisualColumnAt(link.Line, end) * cellWidth);
+
+		painter.PushClip(textLeft, lineTop, Math.Max(0f, linkLeft - textLeft), lineHeight);
+		DrawLineText(painter, link.Line, textLeft, lineTop);
+		painter.PopClip();
+
+		painter.PushClip(linkRight, lineTop, Math.Max(0f, right - linkRight), lineHeight);
+		DrawLineText(painter, link.Line, textLeft, lineTop);
+		painter.PopClip();
+
+		if (end <= start) return;
+
+		ITextFont font = painter.GetCode();
+		painter.DrawText(font, Snapshot.GetText(start, end - start), linkLeft, lineTop + font.GetBaseline(), Theme.EditorLinkActiveForeground);
+		painter.DrawHorizontalLine(lineTop + font.GetBaseline() + MathF.Max(1f, MathF.Round(lineHeight * 0.08f)), linkLeft, linkRight, Theme.EditorLinkActiveForeground);
+	}
+
 	public bool ExecutionIsTopFrame { get; set; } = true;
 
 	private void DrawGlyphMargin(IPainter painter, int line, float x, float lineTop, float lineHeight) {
@@ -1144,7 +1323,7 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 		if (mark == BreakpointMark.None) {
 			if (executing) {
 				painter.DrawIcon(Codicon.DebugStackframe, centreX, centreY, size,
-					ExecutionIsTopFrame ? Theme.DebugStackframeForeground : Theme.DebugBreakpointDisabled);
+					ExecutionIsTopFrame ? Theme.DebugStackframeForeground : Theme.DebugStackframeFocusedForeground);
 				return;
 			}
 
@@ -1172,7 +1351,7 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 
 		if (executing) {
 			painter.DrawIcon(Codicon.DebugStackframe, centreX, centreY, size,
-				ExecutionIsTopFrame ? Theme.DebugStackframeForeground : Theme.DebugBreakpointDisabled);
+				ExecutionIsTopFrame ? Theme.DebugStackframeForeground : Theme.DebugStackframeFocusedForeground);
 		}
 	}
 
@@ -1271,7 +1450,7 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 	}
 
 	private void DrawScrollbar(IPainter painter, float x, float y, float width, float height, float lineHeight) {
-		float contentHeight = Snapshot.LineCount * lineHeight;
+		float contentHeight = ContentHeight(lineHeight);
 		if (contentHeight <= height) return;
 
 		float trackWidth = ScrollbarWidth;
@@ -1280,7 +1459,7 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 		float visibleFraction = height / contentHeight;
 		float thumbHeight = Math.Max(ScrollbarMinThumb, height * visibleFraction);
 
-		float maxScroll = Math.Max(1f, contentHeight - height + lineHeight);
+		float maxScroll = Math.Max(1f, contentHeight - height);
 		float progress = Math.Clamp(ScrollY / maxScroll, 0f, 1f);
 		float thumbY = y + (progress * (height - thumbHeight));
 
@@ -1339,11 +1518,10 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 			Theme.SelectionBackground);
 	}
 
-	private void DrawCaret(IPainter painter, int caretLine, int firstLine, float textLeft, float viewportTop,
-		float scrollOffset, float lineHeight) {
+	private void DrawCaret(IPainter painter, int caretLine, int firstLine, float textLeft, float viewportTop, float lineHeight) {
 		if (caretLine < firstLine) return;
 
-		float caretTop = viewportTop + ((caretLine - firstLine) * lineHeight) - scrollOffset;
+		float caretTop = viewportTop + TopOf(caretLine, lineHeight) - ScrollY;
 		float caretX = textLeft + (VisualColumnAt(caretLine, CaretOffset) * painter.GetCode().GetCellWidth());
 
 		painter.FillRectangle(MathF.Round(caretX), caretTop, CaretWidth, lineHeight, Theme.CursorForeground);

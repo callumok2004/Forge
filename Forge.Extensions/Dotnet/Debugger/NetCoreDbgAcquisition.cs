@@ -1,7 +1,7 @@
 using System.IO.Compression;
 using System.Text.Json.Nodes;
 
-namespace Forge.Extensions.Dotnet;
+namespace Forge.Extensions.Dotnet.Debugger;
 
 public static class NetCoreDbgAcquisition
 {
@@ -11,8 +11,10 @@ public static class NetCoreDbgAcquisition
 	public static string InstallDirectory(string storageDirectory) =>
 		Path.Combine(storageDirectory, "debuggers", "netcoredbg");
 
+	public static string BundledPath => Path.Combine(AppContext.BaseDirectory, "Debugger", "netcoredbg", "netcoredbg.exe");
+
 	public static string ExecutablePath(string storageDirectory) =>
-		Path.Combine(InstallDirectory(storageDirectory), "netcoredbg.exe");
+		File.Exists(BundledPath) ? BundledPath : Path.Combine(InstallDirectory(storageDirectory), "netcoredbg.exe");
 
 	private static bool Arm64 =>
 		System.Runtime.InteropServices.RuntimeInformation.OSArchitecture

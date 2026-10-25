@@ -11,15 +11,15 @@ public sealed class Document : IDocument
 
 	public TextBuffer GetBuffer() => Buffer;
 
-	public bool IsDirty() => Buffer.Version != _savedVersion;
+	public bool IsDirty() => Buffer.State != _savedState;
 
-	private int _savedVersion;
+	private int _savedState;
 
 	private Document(string? path, string name, TextBuffer buffer) {
 		Path = path;
 		Name = name;
 		Buffer = buffer;
-		_savedVersion = buffer.Version;
+		_savedState = buffer.State;
 	}
 
 	public string? Path { get; private set; }
@@ -45,7 +45,7 @@ public sealed class Document : IDocument
 		string temporary = path + ".forge-tmp";
 
 		try {
-			using (StreamWriter writer = new(temporary, append: false, System.Text.Encoding.UTF8)) {
+			using (StreamWriter writer = new(temporary, append: false, Buffer.Encoding)) {
 				WriteTo(writer);
 			}
 
@@ -62,7 +62,7 @@ public sealed class Document : IDocument
 
 		Path = path;
 		Name = System.IO.Path.GetFileName(path);
-		_savedVersion = Buffer.Version;
+		_savedState = Buffer.State;
 		return true;
 	}
 
