@@ -12,7 +12,11 @@ public interface IWebviewHost
 
 	void SetBounds(string id, PixelRect bounds);
 
-	void SetOcclusions(ReadOnlySpan<PixelRect> areas);
+	void SendMouse(string id, WebviewMouse kind, int x, int y, int delta);
+
+	nint GetCursor();
+
+	void OnCursorChanged(Action handler);
 
 	void Hide(string id);
 

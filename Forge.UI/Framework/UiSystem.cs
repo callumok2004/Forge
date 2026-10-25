@@ -294,6 +294,8 @@ public sealed class UiSystem : IUiSystem
 		return target.OnMouseWheeled(delta, x - absX, y - absY);
 	}
 
+	public void DismissPopups() => DismissPopupsOutside(float.NegativeInfinity, float.NegativeInfinity);
+
 	private bool DismissPopupsOutside(float x, float y) {
 		bool dismissed = false;
 
@@ -316,6 +318,8 @@ public sealed class UiSystem : IUiSystem
 	#region Keyboard
 
 	public bool InternalKeyCodePressed(uint key, KeyModifiers modifiers) {
+		if (_focus is { ShortcutsFirst: true } && KeyFallback?.Invoke(key, modifiers) == true) return true;
+
 		for (Panel? current = _focus; current is not null; current = current.Parent)
 			if (current.OnKeyCodePressed(key, modifiers)) return true;
 
@@ -324,7 +328,7 @@ public sealed class UiSystem : IUiSystem
 			return true;
 		}
 
-		return KeyFallback?.Invoke(key, modifiers) ?? false;
+		return _focus is not { ShortcutsFirst: true } && (KeyFallback?.Invoke(key, modifiers) ?? false);
 	}
 
 	public bool InternalKeyTyped(char character) {
@@ -354,8 +358,13 @@ public sealed class UiSystem : IUiSystem
 		return count;
 	}
 
+	private Panel? _focusBeforePopups;
+
 	public void AddPopup(Panel popup, bool modal) {
 		RemovePopup(popup);
+
+		if (_popups.Count == 0) _focusBeforePopups = _focus;
+
 		_popups.Add((popup, modal));
 
 		if (popup.KeyboardInputEnabled) SetFocus(popup);
@@ -368,7 +377,9 @@ public sealed class UiSystem : IUiSystem
 
 		_popups.RemoveAt(index);
 
-		if (_focus is not null && (ReferenceEquals(_focus, popup) || _focus.HasParent(popup))) SetFocus(_popups.Count > 0 ? _popups[^1].Panel : null);
+		if (_focus is not null && (ReferenceEquals(_focus, popup) || _focus.HasParent(popup))) SetFocus(_popups.Count > 0 ? _popups[^1].Panel : _focusBeforePopups);
+
+		if (_popups.Count == 0) _focusBeforePopups = null;
 
 		if (_mouseOver is not null && (ReferenceEquals(_mouseOver, popup) || _mouseOver.HasParent(popup))) _mouseOver = null;
 	}

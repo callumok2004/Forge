@@ -1,57 +1,66 @@
+using System.Buffers;
+
 using Forge.Editor;
 using Forge.Extensions.IndentRainbow;
 using Forge.Extensions.TrailingSpaces;
-using Forge.Extensions;
+using Forge.Text;
 
 namespace Forge.Shell;
 
 public sealed class EditorDecorations
 {
+	private const uint TrailingColor = 0x4DFF0000;
+
 	private readonly List<TextView.Decoration> _decorations = [];
+	private readonly List<IndentSpan> _indents = [];
+
+	private char[] _line = ArrayPool<char>.Shared.Rent(256);
+	private TextView? _view;
+	private int _version = -1;
+	private int _first = -1;
+	private int _last = -1;
+	private bool _includeEmptyLines;
 
 	public bool IndentRainbowEnabled { get; set; } = true;
 
 	public bool TrailingSpacesEnabled { get; set; } = true;
 
-	private const uint TrailingColor = 0x4DFF0000;
+	public void UpdateVisible(TextView? view, TrailingSpacesExtension trailing, int firstLine, int lastLine) {
+		if (ReferenceEquals(view, _view) && view is not null && view.Buffer.Version == _version && firstLine == _first && lastLine == _last && trailing.IncludeEmptyLines == _includeEmptyLines) return;
 
-	private TextView? _view;
-	private int _version = -1;
-
-	public void UpdateIfStale(TextView? view, TrailingSpacesExtension trailing) {
-		if (ReferenceEquals(view, _view) && view is not null && view.Buffer.Version == _version) return;
-
-		Update(view, trailing);
-	}
-
-	public void Update(TextView? view, TrailingSpacesExtension trailing) {
 		_decorations.Clear();
 		_view = view;
 		_version = view?.Buffer.Version ?? -1;
+		_first = firstLine;
+		_last = lastLine;
+		_includeEmptyLines = trailing.IncludeEmptyLines;
 
 		if (view is null) return;
 
 		view.Decorations = _decorations;
 
-		string text = view.Buffer.GetText();
+		TextSnapshot snapshot = view.Snapshot;
+		int last = Math.Min(lastLine, snapshot.LineCount - 1);
 
-		if (IndentRainbowEnabled) {
-			foreach (IndentSpan span in IndentRainbow.Scan(text, view.TabWidth,
-				IndentRainbow.DefaultColors.Length)) {
-				uint color = IndentRainbow.ColorOf(span, IndentRainbow.DefaultColors,
-					IndentRainbow.DefaultErrorColor, tabMixColor: 0u);
+		for (int line = Math.Max(0, firstLine); line <= last; line++) {
+			TextSpan span = snapshot.GetLineSpan(line);
 
-				_decorations.Add(new TextView.Decoration(span.Line, span.Start, span.End, color));
+			if (span.Length > _line.Length) {
+				ArrayPool<char>.Shared.Return(_line);
+				_line = ArrayPool<char>.Shared.Rent(span.Length);
 			}
-		}
 
-		if (TrailingSpacesEnabled) {
-			foreach (TrailingRange range in TrailingSpacesExtension.Find(text, skipLine: null,
-				trailing.IncludeEmptyLines)) {
-				_decorations.Add(new TextView.Decoration(range.Line, range.Start, range.End, TrailingColor));
+			Span<char> text = _line.AsSpan(0, span.Length);
+			snapshot.CopyTo(span.Start, span.Length, text);
+
+			if (IndentRainbowEnabled) {
+				_indents.Clear();
+				IndentRainbow.ScanLine(text, line, view.TabWidth, IndentRainbow.DefaultColors.Length, _indents);
+
+				foreach (IndentSpan indent in _indents) _decorations.Add(new TextView.Decoration(line, indent.Start, indent.End, IndentRainbow.ColorOf(indent, IndentRainbow.DefaultColors, IndentRainbow.DefaultErrorColor, tabMixColor: 0u)));
 			}
-		}
 
-		_decorations.Sort(static (left, right) => left.Line.CompareTo(right.Line));
+			if (TrailingSpacesEnabled && TrailingSpacesExtension.FindLine(text, line, _includeEmptyLines, out TrailingRange range)) _decorations.Add(new TextView.Decoration(line, range.Start, range.End, TrailingColor));
+		}
 	}
 }

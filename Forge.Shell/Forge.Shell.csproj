@@ -10,6 +10,7 @@
 		<ProjectReference Include="..\Forge.Terminal\Forge.Terminal.csproj" />
 		<ProjectReference Include="..\Forge.Extensions\Forge.Extensions.csproj" />
 		<ProjectReference Include="..\Forge.UI\Forge.UI.csproj" />
+		<ProjectReference Include="..\Forge.Workbench\Forge.Workbench.csproj" />
 		<ProjectReference Include="..\Forge.VSCode\Forge.VSCode.csproj" />
 		<ProjectReference Include="..\Forge.Webview\Forge.Webview.csproj" />
 	</ItemGroup>

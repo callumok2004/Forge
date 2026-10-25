@@ -72,6 +72,10 @@ public static class WorkbenchCommands
 
 		Add("forge.toggleFrameStats", "Toggle Frame Statistics", "Developer", () => workbench.ShowFrameStats = !workbench.ShowFrameStats, "Ctrl+Shift+F12");
 
+		Add("editor.action.fontZoomIn", "Increase Editor Font Size", "Editor", () => context.ZoomEditor(1));
+		Add("editor.action.fontZoomOut", "Decrease Editor Font Size", "Editor", () => context.ZoomEditor(-1));
+		Add("editor.action.fontZoomReset", "Reset Editor Font Size", "Editor", () => context.ZoomEditor(0));
+
 		Add("workbench.action.zoomIn", "Zoom In", "View", () => Zoom(context, 1f), "Ctrl+=");
 		Add("workbench.action.zoomOut", "Zoom Out", "View", () => Zoom(context, -1f), "Ctrl+-");
 

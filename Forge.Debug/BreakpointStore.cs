@@ -30,6 +30,15 @@ public sealed class BreakpointStore
 		get { lock (_sync) return [.. _exceptions]; }
 	}
 
+	public SourceBreakpoint? Find(string path, int line) {
+		lock (_sync) {
+			foreach (SourceBreakpoint breakpoint in _source)
+				if (breakpoint.EffectiveLine == line && Same(breakpoint.Path, path)) return breakpoint;
+
+			return null;
+		}
+	}
+
 	public IReadOnlyList<SourceBreakpoint> For(string path) {
 		lock (_sync) {
 			List<SourceBreakpoint> matches = [];

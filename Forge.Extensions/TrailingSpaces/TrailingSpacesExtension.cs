@@ -107,6 +107,19 @@ public sealed class TrailingSpacesExtension : ForgeExtension
 		}
 	}
 
+	public static bool FindLine(ReadOnlySpan<char> text, int line, bool includeEmptyLines, out TrailingRange range) {
+		int contentEnd = text.Length;
+
+		if (contentEnd > 0 && text[contentEnd - 1] == '\n') contentEnd--;
+
+		int start = contentEnd;
+
+		while (start > 0 && text[start - 1] is ' ' or '	') start--;
+
+		range = new TrailingRange(line, start, contentEnd);
+		return start < contentEnd && (includeEmptyLines || start > 0);
+	}
+
 	public static List<TrailingRange> Find(string text, int? skipLine, bool includeEmptyLines) {
 		List<TrailingRange> ranges = [];
 

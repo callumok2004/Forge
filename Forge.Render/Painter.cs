@@ -97,15 +97,16 @@ public sealed class Painter : IPainter, IDisposable
 	void IPainter.DrawText(ITextFont font, ReadOnlySpan<char> text, float x, float baselineY, Color color) =>
 		DrawText((TextFont)font, text, x, baselineY, color);
 
-	public void DrawVectorIcon(VectorIcon icon, float centreX, float centreY, float size,
-		Color? tint = null) =>
+	public void DrawVectorIcon(VectorIcon icon, float centreX, float centreY, float size, Color? tint = null) {
 		icon.Draw(_context, _brush, centreX, centreY, size, tint);
+		_brushColor = new Color(float.NaN, float.NaN, float.NaN, float.NaN);
+	}
 
 	public void DrawIcon(Codicon icon, float centreX, float centreY, float size, Color color) {
 		if (!Icons.TryPlace(icon, centreX, centreY, size, out float emSize, out float originX,
 			out float originY, out ushort glyph)) return;
 
-		_brush.Color = ToColor4(color);
+		SetColor(color);
 
 		_iconRun.FontFace = Icons.FontFace;
 		_iconRun.FontEmSize = emSize;
@@ -115,7 +116,7 @@ public sealed class Painter : IPainter, IDisposable
 	}
 
 	public void FillRectangle(float x, float y, float width, float height, Color color) {
-		_brush.Color = ToColor4(color);
+		SetColor(color);
 		_context.FillRectangle(new Vortice.Mathematics.Rect(x, y, width, height), _brush);
 	}
 
@@ -126,7 +127,7 @@ public sealed class Painter : IPainter, IDisposable
 		FillRectangle(left, MathF.Round(y), right - left, 1f, color);
 
 	public void FillRoundedRectangle(float x, float y, float width, float height, float radius, Color color) {
-		_brush.Color = ToColor4(color);
+		SetColor(color);
 		_context.FillRoundedRectangle(
 			new D2D.RoundedRectangle {
 				Rect = new Vortice.Mathematics.Rect(x, y, width, height),
@@ -138,7 +139,7 @@ public sealed class Painter : IPainter, IDisposable
 
 	public void StrokeRoundedRectangle(float x, float y, float width, float height, float radius,
 		float thickness, Color color) {
-		_brush.Color = ToColor4(color);
+		SetColor(color);
 		_context.DrawRoundedRectangle(
 			new D2D.RoundedRectangle {
 				Rect = new Vortice.Mathematics.Rect(x, y, width, height),
@@ -150,14 +151,14 @@ public sealed class Painter : IPainter, IDisposable
 	}
 
 	public void FillCircle(float centreX, float centreY, float radius, Color color) {
-		_brush.Color = ToColor4(color);
+		SetColor(color);
 		_context.FillEllipse(
 			new D2D.Ellipse(new Vector2(centreX, centreY), radius, radius),
 			_brush);
 	}
 
 	public void StrokeLine(float x0, float y0, float x1, float y1, float thickness, Color color) {
-		_brush.Color = ToColor4(color);
+		SetColor(color);
 		_context.DrawLine(new Vector2(x0, y0), new Vector2(x1, y1), _brush, thickness);
 	}
 
@@ -180,7 +181,14 @@ public sealed class Painter : IPainter, IDisposable
 		StrokeLine(centreX + half, centreY - half, centreX - half, centreY + half, 1.4f, color);
 	}
 
-	private static Vortice.Mathematics.Color4 ToColor4(Color color) => new(color.R, color.G, color.B, color.A);
+	private Color _brushColor = new(1f, 1f, 1f, 1f);
+
+	private void SetColor(Color color) {
+		if (color.R == _brushColor.R && color.G == _brushColor.G && color.B == _brushColor.B && color.A == _brushColor.A) return;
+
+		_brushColor = color;
+		_brush.Color = new Vortice.Mathematics.Color4(color.R, color.G, color.B, color.A);
+	}
 
 	public void DrawText(TextFont font, ReadOnlySpan<char> text, float x, float baselineY, Color color) {
 		if (text.IsEmpty) return;
@@ -203,7 +211,7 @@ public sealed class Painter : IPainter, IDisposable
 
 		if (count == 0) return;
 
-		_brush.Color = ToColor4(color);
+		SetColor(color);
 
 		_textRun.FontFace = font.FontFace;
 		_textRun.FontEmSize = font.SizeInPixels;
@@ -217,7 +225,7 @@ public sealed class Painter : IPainter, IDisposable
 	}
 
 	public void FillTriangle(float x0, float y0, float x1, float y1, float x2, float y2, Color color) {
-		_brush.Color = ToColor4(color);
+		SetColor(color);
 
 		using D2D.ID2D1PathGeometry geometry = _factory.CreatePathGeometry();
 		using (D2D.ID2D1GeometrySink sink = geometry.Open()) {
@@ -251,6 +259,12 @@ public sealed class Painter : IPainter, IDisposable
 			D2D.AntialiasMode.Aliased);
 
 		_clipDepth++;
+	}
+
+	public void ClearRectangle(float x, float y, float width, float height) {
+		_context.PushAxisAlignedClip(new Vortice.Mathematics.Rect(x, y, width, height), D2D.AntialiasMode.Aliased);
+		_context.Clear(new Vortice.Mathematics.Color4(0f, 0f, 0f, 0f));
+		_context.PopAxisAlignedClip();
 	}
 
 	public void PopClip() {

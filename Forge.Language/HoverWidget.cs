@@ -1,20 +1,29 @@
 using Forge.Common.Render;
-using Forge.Editor;
+using Forge.Common.UI;
 using Forge.Theming;
 
 namespace Forge.Language;
 
-public sealed class HoverWidget
+public sealed class HoverWidget : Panel
 {
 	public const long DelayMilliseconds = 300;
 
 	private const float Padding = 8f;
 	private const float MaxWidth = 500f;
+	private const float PointerOffset = 16f;
 
 	private readonly List<(string Text, bool IsCode)> _lines = [];
+	private readonly List<(string Text, bool IsCode)> _wrapped = [];
 
 	private float _x;
 	private float _y;
+	private bool _rewrap;
+
+	public HoverWidget() {
+		Name = "Hover";
+		Visible = false;
+		MouseInputEnabled = false;
+	}
 
 	public int Line { get; private set; }
 
@@ -32,112 +41,96 @@ public sealed class HoverWidget
 	public void Show(string markdown, int line, int column) {
 		if (line != Line || column != Column || markdown.Length == 0) return;
 
-		_lines.Clear();
-		bool inFence = false;
+		lock (_lines) {
+			_lines.Clear();
+			bool inFence = false;
 
-		foreach (string raw in markdown.Split('\n')) {
-			string text = raw.TrimEnd('\r');
+			foreach (string raw in markdown.Split('\n')) {
+				string text = raw.TrimEnd('\r');
 
-			if (text.TrimStart().StartsWith("```", StringComparison.Ordinal)) {
-				inFence = !inFence;
-				continue;
+				if (text.TrimStart().StartsWith("```", StringComparison.Ordinal)) {
+					inFence = !inFence;
+					continue;
+				}
+
+				if (text.Trim().Length == 0 && (_lines.Count == 0 || _lines[^1].Text.Length == 0)) continue;
+
+				_lines.Add((text, inFence));
 			}
 
-			if (text.Trim().Length == 0 && (_lines.Count == 0 || _lines[^1].Text.Length == 0)) continue;
-
-			_lines.Add((text, inFence));
+			_rewrap = true;
+			IsOpen = _lines.Count > 0;
 		}
-
-		IsOpen = _lines.Count > 0;
 	}
 
 	public void Hide() {
 		IsOpen = false;
-		_lines.Clear();
 	}
 
-	public void Render(IPainter painter, float editorTop, float editorBottom, float editorRight,
-		float scale) {
-		if (!IsOpen) return;
+	public void Place(float areaTop, float areaBottom, float areaRight, float originX, float originY) {
+		Visible = IsOpen;
 
-		ITextFont code = painter.GetCode();
-		ITextFont ui = painter.GetUi();
+		if (!IsOpen || Ui is null) return;
 
+		float scale = Scale;
+		IFontSet fonts = Ui.GetFonts();
+		ITextFont code = fonts.GetCode();
+		ITextFont ui = fonts.GetUi();
 		float padding = Padding * scale;
 		float limit = MaxWidth * scale;
 
-		List<(string Text, bool IsCode)> wrapped = [];
-		float widest = 0f;
+		if (_rewrap) {
+			_rewrap = false;
+			_wrapped.Clear();
 
-		foreach ((string text, bool isCode) in _lines) {
-			ITextFont font = isCode ? code : ui;
+			lock (_lines) {
+				List<string> pieces = [];
 
-			foreach (string line in Wrap(font, text, limit - (padding * 2f))) {
-				wrapped.Add((line, isCode));
-				widest = Math.Max(widest, font.Measure(line));
+				foreach ((string text, bool isCode) in _lines) {
+					pieces.Clear();
+					SuggestDetails.Wrap(isCode ? code : ui, text, limit - (padding * 2f), pieces);
+
+					foreach (string piece in pieces) _wrapped.Add((piece, isCode));
+				}
 			}
 		}
 
+		float widest = 0f;
 		float height = padding * 2f;
 
-		foreach ((_, bool isCode) in wrapped) {
-			height += (isCode ? code : ui).GetLineHeight();
+		foreach ((string text, bool isCode) in _wrapped) {
+			ITextFont font = isCode ? code : ui;
+			widest = Math.Max(widest, font.Measure(text));
+			height += font.GetLineHeight();
 		}
 
 		float width = Math.Min(limit, widest + (padding * 2f));
+		float top = _y + (PointerOffset * scale);
 
-		float top = _y + (16f * scale);
+		if (top + height > areaBottom) top = Math.Max(areaTop, _y - height - (4f * scale));
 
-		if (top + height > editorBottom) top = Math.Max(editorTop, _y - height - (4f * scale));
+		float left = Math.Max(0f, Math.Min(_x, areaRight - width));
+		SetBounds(left - originX, top - originY, width, height);
+	}
 
-		float left = Math.Max(0f, Math.Min(_x, editorRight - width));
+	public override void Paint(IPainter painter) {
+		float scale = Scale;
+		ITextFont code = painter.GetCode();
+		ITextFont ui = painter.GetUi();
+		float padding = Padding * scale;
 		float radius = Metrics.RadiusMedium * scale;
+		float y = ScreenY + padding;
 
-		painter.FillRoundedRectangle(left, top, width, height, radius, Theme.WidgetBackground);
-		painter.StrokeRoundedRectangle(left, top, width, height, radius,
-			Metrics.StrokeThickness * scale, Theme.WidgetBorder);
+		painter.FillRoundedRectangle(ScreenX, ScreenY, Wide, Tall, radius, Theme.WidgetBackground);
+		painter.StrokeRoundedRectangle(ScreenX, ScreenY, Wide, Tall, radius, Metrics.StrokeThickness * scale, Theme.WidgetBorder);
+		painter.PushClip(ScreenX, ScreenY, Wide, Tall);
 
-		painter.PushClip(left, top, width, height);
-
-		float y = top + padding;
-
-		foreach ((string text, bool isCode) in wrapped) {
+		foreach ((string text, bool isCode) in _wrapped) {
 			ITextFont font = isCode ? code : ui;
-
-			painter.DrawText(font, text, left + padding, y + font.GetBaseline(),
-				isCode ? Theme.EditorForeground : Theme.SectionHeaderForeground);
-
+			painter.DrawText(font, text, ScreenX + padding, y + font.GetBaseline(), isCode ? Theme.EditorForeground : Theme.SectionHeaderForeground);
 			y += font.GetLineHeight();
 		}
 
 		painter.PopClip();
-	}
-
-	private static List<string> Wrap(ITextFont font, string text, float width) {
-		List<string> lines = [];
-
-		if (text.Length == 0 || font.Measure(text) <= width) {
-			lines.Add(text);
-			return lines;
-		}
-
-		int start = 0;
-		int lastSpace = -1;
-
-		for (int i = 0; i < text.Length; i++) {
-			if (text[i] == ' ') lastSpace = i;
-
-			if (font.Measure(text.AsSpan(start, i - start + 1)) <= width) continue;
-
-			int end = lastSpace > start ? lastSpace : i;
-
-			lines.Add(text[start..end]);
-			start = lastSpace > start ? end + 1 : end;
-			lastSpace = -1;
-		}
-
-		if (start < text.Length) lines.Add(text[start..]);
-
-		return lines;
 	}
 }

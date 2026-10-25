@@ -186,10 +186,10 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			window.Invalidate();
 		});
 
-		using Forge.Webview.WebviewHost webviews = new(window.Handle,
-			Path.Combine(UserData.Directory, "webview"), Post);
+		using Forge.Webview.WebviewHost webviews = new(window.Handle, device, Path.Combine(UserData.Directory, "webview"), Post);
 
 		workbench.Webviews = webviews;
+		workbench.Auxiliary.Webviews = webviews;
 
 		webviews.SetZoom(settings.ZoomFactor);
 
@@ -264,16 +264,10 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		workbench.Sidebar.Debug.Changed = window.Invalidate;
 		workbench.Sidebar.Debug.OpenBreakpoint = (path, line) => debugger.RevealSource?.Invoke(path, line);
 
-		debugger.OnStateChanged(() => {
-			if (debugger.GetState() != DebugState.Stopped) workbench.Sidebar.Debug.Reset();
-		});
-
 		workbench.BreakpointMarkFor = line => {
 			if (workbench.ActiveFilePath is not { Length: > 0 } path) return BreakpointMark.None;
 
-			foreach (SourceBreakpoint breakpoint in debugger.GetBreakpointsFor(path)) {
-				if (breakpoint.EffectiveLine != line) continue;
-
+			if (debugger.FindBreakpoint(path, line) is { } breakpoint) {
 				if (!breakpoint.Enabled || !debugger.AreBreakpointsActivated()) return BreakpointMark.Disabled;
 				if (breakpoint.LogMessage is { Length: > 0 }) return BreakpointMark.LogPoint;
 				if (breakpoint.Condition is { Length: > 0 }) return BreakpointMark.Conditional;
@@ -313,6 +307,12 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		window.Events.PlacementChanged += () => window.CaptureState().Save(UserData.WindowStatePath);
 
 		index.StartScan();
+
+		using WorkspaceWatcher watcher = new(rootPath, (directories, git) => {
+			if (git && workbench.Repository is { } watched) watched.Refresh();
+
+			if (directories.Count > 0) Post(() => workbench.Sidebar.Explorer.Reload(directories));
+		});
 
 		RestoreWorkspace(workbench, memory);
 		OpenInitialFiles(workbench, args);
@@ -425,8 +425,21 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		}
 	}
 
+
+	private static Document? _titledDocument;
+	private static bool _titledDirty;
+	private static bool _titled;
+
 	private static void UpdateTitle(AppWindow window, Workbench workbench, string rootPath) {
 		Document? document = workbench.ActiveDocument;
+		bool dirty = document?.IsDirty() ?? false;
+
+		if (_titled && ReferenceEquals(document, _titledDocument) && dirty == _titledDirty) return;
+
+		_titled = true;
+		_titledDocument = document;
+		_titledDirty = dirty;
+
 		string title = WindowTitle.Format(Settings.Current.GetString("window.title"), rootPath, document?.Path, document?.IsDirty() ?? false);
 
 		workbench.TitleBar.FolderName = Path.GetFileName(rootPath.TrimEnd(Path.DirectorySeparatorChar));
@@ -438,39 +451,22 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 	private static void WireEvents(AppWindow window, RenderDevice device, IPainter painter, FontSet fonts,
 		Settings settings, Workbench workbench, Ambient ambient, DebugService debugger,
 		System.Collections.Concurrent.ConcurrentQueue<Action> uiWork, string rootPath) {
-		bool selecting = false;
-		bool draggingSplitter = false;
-		bool draggingAuxiliary = false;
-		bool draggingPanel = false;
-		bool selectingOutput = false;
-
-		int dragX = 0;
-		int dragY = 0;
-
-		long lastClickAt = 0;
-		int lastClickX = 0;
-		int lastClickY = 0;
-		int clickCount = 0;
-		bool autoScrolling = false;
-
 		DamageRegion pending = new();
 		DamageRegion frameDamage = new();
 		DamageRegion editorDamage = new();
 
 		Action<PixelRect>? notePaint = null;
 
+		bool frameRequested = false;
+
 		void Damage(PixelRect rect) {
 			pending.Add(rect);
-			window.Invalidate(rect);
 			notePaint?.Invoke(rect);
-		}
 
-		void DamageCleared(ChromeRegions cleared) {
-			if (cleared.Sidebar) Damage(workbench.SidebarRect(device.Height));
+			if (frameRequested) return;
 
-			if (cleared.ActivityBar) Damage(workbench.ActivityBarRect(device.Height));
-
-			if (cleared.Tabs) Damage(workbench.TabStripRect(device.Width));
+			frameRequested = true;
+			window.Invalidate(new PixelRect(0, 0, 1, 1));
 		}
 
 		void Refresh() {
@@ -483,24 +479,27 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		UiSystem ui = new(Damage, () => window.Invalidate(new PixelRect(0, 0, 1, 1)), () => workbench.Scale, Modifiers) { Fonts = fonts };
 
 		notePaint = ui.NotePaint;
-		ui.Root.AddChild(new LegacyWorkbenchPanel(workbench));
+
+		workbench.ActivityBar.ViewSelected = view => {
+			if (workbench.ActivityBar.Active == view) workbench.ShowSidebar = !workbench.ShowSidebar;
+			else {
+				workbench.ActivityBar.Active = view;
+				workbench.ShowSidebar = true;
+			}
+
+			workbench.Sidebar.View = view;
+
+			if (view == ActivityView.SourceControl) {
+				workbench.Sidebar.SourceControl.SetRoot(workbench.Repository?.GetRootPath() ?? rootPath);
+				Registry.Execute("git.refresh", new CommandHost(workbench, Refresh));
+			}
+
+			Refresh();
+		};
+		WorkbenchPanel root = new(workbench);
+		ui.Root.AddChild(root);
 		ui.CommandHandler = (command, _) => workbench.RunCommand(command, new CommandHost(workbench, Refresh));
 
-		bool uiOwnsPointer = false;
-
-		PopupRects occlusions = default;
-		int occlusionCount = 0;
-
-		void SyncOcclusions() {
-			PopupRects current = default;
-			int count = ui.CopyPopupBounds(current);
-
-			if (count == occlusionCount && ((ReadOnlySpan<PixelRect>)current)[..count].SequenceEqual(((ReadOnlySpan<PixelRect>)occlusions)[..count])) return;
-
-			occlusions = current;
-			occlusionCount = count;
-			workbench.Webviews.SetOcclusions(((ReadOnlySpan<PixelRect>)occlusions)[..count]);
-		}
 
 		void RefreshEditor() {
 			UpdateTitle(window, workbench, rootPath);
@@ -536,9 +535,52 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			RefreshEditor = RefreshEditor,
 			ApplyZoom = ApplyZoom,
 			Damage = Damage,
+			SetCodeZoom = fonts.SetCodeZoom,
 		};
 
-		InputTargets.Register(context);
+		workbench.Sidebar.Explorer.FileOpened = path => {
+			workbench.OpenFile(path);
+			Refresh();
+		};
+
+		workbench.Auxiliary.Activated = Refresh;
+
+		root.Editor.Changed = RefreshEditor;
+		root.Editor.Pressed = Refresh;
+		root.Editor.WheelZooms = () => settings.MouseWheelZoom;
+		root.Editor.ZoomRequested = step => context.ZoomEditor(step);
+
+		root.Editor.BreakpointToggled = line => {
+			if (workbench.ActiveFilePath is { Length: > 0 } path) debugger.ToggleBreakpoint(path, line);
+
+			Refresh();
+		};
+		workbench.Find.View = () => workbench.ActiveView;
+
+		workbench.Find.Revealed = found => {
+			context.ScrollToMatch(found);
+			RefreshEditor();
+		};
+		workbench.FocusEditor = root.Editor.RequestFocus;
+		root.Editor.Typed = context.RevealCaret;
+		root.Editor.RequestFocus();
+
+		workbench.Panel.Navigate = (path, line, column) => {
+			workbench.GoTo(path, line, column);
+			Refresh();
+		};
+
+		workbench.Tabs.Activated = index => {
+			workbench.Activate(index);
+			Refresh();
+		};
+
+		workbench.Tabs.Closed = index => {
+			workbench.Close(index);
+			Refresh();
+		};
+
+		GitCommands.Register(Registry, context);
 		WorkbenchCommands.Register(Registry, context);
 		EditorCommands.Register(Registry, context);
 		InputCommands.Register(Registry, context);
@@ -550,17 +592,16 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		IFrameStats stats = new FrameStats();
 		workbench.FrameStats = stats;
 
+
 		window.HitTestTitleBar = (x, y) => {
 			workbench.TitleBar.IsMaximized = window.IsMaximized;
-			return workbench.TitleBar.HitTest(x, y, device.Width, workbench.Scale);
+			return workbench.TitleBar.HitTest(x, y);
 		};
 
 		const nuint caretTimerId = 1;
-		const nuint autoScrollTimerId = 2;
 		const nuint settleTimerId = 3;
 		const nuint ambientTimerId = 4;
 		const uint ambientIntervalMs = 16;
-		const uint autoScrollIntervalMs = 30;
 
 		window.StartTimer(caretTimerId, Math.Max(100u, AppWindow.CaretBlinkMs));
 
@@ -640,51 +681,12 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 			if (ambient.Tick(delta)) ambient.Damage(window.Invalidate, device.Width, device.Height);
 
-			if (workbench.Panel.IsDirty) window.Invalidate(workbench.PanelRect(device.Width, device.Height));
-		}
-
-		void AutoScrollTick() {
-			if (workbench.ActiveView is not { } view) return;
-
-			float top = workbench.EditorTop;
-			float bottom = workbench.StatusBarTop(device.Height);
-			float left = workbench.EditorLeft;
-			float right = left + workbench.TextWidth(device.Width);
-
-			float lines = Overshoot(dragY, top, bottom) / painter.GetCode().GetLineHeight();
-			float columns = Overshoot(dragX, left, right) / painter.GetCode().GetCellWidth();
-
-			if (lines != 0f) {
-				view.ScrollByLines(lines, painter.GetCode().GetLineHeight(), workbench.EditorHeight(device.Height));
-			}
-
-			if (columns != 0f) view.ScrollByColumns(columns, painter.GetCode().GetCellWidth());
-
-			view.MoveTo(
-				view.OffsetFromPoint(painter.GetCode(), Math.Clamp(dragX, left, right),
-					Math.Clamp(dragY, top, bottom - 1f), left, top),
-				extend: true);
-
-			RefreshEditor();
-		}
-
-		void SetAutoScrolling(bool enabled) {
-			if (enabled == autoScrolling) return;
-
-			autoScrolling = enabled;
-
-			if (enabled) window.StartTimer(autoScrollTimerId, autoScrollIntervalMs);
-			else window.StopTimer(autoScrollTimerId);
+			if (workbench.Panel.TakeDirty()) workbench.Panel.Repaint();
 		}
 
 		window.Events.Timer += id => {
 			if (id == ambientTimerId) {
 				AmbientTick();
-				return;
-			}
-
-			if (id == autoScrollTimerId) {
-				AutoScrollTick();
 				return;
 			}
 
@@ -701,9 +703,6 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			if (id != caretTimerId ) return;
 
 			Caret.Visible = !Caret.Visible;
-
-			if (workbench.Sidebar.View == ActivityView.SourceControl &&
-				workbench.Sidebar.SourceControl.MessageFocused) Damage(workbench.SidebarRect(device.Height));
 
 			if (workbench.ActiveView is not { } blinking) return;
 
@@ -727,15 +726,21 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			}
 			finally {
 				rendering = false;
+
+				if (!pending.IsEmpty) {
+					frameRequested = true;
+					window.Invalidate(new PixelRect(0, 0, 1, 1));
+				}
 			}
 		};
 
 		void RenderFrame(PixelRect windowsDamage) {
+			frameRequested = false;
 			PixelRect surface = PixelRect.FromSize(device.Width, device.Height);
 
 			if (!pending.Bounds().Contains(windowsDamage)) pending.Add(windowsDamage);
 
-			if (!pending.IsEmpty) pending.Add(workbench.FrameStatsRect(device.Width, device.Height));
+			if (!pending.IsEmpty && workbench.ShowFrameStats) pending.Add(workbench.FrameStatsOverlay.AbsoluteBounds);
 
 			frameDamage.Clear();
 			frameDamage.Add(pending);
@@ -751,8 +756,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			}
 
 			workbench.UpdateBeforeFrame();
+			root.SyncLegacyLayout(device.Width, device.Height);
 			ui.Layout(device.Width, device.Height);
-			SyncOcclusions();
 
 			ambient.Prepare(device);
 
@@ -811,71 +816,15 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		window.Events.DpiChanged += _ => ApplyZoom();
 
-		void HoverTitleBar(int x, int y) {
-			TitleBar bar = workbench.TitleBar;
-
-			TitleBarPart part = bar.PartAt(x, y, device.Width, workbench.Scale);
-
-			if (part == bar.Hover) return;
-
-			bar.SetHover(part);
-			Damage(workbench.TitleBarRect(device.Width));
-		}
-
-		window.Events.TitleBarMouseMove += HoverTitleBar;
-
-		window.Events.TitleBarMouseLeave += () => {
-			if (workbench.TitleBar.Hover == TitleBarPart.None) return;
-
-			workbench.TitleBar.SetHover(TitleBarPart.None);
-			Damage(workbench.TitleBarRect(device.Width));
-		};
+		window.Events.TitleBarMouseMove += (x, y) => ui.InternalCursorMoved(x, y);
+		window.Events.TitleBarMouseLeave += ui.InternalCursorExited;
+		window.Events.PointerLeftClient += ui.DismissPopups;
 
 		window.Events.MouseWheel += (delta, x, _) => {
-			if (ui.InternalMouseWheeled(delta, x, LastMouseY)) return;
+			if (ui.InternalMouseWheeled(delta, x, LastMouseY) || !Win32.IsKeyDown(Win32.VkControl)) return;
 
-			if (Win32.IsKeyDown(Win32.VkControl)) {
-				settings.AdjustZoom(delta > 0 ? 0.2f : -0.2f);
-				ApplyZoom();
-				return;
-			}
-
-			if (workbench.IntelliSense is { } scrolling &&
-				scrolling.Suggest.Contains(x, LastMouseY)) {
-				scrolling.Suggest.ScrollByWheel(delta);
-				Damage(workbench.EditorCardRect(device.Width, device.Height));
-				return;
-			}
-
-			if (workbench.Panel.IsOpen && LastMouseY >= workbench.PanelTop(device.Height) &&
-				x >= workbench.EditorLeft) {
-				workbench.Panel.ScrollByWheel(delta, workbench.Scale);
-				Damage(workbench.PanelRect(device.Width, device.Height));
-				return;
-			}
-
-			if (workbench.ShowSidebar && x >= workbench.ActivityBarWidth && x < workbench.EditorLeft) {
-				if (workbench.Sidebar.View == ActivityView.SourceControl) {
-					workbench.Sidebar.SourceControl.ScrollByWheel(delta, workbench.Scale);
-				}
-				else if (workbench.Sidebar.View == ActivityView.Run) {
-					workbench.Sidebar.Debug.ScrollByWheel(delta, workbench.Scale);
-				}
-				else workbench.Sidebar.ScrollByWheel(delta, workbench.Scale);
-
-				Damage(workbench.SidebarRect(device.Height));
-				return;
-			}
-
-			if (Win32.IsKeyDown(Win32.VkShift)) {
-				workbench.ActiveView?.ScrollByHorizontalWheel(-delta, painter.GetCode().GetCellWidth());
-			}
-			else {
-				workbench.ActiveView?.ScrollByWheel(delta, painter.GetCode().GetLineHeight(),
-					workbench.EditorHeight(device.Height));
-			}
-
-			RefreshEditor();
+			settings.AdjustZoom(delta > 0 ? 0.2f : -0.2f);
+			ApplyZoom();
 		};
 
 		window.Events.MouseHorizontalWheel += (delta, _, _) => {
@@ -885,592 +834,58 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		nint arrowCursor = AppWindow.SystemCursor(Win32.IdcArrow);
 		nint beamCursor = AppWindow.SystemCursor(Win32.IdcIBeam);
+		nint handCursor = AppWindow.SystemCursor(Win32.IdcHand);
 		nint resizeWidthCursor = AppWindow.SystemCursor(Win32.IdcSizeWestEast);
 		nint resizeHeightCursor = AppWindow.SystemCursor(Win32.IdcSizeNorthSouth);
 
 		window.Cursor = arrowCursor;
 
+		ui.CursorChanged = code => window.Cursor = ui.GetMouseOver() is WebviewSurface && workbench.Webviews.GetCursor() is not 0 and nint webCursor ? webCursor : code switch {
+			CursorCode.IBeam => beamCursor,
+			CursorCode.Hand => handCursor,
+			CursorCode.SizeWestEast => resizeWidthCursor,
+			CursorCode.SizeNorthSouth => resizeHeightCursor,
+			_ => arrowCursor,
+		};
+
+		workbench.Webviews.OnCursorChanged(() => {
+			if (ui.GetMouseOver() is WebviewSurface) window.Cursor = workbench.Webviews.GetCursor();
+		});
+
+		root.Resized = Refresh;
+
 		window.Events.MouseMove += (x, y) => {
 			LastMouseX = x;
 			LastMouseY = y;
 
-			uiOwnsPointer = ui.InternalCursorMoved(x, y);
-
-			if (uiOwnsPointer) return;
-
-			if (workbench.ActiveView is { } marginView) {
-				int gutterLine = x >= workbench.EditorLeft &&
-					x < workbench.EditorLeft + TextView.GlyphMarginWidth && y >= workbench.EditorTop
-						? marginView.Snapshot.GetLineAt(marginView.OffsetFromPoint(painter.GetCode(), x, y,
-							workbench.EditorLeft, workbench.EditorTop))
-						: -1;
-
-				if (gutterLine != marginView.HoverGutterLine) {
-					marginView.HoverGutterLine = gutterLine;
-
-					Damage(new PixelRect((int)workbench.EditorLeft, (int)workbench.EditorTop,
-						(int)(workbench.EditorLeft + TextView.GlyphMarginWidth), device.Height));
-				}
-			}
-
-			if (workbench.AuxiliaryWidth > 0f) {
-				bool overClose = workbench.Auxiliary.IsOverClose(x, y);
-
-				if (overClose != workbench.Auxiliary.HoverClose) {
-					workbench.Auxiliary.HoverClose = overClose;
-					Damage(workbench.AuxiliaryRect(device.Width, device.Height));
-				}
-			}
-
-			window.Cursor =
-				workbench.IsOverSplitter(x, device.Height, y) ? resizeWidthCursor :
-				workbench.IsOverAuxiliarySplitter(x, y, device.Width, device.Height) ? resizeWidthCursor :
-				workbench.IsOverPanelSplitter(x, y, device.Height) ? resizeHeightCursor :
-				workbench.ActiveView is not null &&
-					workbench.IntelliSense?.Suggest.Contains(x, y) != true &&
-					x >= workbench.EditorLeft + TextView.GlyphMarginWidth &&
-					y >= workbench.EditorTop &&
-					y < workbench.EditorBottom(device.Height)
-					? beamCursor
-					: arrowCursor;
-
-			if (draggingSplitter) {
-				workbench.ResizeSidebar(x);
-				window.Invalidate();
-				return;
-			}
-
-			if (draggingAuxiliary) {
-				workbench.ResizeAuxiliary(x, device.Width);
-				window.Invalidate();
-				return;
-			}
-
-			if (draggingPanel) {
-				workbench.ResizePanel(y, device.Height);
-				window.Invalidate();
-				return;
-			}
-
-			if (selectingOutput) {
-				workbench.Panel.ExtendOutputSelection(x, y);
-				Damage(workbench.PanelRect(device.Width, device.Height));
-				return;
-			}
-
-			if (workbench.Panel.IsChannelMenuOpen) {
-				workbench.Panel.SetChannelHover(workbench.Panel.ChannelAt(x, y, workbench.Scale));
-				Damage(workbench.PanelRect(device.Width, device.Height));
-				return;
-			}
-
-			if (workbench.Panel.IsProfileMenuOpen) {
-				workbench.Panel.SetProfileHover(workbench.Panel.ProfileAt(painter, x, y, workbench.Scale));
-				Damage(workbench.PanelRect(device.Width, device.Height));
-				return;
-			}
-
-			if (workbench.Panel.IsOpen && y >= workbench.PanelTop(device.Height)) {
-				workbench.Panel.SetHover(workbench.Panel.ViewAt(painter, x, y, workbench.Scale),
-					workbench.Panel.ActionAt(x, y, workbench.Scale));
-
-				workbench.Panel.SetTerminalHover(workbench.Panel.TerminalAt(x, y, workbench.Scale),
-					workbench.Panel.IsOverTerminalClose(x, y, workbench.Scale));
-
-				workbench.Panel.SetReferenceHover(workbench.Panel.ReferenceAt(y, workbench.Scale));
-
-				Damage(workbench.PanelRect(device.Width, device.Height));
-				return;
-			}
-
-			workbench.Panel.SetHover(-1, PanelPart.PanelAction.None);
-			workbench.Panel.SetTerminalHover(-1, false);
-
-			if (!selecting && workbench.Find.IsOpen) {
-				workbench.Find.SetHover(workbench.Find.ButtonAt(x, y, workbench.Scale));
-			}
-
-			if (y < workbench.ShellTop) {
-				HoverTitleBar(x, y);
-				return;
-			}
-
-			if (workbench.TitleBar.Hover != TitleBarPart.None) {
-				workbench.TitleBar.SetHover(TitleBarPart.None);
-				Damage(workbench.TitleBarRect(device.Width));
-			}
-
-			float statusTop = workbench.StatusBarTop(device.Height);
-
-			if (y >= statusTop) {
-				DamageCleared(ClearChromeHover(workbench));
-
-				if (workbench.StatusBar.SetHover(
-					workbench.StatusBar.IndexAt(x, y, statusTop, workbench.Scale))) {
-					Damage(workbench.StatusBarRect(device.Width, device.Height));
-				}
-
-				return;
-			}
-
-			if (workbench.StatusBar.SetHover(-1)) Damage(workbench.StatusBarRect(device.Width, device.Height));
-
-			if (workbench.Sidebar.SourceControl.Menu.IsOpen) {
-				if (workbench.Sidebar.SourceControl.Menu.Hover(x, y)) {
-					Damage(workbench.Sidebar.SourceControl.Menu.Bounds);
-				}
-
-				return;
-			}
-
-			if (x < workbench.ActivityBarWidth) {
-				DamageCleared(ClearChromeHover(workbench));
-
-				if (workbench.ActivityBar.SetHover(workbench.ActivityBar.IndexAt(x, y,
-					workbench.ShellTop, statusTop - workbench.ShellTop, workbench.Scale))) {
-					Damage(workbench.ActivityBarRect(device.Height));
-				}
-
-				return;
-			}
-
-			if (workbench.ActivityBar.SetHover(-1)) Damage(workbench.ActivityBarRect(device.Height));
-
-			if (workbench.Auxiliary.SetStripHover(workbench.Auxiliary.StripIndexAt(x, y, workbench.AuxiliaryStripLeft(device.Width), workbench.ShellTop, workbench.Scale))) Damage(PixelRect.Around(workbench.AuxiliaryStripLeft(device.Width), workbench.ShellTop, workbench.AuxiliaryStripWidth, statusTop - workbench.ShellTop));
-
-			if (workbench.ShowSidebar && x < workbench.EditorLeft && !selecting &&
-				workbench.Sidebar.View == ActivityView.SourceControl) {
-				SourceControlView source = workbench.Sidebar.SourceControl;
-
-				if (source.SetHover(source.RowAt(y, workbench.Scale),
-					source.HitTest(x, y, workbench.Scale, out _, out _))) Damage(workbench.SidebarRect(device.Height));
-
-				return;
-			}
-
-			if (workbench.ShowSidebar && x < workbench.EditorLeft && !selecting) {
-				bool tabCleared = workbench.Tabs.HoverIndex != -1;
-				workbench.Tabs.HoverIndex = -1;
-
-				if (workbench.Sidebar.View == ActivityView.Run) {
-					if (workbench.Sidebar.Debug.SetHover(x, y,
-						workbench.ShellTop + (Metrics.SidebarHeaderHeight * workbench.Scale),
-						workbench.Scale)) Damage(workbench.SidebarRect(device.Height));
-				}
-				else if (workbench.Sidebar.View == ActivityView.Explorer &&
-					workbench.Sidebar.SetHover(workbench.Sidebar.RowAt(x, y, workbench.ActivityBarWidth,
-						workbench.ShellTop, workbench.Scale))) {
-					Damage(workbench.SidebarRect(device.Height));
-				}
-
-				if (tabCleared) Damage(workbench.TabStripRect(device.Width));
-
-				return;
-			}
-
-			if (workbench.Sidebar.SetHover(-1)) Damage(workbench.SidebarRect(device.Height));
-
-			int previousTab = workbench.Tabs.HoverIndex;
-			bool previousClose = workbench.Tabs.HoverClose;
-
-			workbench.Tabs.HoverIndex = workbench.Tabs.IndexAt(workbench.Documents, painter, x, y,
-				workbench.EditorLeft, workbench.TabsTop, workbench.Scale);
-			workbench.Tabs.HoverClose = workbench.Tabs.HoverIndex >= 0 && TabStrip.IsOverClose(
-				workbench.Documents, painter, x, workbench.EditorLeft, workbench.Scale, workbench.Tabs.HoverIndex);
-
-			if (previousTab != workbench.Tabs.HoverIndex || previousClose != workbench.Tabs.HoverClose) {
-				Damage(workbench.TabStripRect(device.Width));
-			}
-
-			bool changed = false;
-			bool editorOnly = false;
-
-			if (selecting && workbench.ActiveView is { } dragging) {
-				int before = dragging.CaretOffset;
-
-				dragging.MoveTo(
-					dragging.OffsetFromPoint(painter.GetCode(), x, y, workbench.EditorLeft, workbench.EditorTop),
-					extend: true);
-
-				editorOnly = dragging.CaretOffset != before;
-			}
-
-			if (workbench.IntelliSense is { Suggest.IsOpen: true } listed) {
-				int row = listed.Suggest.RowAt(x, y);
-
-				changed |= row != listed.Suggest.HoverRow;
-				listed.Suggest.SetHover(row);
-			}
-
-			if (workbench.IntelliSense is { } hovering) {
-				if (selecting || workbench.ActiveView is not { } hovered ||
-					y < workbench.EditorTop || y >= workbench.EditorBottom(device.Height) ||
-					x < workbench.EditorLeft) hovering.PointerLeft();
-				else {
-					int offset = hovered.OffsetFromPoint(painter.GetCode(), x, y, workbench.EditorLeft,
-						workbench.EditorTop);
-
-					int hoverLine = hovered.Snapshot.GetLineAt(offset);
-
-					changed |= hovering.Hover.IsOpen;
-
-					hovering.PointerMoved(hoverLine + 1,
-						offset - hovered.Snapshot.GetLineStartOffset(hoverLine) + 1, x, y);
-				}
-			}
-
-			if (changed) Damage(workbench.EditorCardRect(device.Width, device.Height));
-			else if (editorOnly) RefreshEditor();
-		};
-
-		window.Events.MouseMove += (x, y) => {
-			if (uiOwnsPointer) return;
-
-			if (!selecting) {
-				SetAutoScrolling(false);
-				return;
-			}
-
-			dragX = x;
-			dragY = y;
-
-			float bottom = workbench.StatusBarTop(device.Height);
-			float right = workbench.EditorLeft + workbench.TextWidth(device.Width);
-
-			SetAutoScrolling(
-				Overshoot(y, workbench.EditorTop, bottom) != 0f ||
-				Overshoot(x, workbench.EditorLeft, right) != 0f);
-
-			RefreshEditor();
+			if (!ui.InternalCursorMoved(x, y)) window.Cursor = arrowCursor;
 		};
 
 		window.Events.MouseDown += (x, y) => {
+			if (workbench.Auxiliary.ShownViewId is not null && !workbench.Auxiliary.ContentBounds.Contains(new PixelRect(x, y, x + 1, y + 1))) workbench.Webviews.ReleaseFocus();
+
 			if (ui.InternalMousePressed(MouseButton.Left, x, y)) return;
 
-			if (workbench.Sidebar.SourceControl.Menu.IsOpen) {
-				if (!workbench.Sidebar.SourceControl.Menu.Contains(x, y)) workbench.Sidebar.SourceControl.Menu.Close();
-
-				Refresh();
-				return;
-			}
-
-			if (workbench.IntelliSense is { } suggesting && suggesting.Suggest.Contains(x, y)) {
-				if (suggesting.Suggest.RowAt(x, y) is >= 0 and int row) {
-					suggesting.Suggest.Select(row);
-					suggesting.Accept();
-				}
-
-				Refresh();
-				return;
-			}
-
 			workbench.IntelliSense?.Dismiss();
-
-			if (workbench.Find.Contains(x, y, workbench.Scale)) {
-				workbench.Find.Press(workbench.Find.ButtonAt(x, y, workbench.Scale), workbench.ActiveView);
-				context.ScrollToMatch(true);
-				Refresh();
-				return;
-			}
-
-			if (y < workbench.ShellTop) {
-				if (workbench.TitleBar.CommandAt(x, y, device.Width, workbench.Scale) is { } titleCommand) context.Run(titleCommand);
-
-				return;
-			}
-
-			float statusTop = workbench.StatusBarTop(device.Height);
-			if (y >= statusTop) {
-				int segment = workbench.StatusBar.IndexAt(x, y, statusTop, workbench.Scale);
-
-				if (workbench.StatusBar.CommandAt(segment) is { } statusCommand) context.Run(statusCommand);
-
-				return;
-			}
-
-			if (x < workbench.ActivityBarWidth) {
-				int item = workbench.ActivityBar.IndexAt(x, y, workbench.ShellTop, statusTop - workbench.ShellTop, workbench.Scale);
-
-				if (ActivityBar.CommandAt(item) is { } activityCommand) {
-					context.Run(activityCommand);
-					return;
-				}
-
-				if (item >= 0 && !workbench.ActivityBar.Activate(item)) workbench.ShowSidebar = !workbench.ShowSidebar;
-				else if (item >= 0) workbench.ShowSidebar = true;
-
-				workbench.Sidebar.View = workbench.ActivityBar.Active;
-
-				if (workbench.Sidebar.View == ActivityView.SourceControl) {
-					workbench.Sidebar.SourceControl.SetRoot(workbench.Repository?.GetRootPath() ?? rootPath);
-					SourceControlCommands.RunGit(workbench, Refresh, static () => true);
-				}
-
-				Refresh();
-				return;
-			}
-
-			if (workbench.IsOverPanelSplitter(x, y, device.Height)) {
-				draggingPanel = true;
-				Win32.SetCapture(window.Handle);
-				return;
-			}
-
-			if (workbench.IsOverSplitter(x, device.Height, y)) {
-				draggingSplitter = true;
-				Win32.SetCapture(window.Handle);
-				return;
-			}
-
-			if (workbench.IsOverAuxiliarySplitter(x, y, device.Width, device.Height)) {
-				draggingAuxiliary = true;
-				Win32.SetCapture(window.Handle);
-				return;
-			}
-
-			if (workbench.Auxiliary.ShownViewId is not null &&
-				!workbench.Auxiliary.ContentBounds.Contains(new PixelRect(x, y, x + 1, y + 1))) {
-				workbench.Webviews.ReleaseFocus();
-			}
-
-			if (workbench.AuxiliaryWidth > 0f && workbench.Auxiliary.IsOverClose(x, y)) {
-				workbench.Auxiliary.IsOpen = false;
-				workbench.Auxiliary.HoverClose = false;
-				Refresh();
-				return;
-			}
-
-			if (workbench.Auxiliary.StripIndexAt(x, y, workbench.AuxiliaryStripLeft(device.Width), workbench.ShellTop, workbench.Scale) is var strip && strip >= 0) {
-				workbench.Auxiliary.ActivateStrip(strip);
-				Refresh();
-				return;
-			}
-
-			if (workbench.Panel.IsChannelMenuOpen) {
-				int channel = workbench.Panel.ChannelAt(x, y, workbench.Scale);
-
-				if (channel >= 0) {
-					workbench.Panel.ActivateChannel(channel);
-					workbench.PanelFocused = true;
-				}
-				else workbench.Panel.CloseChannelMenu();
-
-				Refresh();
-				return;
-			}
-
-			if (workbench.Panel.IsProfileMenuOpen) {
-				int profile = workbench.Panel.ProfileAt(painter, x, y, workbench.Scale);
-
-				if (profile >= 0) {
-					workbench.Panel.NewTerminal(workbench.Panel.Profiles[profile]);
-					workbench.PanelFocused = true;
-				}
-				else workbench.Panel.CloseProfileMenu();
-
-				Refresh();
-				return;
-			}
-
-			if (workbench.Panel.IsOpen && y >= workbench.PanelTop(device.Height) && x >= workbench.EditorLeft) {
-				workbench.PanelFocused = true;
-
-				switch (workbench.Panel.ActionAt(x, y, workbench.Scale)) {
-					case PanelPart.PanelAction.Close:
-						workbench.Panel.IsOpen = false;
-						workbench.PanelFocused = false;
-						break;
-
-					case PanelPart.PanelAction.ProfileMenu:
-						workbench.Panel.ToggleProfileMenu();
-						break;
-
-					case PanelPart.PanelAction.NewTerminal:
-						workbench.Panel.NewTerminal(TerminalProfiles.Default(
-							workbench.Panel.Profiles, workbench.Panel.DefaultProfile));
-						break;
-
-					case PanelPart.PanelAction.ChannelMenu:
-						workbench.Panel.ToggleChannelMenu();
-						break;
-
-					case PanelPart.PanelAction.ClearOutput:
-						workbench.Panel.ActiveChannel.Clear();
-						workbench.Panel.ClearOutputSelection();
-						break;
-
-					default:
-						int panelView = workbench.Panel.ViewAt(painter, x, y, workbench.Scale);
-
-						if (panelView >= 0) workbench.Panel.Activate(panelView);
-						else if (workbench.Panel.Reference(
-							workbench.Panel.ReferenceAt(y, workbench.Scale)) is { } location) {
-							workbench.GoTo(location.Path, location.Line, location.Column);
-						}
-						else if (workbench.Panel.BeginOutputSelection(x, y)) selectingOutput = true;
-						else if (workbench.Panel.TerminalAt(x, y, workbench.Scale) is int terminal and >= 0) {
-							if (workbench.Panel.IsOverTerminalClose(x, y, workbench.Scale)) {
-								workbench.Panel.CloseTerminal(terminal);
-							}
-							else workbench.Panel.ActivateTerminal(terminal);
-						}
-
-						break;
-				}
-
-				Refresh();
-				return;
-			}
-
 			workbench.PanelFocused = false;
-
-			if (workbench.ShowSidebar && x < workbench.EditorLeft) {
-				if (workbench.Sidebar.View == ActivityView.SourceControl) {
-					SourceControlView pressing = workbench.Sidebar.SourceControl;
-
-					pressing.SetPressed(
-						pressing.HitTest(x, y, workbench.Scale, out _, out _));
-
-					pressing.FocusMessage(pressing.Pressed == SourceControlHit.Message);
-
-					Refresh();
-					return;
-				}
-
-				if (workbench.Sidebar.View == ActivityView.Run) {
-					workbench.Sidebar.Debug.Click(y,
-						workbench.ShellTop + (Metrics.SidebarHeaderHeight * workbench.Scale), workbench.Scale);
-
-					Refresh();
-					return;
-				}
-
-				if (workbench.Sidebar.View != ActivityView.Explorer) {
-					Refresh();
-					return;
-				}
-
-				int row = workbench.Sidebar.RowAt(x, y, workbench.ActivityBarWidth, workbench.ShellTop, workbench.Scale);
-				if (workbench.Sidebar.Activate(row) is { } path) workbench.OpenFile(path);
-
-				Refresh();
-				return;
-			}
-
-			if (y < workbench.EditorTop && y >= workbench.ShellTop) {
-				int tab = workbench.Tabs.IndexAt(workbench.Documents, painter, x, y, workbench.EditorLeft,
-					workbench.TabsTop, workbench.Scale);
-				if (tab >= 0) {
-					if (TabStrip.IsOverClose(workbench.Documents, painter, x, workbench.EditorLeft,
-						workbench.Scale, tab)) workbench.Close(tab);
-					else workbench.Activate(tab);
-				}
-
-				Refresh();
-				return;
-			}
-
-			if (workbench.ActiveView is { } view) {
-				selecting = true;
-
-				Win32.SetCapture(window.Handle);
-
-				long now = Environment.TickCount64;
-
-				clickCount = now - lastClickAt <= Win32.DoubleClickTime &&
-					Math.Abs(x - lastClickX) <= 4 && Math.Abs(y - lastClickY) <= 4
-					? clickCount + 1
-					: 1;
-
-				lastClickAt = now;
-				lastClickX = x;
-				lastClickY = y;
-
-				int offset = view.OffsetFromPoint(painter.GetCode(), x, y, workbench.EditorLeft,
-					workbench.EditorTop);
-
-				float gutterWidth = view.GutterWidth(painter.GetCode());
-				bool inGutter = x < workbench.EditorLeft + gutterWidth;
-				bool inBreakpointStrip = x < workbench.EditorLeft + TextView.GlyphMarginWidth;
-
-				if (inBreakpointStrip && workbench.ActiveFilePath is { Length: > 0 } breakpointPath) {
-					debugger.ToggleBreakpoint(breakpointPath, view.Snapshot.GetLineAt(offset) + 1);
-					Refresh();
-					return;
-				}
-
-				if (inGutter || clickCount >= 3) view.SelectLineAt(offset);
-				else if (clickCount == 2) view.SelectWordAt(offset);
-				else view.MoveTo(offset, extend: Win32.IsKeyDown(Win32.VkShift));
-			}
-
-			Refresh();
 		};
 
-		window.Events.MouseUp += (x, y) => {
-			if (ui.InternalMouseReleased(MouseButton.Left, x, y)) return;
+		window.Events.MouseUp += (x, y) => ui.InternalMouseReleased(MouseButton.Left, x, y);
 
-			if (workbench.Sidebar.SourceControl.Menu is { IsOpen: true } gitMenu && gitMenu.Contains(x, y)) {
-				if (gitMenu.CommandAt(x, y) is var command && command != GitCommand.None) {
-					gitMenu.Close();
-					SourceControlCommands.InvokeGit(workbench, command, Refresh);
-				}
+		ui.KeyFallback = (key, modifiers) => {
+			if (Registry.Resolve(key, (modifiers & KeyModifiers.Control) != 0, (modifiers & KeyModifiers.Shift) != 0, (modifiers & KeyModifiers.Alt) != 0) is not { } command) return false;
 
-				Refresh();
-				return;
-			}
-
-			if (workbench.Sidebar.SourceControl.Pressed != SourceControlHit.None) {
-				SourceControlCommands.HandleSourceControlClick(workbench, x, y, Refresh);
-				workbench.Sidebar.SourceControl.SetPressed(SourceControlHit.None);
-				Refresh();
-				return;
-			}
-
-			if (selecting || draggingSplitter || draggingAuxiliary || draggingPanel || selectingOutput) {
-				Win32.ReleaseCapture();
-				window.Invalidate();
-			}
-
-			selecting = false;
-			draggingSplitter = false;
-			draggingAuxiliary = false;
-			draggingPanel = false;
-			selectingOutput = false;
-			SetAutoScrolling(false);
+			workbench.RunCommand(command.GetId(), context.Host);
+			return true;
 		};
 
 		window.Events.CharacterTyped += character => {
 			if (character < ' ' || character == 0x7F || Win32.IsKeyDown(Win32.VkControl)) return;
 
-			if (ui.InternalKeyTyped(character)) return;
-
-			context.Focused?.Type?.Invoke(character);
+			ui.InternalKeyTyped(character);
 		};
 
-		window.Events.KeyDown += key => {
-			bool shift = Win32.IsKeyDown(Win32.VkShift);
-			bool control = Win32.IsKeyDown(Win32.VkControl);
-			bool alt = Win32.IsKeyDown(Win32.VkMenu);
-
-			if (ui.InternalKeyCodePressed(key, Modifiers())) return;
-
-			if (context.EditorFocused && workbench.IntelliSense is { } intelliSense && intelliSense.HandleKey(key, control)) return;
-
-			if (Registry.Resolve(key, control, shift, alt) is { } command) {
-				workbench.RunCommand(command.GetId(), context.Host);
-				return;
-			}
-
-			if (context.Focused is not { } target) return;
-
-			if (key == VirtualKey.Back && !control && target.DeleteLeft is { } deleteLeft) {
-				deleteLeft();
-				return;
-			}
-
-			target.Key?.Invoke(key, control);
-		};
+		window.Events.KeyDown += key => ui.InternalKeyCodePressed(key, Modifiers());
 	}
 
 	private static void LoadExtensions(Workbench workbench, Action refresh, Action<Action> post) {
@@ -1550,32 +965,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		return new HostEditor(path, view.CaretLine, view.CaretColumn, view.CaretLine, view.CaretColumn);
 	}
 
-	[System.Runtime.CompilerServices.InlineArray(8)]
-	private struct PopupRects
-	{
-		private PixelRect _first;
-	}
 
-	private static float Overshoot(float value, float low, float high) {
-		const float maximum = 160f;
-
-		if (value < low) return -Math.Min(low - value, maximum);
-
-		return value > high ? Math.Min(value - high, maximum) : 0f;
-	}
-
-	private static ChromeRegions ClearChromeHover(Workbench workbench) {
-		bool sidebar = workbench.Sidebar.SetHover(-1);
-		bool activity = workbench.ActivityBar.SetHover(-1);
-		bool tabs = workbench.Tabs.HoverIndex != -1 || workbench.Tabs.HoverClose;
-
-		workbench.Tabs.HoverIndex = -1;
-		workbench.Tabs.HoverClose = false;
-
-		return new ChromeRegions(sidebar, activity, tabs);
-	}
-
-	private readonly record struct ChromeRegions(bool Sidebar, bool ActivityBar, bool Tabs);
 
 	private static int LastMouseX { get; set; }
 

@@ -18,5 +18,6 @@
 	"[csharp]": {
 		"editor.defaultFormatter": "ms-dotnettools.csharp"
 	},
-	"discord.enabled": false
+	"discord.appDisplayName": "Forge",
+	"discord.enabled": true
 }

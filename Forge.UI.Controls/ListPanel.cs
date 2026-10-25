@@ -31,7 +31,7 @@ public sealed class ListPanel : Panel
 
 	public void SetCount(int count) {
 		_count = count;
-		_selected = Math.Clamp(_selected, 0, Math.Max(0, count - 1));
+		_selected = _selected < 0 ? -1 : Math.Clamp(_selected, 0, Math.Max(0, count - 1));
 		_first = Math.Clamp(_first, 0, Math.Max(0, count - VisibleRows));
 		_hover = -1;
 		Repaint();
@@ -42,9 +42,23 @@ public sealed class ListPanel : Panel
 
 		_selected = Math.Clamp(index, 0, _count - 1);
 
+		if (Tall <= 0f) return;
+
 		if (_selected < _first) _first = _selected;
 		else if (_selected >= _first + VisibleRows) _first = _selected - VisibleRows + 1;
 
+		Repaint();
+	}
+
+	public override void OnSizeChanged(float wide, float tall) {
+		if (_selected >= 0 && _count > 0) Select(_selected);
+		else _first = Math.Clamp(_first, 0, Math.Max(0, _count - VisibleRows));
+	}
+
+	public void ClearSelection() {
+		if (_selected < 0) return;
+
+		_selected = -1;
 		Repaint();
 	}
 

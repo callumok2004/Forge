@@ -1,5 +1,4 @@
 using Forge.Common.Commands;
-using Forge.Common.Render;
 
 namespace Forge.Common.Language;
 
@@ -20,5 +19,5 @@ public interface IIntelliSense
 	void PointerMoved(int line, int column, float x, float y);
 	void PointerLeft();
 
-	void Render(IPainter painter, float editorLeft, float editorTop, float editorBottom, float editorRight, float scale);
+	void Place(float originX, float originY, float editorLeft, float editorTop, float editorBottom, float editorRight);
 }

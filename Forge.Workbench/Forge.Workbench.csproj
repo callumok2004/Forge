@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<RootNamespace>Forge.Workbench</RootNamespace>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Forge.UI.Controls\Forge.UI.Controls.csproj" />
+		<ProjectReference Include="..\Forge.Editor\Forge.Editor.csproj" />
+		<ProjectReference Include="..\Forge.Git\Forge.Git.csproj" />
+		<ProjectReference Include="..\Forge.Terminal\Forge.Terminal.csproj" />
+		<ProjectReference Include="..\Forge.VSCode\Forge.VSCode.csproj" />
+		<ProjectReference Include="..\Forge.Workspace\Forge.Workspace.csproj" />
+	</ItemGroup>
+</Project>

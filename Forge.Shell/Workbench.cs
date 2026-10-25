@@ -83,7 +83,15 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	public bool ShowSidebar { get; set; } = true;
 
-	public bool PanelFocused { get; set; }
+	public bool PanelFocused {
+		get => Panel.HasFocusWithin;
+		set {
+			if (value) Panel.FocusActive();
+			else FocusEditor?.Invoke();
+		}
+	}
+
+	public Action? FocusEditor { get; set; }
 
 	public ProcessExplorer? ProcessExplorer { get; set; }
 
@@ -169,9 +177,11 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	public Action? PaintBackdrop { get; init; }
 
-	public bool ShowFrameStats { get; set; }
+	public bool ShowFrameStats { get => FrameStatsOverlay.Visible; set => FrameStatsOverlay.Visible = value; }
 
-	public IFrameStats? FrameStats { get; set; }
+	public FrameStatsOverlay FrameStatsOverlay { get; } = new();
+
+	public IFrameStats? FrameStats { get => FrameStatsOverlay.Stats; set => FrameStatsOverlay.Stats = value; }
 
 	#region Layout
 
@@ -187,7 +197,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	public float AuxiliaryWidth => Auxiliary is { IsOpen: true, HasViews: true } ? Auxiliary.Width * _scale : 0f;
 
-	public float AuxiliaryStripWidth => Auxiliary.HasViews ? AuxiliaryBar.StripWidth(_scale) : 0f;
+	public float AuxiliaryStripWidth => Auxiliary.HasViews ? AuxiliaryStrip.Width(_scale) : 0f;
 
 	public float AuxiliaryStripLeft(float windowWidth) => windowWidth - AuxiliaryStripWidth;
 
@@ -453,120 +463,53 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	private bool _floatingLastFrame;
 
 	public void UpdateBeforeFrame() {
-		if (TrailingSpaces is { } trailing) Decorations.UpdateIfStale(ActiveView, trailing);
 
 		PublishActiveDocument();
 
 		IntelliSense?.Tick();
 
-		StatusBar.Errors = 0;
-		StatusBar.Warnings = 0;
+		int errors = 0;
+		int warnings = 0;
 
 		foreach (Problem problem in Panel.Problems) {
-			if (problem.IsError) StatusBar.Errors++;
-			else StatusBar.Warnings++;
+			if (problem.IsError) errors++;
+			else warnings++;
 		}
+
+		StatusBar.Errors = errors;
+		StatusBar.Warnings = warnings;
+		StatusBar.Sync(ActiveView, BranchName);
+		Sidebar.SourceControl.SyncIfStale();
+
+		ActivityBar.SourceControlCount = Repository is { } counted ? counted.GetStaged().Count + counted.GetUnstaged().Count + counted.GetMerge().Count : 0;
+		ActivityBar.SidebarVisible = ShowSidebar;
+		ActivityBar.PanelVisible = Panel.IsOpen;
+		ActivityBar.AuxiliaryBarVisible = AuxiliaryWidth > 0f;
 
 		Presence?.Update();
 
 		_floatingLastFrame = FloatingWidgetOpen;
 	}
 
-	public void Render(IPainter painter, float width, float height) {
-		float statusTop = StatusBarTop(height);
-		float editorLeft = EditorLeft;
-		float editorWidth = EditorWidth(width);
-		float editorHeight = EditorHeight(height);
-		float textWidth = TextWidth(width);
-
-		painter.FillRectangle(0f, ShellTop, width, height - ShellTop, Theme.EditorBackground);
-		PaintBackdrop?.Invoke();
-
-		if (painter.NeedsPaint(0f, 0f, width, ShellTop)) TitleBar.Render(painter, width, _scale);
-
-		ActivityBar.SourceControlCount = Repository is { } counted
-			? counted.GetStaged().Count + counted.GetUnstaged().Count + counted.GetMerge().Count
-			: 0;
-
-		ActivityBar.SidebarVisible = ShowSidebar;
-		ActivityBar.PanelVisible = Panel.IsOpen;
-		ActivityBar.AuxiliaryBarVisible = AuxiliaryWidth > 0f;
-
-		if (painter.NeedsPaint(0f, ShellTop, ActivityBarWidth, statusTop - ShellTop)) {
-			ActivityBar.Render(painter, 0f, ShellTop, statusTop - ShellTop, _scale);
+	public void RenderEditor(IPainter painter, float left, float top, float width, float height) {
+		if (ActiveView is not { } view) {
+			DrawEmptyState(painter, left, top, width, height);
+			return;
 		}
 
-		if (ShowSidebar &&
-			painter.NeedsPaint(ActivityBarWidth, ShellTop, editorLeft - ActivityBarWidth,
-				statusTop - ShellTop)) Sidebar.Render(painter, ActivityBarWidth, ShellTop, statusTop - ShellTop, _scale);
+		float textWidth = Math.Max(0f, width - (ShowMinimap ? Minimap.Width(_scale) : 0f));
 
-		float cardHeight = EditorBottom(height) - ShellTop;
-		float cardRadius = Metrics.RadiusLarge * _scale;
-
-		if (painter.NeedsPaint(editorLeft, ShellTop, editorWidth, cardHeight)) {
-			painter.PushRoundedClip(editorLeft, ShellTop, editorWidth, cardHeight, cardRadius);
-			painter.FillRectangle(editorLeft, ShellTop, editorWidth, cardHeight, Theme.EditorBackground);
-
-			if (painter.NeedsPaint(editorLeft, TabsTop, editorWidth, EditorTop - TabsTop)) {
-				Tabs.Render(painter, _documents, ActiveIndex, editorLeft, TabsTop, editorWidth, _scale);
-			}
-
-			if (ActiveView is { } view) {
-				if (painter.NeedsPaint(editorLeft, BreadcrumbsTop, editorWidth, Breadcrumbs.Height(_scale))) {
-					Breadcrumbs.Render(painter, editorLeft, BreadcrumbsTop, editorWidth, _scale);
-				}
-
-				view.BreakpointProvider = BreakpointMarkFor;
-				view.ExecutionLine = ExecutionLineFor?.Invoke(ActiveFilePath ?? string.Empty) ?? -1;
-
-				view.Render(painter, editorLeft, EditorTop, textWidth, editorHeight);
-
-				if (ShowMinimap &&
-					painter.NeedsPaint(editorLeft + textWidth, EditorTop, Minimap.Width(_scale), editorHeight)) {
-					_minimap.Render(painter, view, view.Highlighter, editorLeft + textWidth, EditorTop,
-						Minimap.Width(_scale), editorHeight, _scale);
-				}
-
-				Find.Render(painter, view, editorLeft + editorWidth, EditorTop, _scale);
-
-				IntelliSense?.Render(painter, editorLeft, EditorTop, EditorBottom(height),
-					editorLeft + editorWidth, _scale);
-			}
-			else {
-				DrawEmptyState(painter, editorLeft, BreadcrumbsTop, editorWidth,
-					editorHeight + Breadcrumbs.Height(_scale));
-			}
-
-			painter.PopRoundedClip();
-			painter.StrokeRoundedRectangle(editorLeft, ShellTop, editorWidth, cardHeight, cardRadius,
-				Metrics.StrokeThickness * _scale, Theme.PanelBorder);
+		if (TrailingSpaces is { } trailing) {
+			float lineHeight = painter.GetCode().GetLineHeight();
+			int firstLine = (int)(view.ScrollY / lineHeight);
+			Decorations.UpdateVisible(view, trailing, firstLine, firstLine + (int)(height / lineHeight) + 1);
 		}
 
-		if (AuxiliaryStripWidth > 0f && painter.NeedsPaint(AuxiliaryStripLeft(width), ShellTop, AuxiliaryStripWidth, statusTop - ShellTop)) Auxiliary.RenderStrip(painter, AuxiliaryStripLeft(width), ShellTop, _scale);
+		view.BreakpointProvider = BreakpointMarkFor;
+		view.ExecutionLine = ExecutionLineFor?.Invoke(ActiveFilePath ?? string.Empty) ?? -1;
+		view.Render(painter, left, top, textWidth, height);
 
-		if (AuxiliaryWidth > 0f) {
-			float auxiliaryLeft = AuxiliaryLeft(width);
-
-			if (painter.NeedsPaint(auxiliaryLeft, ShellTop, AuxiliaryWidth, statusTop - ShellTop)) {
-				Auxiliary.Render(painter, auxiliaryLeft, ShellTop, AuxiliaryWidth, statusTop - ShellTop, _scale);
-			}
-		}
-
-		if (Panel.IsOpen &&
-			painter.NeedsPaint(editorLeft, PanelTop(height), editorWidth, height - PanelTop(height))) {
-			Panel.Render(painter, editorLeft, PanelTop(height), editorWidth, Panel.Height * _scale, _scale);
-
-			Panel.RenderProfileMenu(painter, _scale);
-			Panel.RenderChannelMenu(painter, _scale);
-		}
-
-		if (painter.NeedsPaint(0f, statusTop, width, height - statusTop)) {
-			StatusBar.Render(painter, ActiveView, BranchName, 0f, statusTop, width, _scale);
-		}
-
-		if (ShowFrameStats && FrameStats is { } stats) DrawFrameStats(painter, stats, width, statusTop);
-
-		Sidebar.SourceControl.Menu.Render(painter, width, height, _scale);
+		if (ShowMinimap && painter.NeedsPaint(left + textWidth, top, Minimap.Width(_scale), height)) _minimap.Render(painter, view, view.Highlighter, left + textWidth, top, Minimap.Width(_scale), height, _scale);
 	}
 
 	private static void DrawEmptyState(IPainter painter, float x, float y, float width, float height) {
@@ -577,82 +520,5 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 		float textX = x + ((width - font.Measure(message)) / 2f);
 		painter.DrawText(font, message, textX, y + (height / 2f), Theme.SectionHeaderForeground);
-	}
-
-	private float BadgeHeight => 22f * _scale;
-
-	private float BadgeGap => Metrics.SpaceSm * _scale;
-
-	public PixelRect FrameStatsRect(float windowWidth, float windowHeight) {
-		if (!ShowFrameStats) return PixelRect.Empty;
-
-		float height = BadgeHeight;
-		float width = 520f * _scale;
-		float y = StatusBarTop(windowHeight) - height - BadgeGap;
-
-		return PixelRect.Around(windowWidth - AuxiliaryWidth - width - (Metrics.SpaceLg * _scale), y, width,
-			height);
-	}
-
-	private void DrawFrameStats(IPainter painter, IFrameStats stats, float windowWidth, float statusTop) {
-		float y = statusTop - BadgeHeight - BadgeGap;
-		float right = windowWidth - AuxiliaryWidth - (Metrics.SpaceLg * _scale);
-
-		Span<char> buffer = stackalloc char[64];
-
-		int length = FormatTriple(buffer, "drawn ", stats.GetLastDamagePercent(), stats.GetAverageDamagePercent(), stats.GetPeakDamagePercent(), "%", "F0");
-
-		right = DrawBadge(painter, buffer[..length], right, y);
-
-		length = 0;
-		length += Write(buffer, "fps ");
-		((int)stats.GetImpliedFps()).TryFormat(buffer[length..], out int digits);
-		length += digits;
-
-		right = DrawBadge(painter, buffer[..length], right, y);
-
-		length = FormatTriple(buffer, "", stats.GetLastFrameMs(), stats.GetAverageFrameMs(), stats.GetPeakFrameMs(),
-			" ms", "F2");
-
-		DrawBadge(painter, buffer[..length], right, y);
-	}
-
-	private float DrawBadge(IPainter painter, ReadOnlySpan<char> text, float right, float y) {
-		ITextFont font = painter.GetUiSmall();
-
-		float padding = Metrics.SpaceMd * _scale;
-		float width = font.Measure(text) + (padding * 2f);
-		float x = right - width;
-
-		painter.FillRoundedRectangle(x, y, width, BadgeHeight, Metrics.CornerRadius * _scale,
-			Theme.WidgetBackground);
-
-		float baseline = y + ((BadgeHeight - font.GetLineHeight()) / 2f) + font.GetBaseline();
-		painter.DrawText(font, text, x + padding, baseline, Theme.AccentMuted);
-
-		return x - BadgeGap;
-	}
-
-	private static int FormatTriple(Span<char> buffer, ReadOnlySpan<char> label, double last,
-		double average, double peak, ReadOnlySpan<char> unit, ReadOnlySpan<char> format) {
-		int written = Write(buffer, label);
-
-		last.TryFormat(buffer[written..], out int digits, format);
-		written += digits;
-		written += Write(buffer[written..], " / ");
-
-		average.TryFormat(buffer[written..], out digits, format);
-		written += digits;
-		written += Write(buffer[written..], " / ");
-
-		peak.TryFormat(buffer[written..], out digits, format);
-		written += digits;
-
-		return written + Write(buffer[written..], unit);
-	}
-
-	private static int Write(Span<char> destination, ReadOnlySpan<char> text) {
-		text.CopyTo(destination);
-		return text.Length;
 	}
 }

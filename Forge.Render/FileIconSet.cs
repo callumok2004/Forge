@@ -16,6 +16,9 @@ public sealed class FileIconSet : IFileIconSet, IDisposable
 	private volatile IconMap? _map;
 
 	private readonly Dictionary<int, VectorIcon?> _cache = [];
+	private readonly HashSet<int> _pending = [];
+	private readonly System.Collections.Concurrent.ConcurrentQueue<(int Key, string? Svg)> _loaded = new();
+	private int _readySignalled;
 
 	private bool _disposed;
 
@@ -71,31 +74,41 @@ public sealed class FileIconSet : IFileIconSet, IDisposable
 	private VectorIcon? Resolve(IconMap map, int line) {
 		int offset = map.IconOffset(line);
 
-		if (offset == 0) return null;
-
-		if (_cache.TryGetValue(offset, out VectorIcon? cached)) return cached;
-
-		VectorIcon? icon = Load(map.IconName(line));
-
-		_cache[offset] = icon;
-		return icon;
+		return offset == 0 ? null : Resolve(map.IconName(line), offset);
 	}
 
-	private VectorIcon? Resolve(string name, int slot) {
-		if (_cache.TryGetValue(slot, out VectorIcon? cached)) return cached;
+	private VectorIcon? Resolve(string name, int key) {
+		DrainLoaded();
 
-		VectorIcon? icon = Load(name);
+		if (_cache.TryGetValue(key, out VectorIcon? cached)) return cached;
 
-		_cache[slot] = icon;
-		return icon;
+		if (!_pending.Add(key)) return null;
+
+		string path = Path.Combine(_iconDirectory, name + ".svg");
+
+		ThreadPool.UnsafeQueueUserWorkItem(_ => {
+			string? svg = null;
+
+			try {
+				svg = File.ReadAllText(path);
+			}
+			catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
+			}
+
+			_loaded.Enqueue((key, svg));
+
+			if (Interlocked.Exchange(ref _readySignalled, 1) == 0) _ready?.Invoke();
+		}, null);
+
+		return null;
 	}
 
-	private VectorIcon? Load(string name) {
-		try {
-			return VectorIcon.Load(_factory, Path.Combine(_iconDirectory, name + ".svg"));
-		}
-		catch (Exception) {
-			return null;
+	private void DrainLoaded() {
+		Volatile.Write(ref _readySignalled, 0);
+
+		while (_loaded.TryDequeue(out (int Key, string? Svg) loaded)) {
+			_pending.Remove(loaded.Key);
+			_cache[loaded.Key] = loaded.Svg is { } svg ? VectorIcon.Parse(_factory, svg) : null;
 		}
 	}
 

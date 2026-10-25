@@ -274,6 +274,8 @@ public sealed class DebugService : IDebug, IDisposable
 
 	public IReadOnlyList<SourceBreakpoint> GetBreakpointsFor(string path) => _breakpoints.For(path);
 
+	public SourceBreakpoint? FindBreakpoint(string path, int line) => _breakpoints.Find(path, line);
+
 	public bool ToggleBreakpoint(string path, int line) => _breakpoints.Toggle(path, line);
 
 	public void AddBreakpoint(SourceBreakpoint breakpoint) => _breakpoints.Add(breakpoint);

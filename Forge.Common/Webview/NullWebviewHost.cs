@@ -16,7 +16,12 @@ public sealed class NullWebviewHost : IWebviewHost
 	public void Show(string id, string html, string? rootDirectory, PixelRect bounds, string? extensionId = null) {
 	}
 
-	public void SetOcclusions(ReadOnlySpan<PixelRect> areas) {
+	public void SendMouse(string id, WebviewMouse kind, int x, int y, int delta) {
+	}
+
+	public nint GetCursor() => 0;
+
+	public void OnCursorChanged(Action handler) {
 	}
 
 	public void SetBounds(string id, PixelRect bounds) {

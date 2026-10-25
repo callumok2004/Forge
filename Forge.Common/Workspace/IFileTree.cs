@@ -8,4 +8,6 @@ public interface IFileTree
 	void EnsureLoaded(FileNode node);
 	void Toggle(FileNode node);
 	void Flatten(List<FileNode> destination);
+
+	bool Refresh(string directoryPath);
 }

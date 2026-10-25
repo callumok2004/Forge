@@ -11,6 +11,14 @@ public interface ITextView
 	int GetCaretLine();
 	int GetCaretColumn();
 
+	int GetSelectionLength();
+
+	int GetTabWidth();
+
+	LineEnding GetLineEnding();
+
+	string GetLanguageName();
+
 	int VisualColumnAt(int line, int offset);
 
 	void MoveTo(int offset, bool extend);

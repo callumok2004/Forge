@@ -45,9 +45,47 @@ public sealed class FileTree : IFileTree
 		Append(_root.Children, destination);
 	}
 
+	public bool Refresh(string directoryPath) {
+		if (Find(_root, Path.GetFullPath(directoryPath).TrimEnd(Path.DirectorySeparatorChar)) is not { Children: { } existing } node) return false;
+
+		Dictionary<string, FileNode> previous = new(existing.Count, StringComparer.OrdinalIgnoreCase);
+
+		foreach (FileNode child in existing) previous[child.FullPath] = child;
+
+		node.Children = null;
+		Load(node);
+
+		List<FileNode> reloaded = node.Children!;
+
+		for (int i = 0; i < reloaded.Count; i++)
+			if (previous.TryGetValue(reloaded[i].FullPath, out FileNode? kept) && kept.IsDirectory == reloaded[i].IsDirectory) reloaded[i] = kept;
+
+		return true;
+	}
+
+	private static FileNode? Find(FileNode node, string path) {
+		if (string.Equals(node.FullPath.TrimEnd(Path.DirectorySeparatorChar), path, StringComparison.OrdinalIgnoreCase)) return node;
+
+		if (node.Children is null || !path.StartsWith(node.FullPath.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)) return null;
+
+		foreach (FileNode child in node.Children)
+			if (child.IsDirectory && Find(child, path) is { } found) return found;
+
+		return null;
+	}
+
 	public static bool IsHidden(string directoryName) => Array.IndexOf(HiddenDirectories, directoryName) >= 0;
 
 	public static bool IsIgnored(string directoryName) => IsHidden(directoryName) || Array.IndexOf(UnindexedDirectories, directoryName) >= 0;
+
+	public static bool IsIgnored(ReadOnlySpan<char> directoryName) => Contains(HiddenDirectories, directoryName) || Contains(UnindexedDirectories, directoryName);
+
+	private static bool Contains(string[] names, ReadOnlySpan<char> name) {
+		foreach (string candidate in names)
+			if (name.Equals(candidate, StringComparison.Ordinal)) return true;
+
+		return false;
+	}
 
 	private static void Load(FileNode node) {
 		if (!node.IsDirectory || node.Children is not null) return;

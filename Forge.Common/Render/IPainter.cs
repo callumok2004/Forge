@@ -52,6 +52,8 @@ public interface IPainter
 	void DrawText(ITextFont font, ReadOnlySpan<char> text, float x, float baselineY, Color color);
 
 	void PushClip(float x, float y, float width, float height);
+
+	void ClearRectangle(float x, float y, float width, float height);
 	void PopClip();
 	void UnwindClips();
 

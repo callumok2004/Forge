@@ -1,4 +1,5 @@
 global using static Forge.Shell.ForgeDllMain;
+global using Forge.Workbench;
 
 using Forge.Common;
 using Forge.Common.Commands;

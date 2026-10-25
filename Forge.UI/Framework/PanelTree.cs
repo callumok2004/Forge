@@ -10,10 +10,12 @@ public sealed class PanelTree : Panel
 	private const float PreferredWidth = 460f;
 	private const float HeaderHeight = 28f;
 	private const int RefreshMilliseconds = 250;
+	private const int AutoExpandDepth = 3;
 
 	private readonly UiSystem _system;
 	private readonly ListPanel _list = new() { Dock = DockType.Fill, RowHeight = 18f };
 	private readonly List<(Panel Panel, int Depth)> _rows = [];
+	private readonly HashSet<Panel> _toggled = [with(ReferenceEqualityComparer.Instance)];
 
 	public PanelTree(UiSystem system) {
 		_system = system;
@@ -23,6 +25,20 @@ public sealed class PanelTree : Panel
 
 		_list.RowPainter = PaintRow;
 		_list.Hovered = row => _system.Highlighted = row >= 0 && row < _rows.Count ? _rows[row].Panel : null;
+		_list.Activated = Toggle;
+	}
+
+	private bool IsExpanded(Panel panel, int depth) => (depth < AutoExpandDepth) != _toggled.Contains(panel);
+
+	private void Toggle(int row) {
+		if (row < 0 || row >= _rows.Count || _rows[row].Panel.Children.Count == 0) return;
+
+		Panel panel = _rows[row].Panel;
+
+		if (!_toggled.Remove(panel)) _toggled.Add(panel);
+
+		Collect();
+		_list.Repaint();
 	}
 
 	public bool IsOpen => IsPopup;
@@ -30,6 +46,7 @@ public sealed class PanelTree : Panel
 	public void Toggle() {
 		if (IsPopup) {
 			RemoveTickSignal();
+			_toggled.Clear();
 			_system.Highlighted = null;
 			ClosePopup();
 			return;
@@ -61,15 +78,18 @@ public sealed class PanelTree : Panel
 	private void Walk(Panel panel, int depth) {
 		_rows.Add((panel, depth));
 
+		if (!IsExpanded(panel, depth)) return;
+
 		foreach (Panel child in panel.Children) Walk(child, depth + 1);
 	}
 
 	public override void PerformLayout() {
 		float scale = Scale;
+		float margin = Metrics.Space16 * scale;
+		float top = Metrics.TitleBarHeight * scale;
 		float wide = PreferredWidth * scale;
-		float tall = _system.GetViewportHeight() * 0.6f;
 
-		SetBounds(_system.GetViewportWidth() - wide - (Metrics.Space16 * scale), Metrics.TitleBarHeight * 2f * scale, wide, tall);
+		SetBounds(_system.GetViewportWidth() - wide - margin, top, wide, _system.GetViewportHeight() - top - margin);
 		DockPadding = new Thickness(0f, HeaderHeight * scale, 0f, 4f * scale);
 		base.PerformLayout();
 	}
@@ -91,7 +111,11 @@ public sealed class PanelTree : Panel
 		ITextFont font = painter.GetUiSmall();
 		float scale = Scale;
 		float baseline = top + ((height - font.GetLineHeight()) / 2f) + font.GetBaseline();
-		float x = left + (Metrics.Space12 * scale) + (depth * Metrics.Space12 * scale);
+		float indent = left + (Metrics.Space12 * scale) + (depth * Metrics.Space12 * scale);
+		float twistie = Metrics.IconSize * scale;
+		float x = indent + twistie;
+
+		if (panel.Children.Count > 0) painter.DrawIcon(IsExpanded(panel, depth) ? Codicon.ChevronDown : Codicon.ChevronRight, indent + (twistie / 2f), top + (height / 2f), twistie, Theme.SectionHeaderForeground);
 
 		Span<char> buffer = stackalloc char[160];
 		int written = 0;

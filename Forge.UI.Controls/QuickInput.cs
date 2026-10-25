@@ -20,7 +20,7 @@ public sealed class QuickInput : Panel
 	private IQuickPickProvider? _provider;
 
 	public QuickInput() {
-		ContextKey = "inQuickOpen";
+		ContextKey = ContextKeys.InQuickOpen;
 		DockPadding = Thickness.Uniform(Padding);
 
 		AddChild(_entry);

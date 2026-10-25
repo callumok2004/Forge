@@ -3,13 +3,14 @@ using System.Runtime.InteropServices;
 
 using Forge.Core;
 using Forge.Core.Native;
+using Forge.Common.Render;
 using Forge.Common.Webview;
 
 using Microsoft.Web.WebView2.Core;
 
 namespace Forge.Webview;
 
-public sealed class WebviewHost(nint window, string userDataFolder, Action<Action> post)
+public sealed class WebviewHost(nint window, ICompositionHost composition, string userDataFolder, Action<Action> post)
 	: IWebviewHost, IDisposable
 {
 	private const string BrowserArguments =
@@ -88,51 +89,48 @@ public sealed class WebviewHost(nint window, string userDataFolder, Action<Actio
 		public PixelRect Bounds;
 		public bool Wanted;
 		public bool Loaded;
-		public CoreWebView2Controller? Controller;
-		public nint Container;
+		public CoreWebView2CompositionController? Controller;
+		public nint Visual;
 		public List<string>? Queued;
 	}
 
-	private PixelRect[] _occlusions = [];
+	private Action? _cursorChanged;
+	private nint _cursor;
 
-	public void SetOcclusions(ReadOnlySpan<PixelRect> areas) {
-		_occlusions = areas.ToArray();
+	public nint GetCursor() => _cursor;
 
-		foreach (View view in _views.Values)
-			if (view.Container != 0) ApplyRegion(view);
+	public void OnCursorChanged(Action handler) => _cursorChanged += handler;
+
+	public void SendMouse(string id, WebviewMouse kind, int x, int y, int delta) {
+		if (!_views.TryGetValue(id, out View? view) || view is not { Wanted: true, Controller: { } controller }) return;
+
+		try {
+			if (kind == WebviewMouse.LeftDown) controller.MoveFocus(CoreWebView2MoveFocusReason.Programmatic);
+
+			controller.SendMouseInput(Kind(kind), kind == WebviewMouse.LeftDown ? CoreWebView2MouseEventVirtualKeys.LeftButton : CoreWebView2MouseEventVirtualKeys.None, (uint)delta, new Point(x, y));
+		}
+		catch (Exception exception) when (exception is COMException or InvalidOperationException) {
+		}
 	}
+
+	private static CoreWebView2MouseEventKind Kind(WebviewMouse kind) => kind switch {
+		WebviewMouse.LeftDown => CoreWebView2MouseEventKind.LeftButtonDown,
+		WebviewMouse.LeftUp => CoreWebView2MouseEventKind.LeftButtonUp,
+		WebviewMouse.Wheel => CoreWebView2MouseEventKind.Wheel,
+		WebviewMouse.Leave => CoreWebView2MouseEventKind.Leave,
+		_ => CoreWebView2MouseEventKind.Move,
+	};
 
 	private void Place(View view) {
-		if (view.Container == 0) return;
+		if (view.Visual == 0) return;
 
 		PixelRect bounds = view.Bounds;
-		_ = Win32.SetWindowPos(view.Container, 0, bounds.Left, bounds.Top, Math.Max(bounds.Width, 0), Math.Max(bounds.Height, 0), Win32.SwpNoZOrder | Win32.SwpNoActivate);
+		composition.SetVisualBounds(view.Visual, bounds.Left, bounds.Top, bounds.Width, bounds.Height);
 
-		if (view.Controller is { } controller) controller.Bounds = new Rectangle(0, 0, Math.Max(bounds.Width, 0), Math.Max(bounds.Height, 0));
+		if (view.Controller is { } controller) controller.Bounds = new Rectangle(bounds.Left, bounds.Top, Math.Max(bounds.Width, 0), Math.Max(bounds.Height, 0));
 
-		ApplyRegion(view);
+		composition.Commit();
 	}
-
-	private void ApplyRegion(View view) {
-		PixelRect bounds = view.Bounds;
-		nint region = 0;
-
-		foreach (PixelRect occluder in _occlusions) {
-			PixelRect overlap = occluder.Intersect(bounds);
-
-			if (overlap.IsEmpty) continue;
-
-			if (region == 0) region = Win32.CreateRectRgn(0, 0, bounds.Width, bounds.Height);
-
-			nint hole = Win32.CreateRectRgn(overlap.Left - bounds.Left, overlap.Top - bounds.Top, overlap.Right - bounds.Left, overlap.Bottom - bounds.Top);
-			_ = Win32.CombineRgn(region, region, hole, Win32.RegionDifference);
-			_ = Win32.DeleteObject(hole);
-		}
-
-		_ = Win32.SetWindowRgn(view.Container, region, true);
-	}
-
-	private nint CreateContainer(PixelRect bounds) => Win32.CreateWindowEx(0, "STATIC", string.Empty, Win32.WsChild | Win32.WsVisible | Win32.WsClipChildren | Win32.WsClipSiblings, bounds.Left, bounds.Top, Math.Max(bounds.Width, 1), Math.Max(bounds.Height, 1), window, 0, Win32.GetModuleHandle(null), 0);
 
 	private readonly Dictionary<string, View> _views = new(StringComparer.Ordinal);
 
@@ -223,19 +221,17 @@ public sealed class WebviewHost(nint window, string userDataFolder, Action<Actio
 	public void Hide(string id) {
 		if (!_views.TryGetValue(id, out View? view)) return;
 
-		view.Wanted = false;
-		view.Loaded = false;
-
-		Release(view);
+		Conceal(view);
 	}
 
 	public void HideAll() {
-		foreach (View view in _views.Values) {
-			view.Wanted = false;
-			view.Loaded = false;
+		foreach (View view in _views.Values) Conceal(view);
+	}
 
-			Release(view);
-		}
+	private static void Conceal(View view) {
+		view.Wanted = false;
+
+		if (view.Controller is { } controller) controller.IsVisible = false;
 	}
 
 	public void PostMessage(string id, string json) {
@@ -272,7 +268,7 @@ public sealed class WebviewHost(nint window, string userDataFolder, Action<Actio
 
 		_disposed = true;
 
-		foreach (View view in _views.Values) Release(view);
+		foreach (View view in _views.Values) Release(view, composition);
 
 		_views.Clear();
 		_environment = null;
@@ -319,15 +315,20 @@ public sealed class WebviewHost(nint window, string userDataFolder, Action<Actio
 	private void CreateController(string id, View view) {
 		if (_environment is not { } environment || view.Controller is not null) return;
 
-		if (view.Container == 0) view.Container = CreateContainer(view.Bounds);
+		if (view.Visual == 0) view.Visual = composition.CreateVisual();
 
-		Complete(environment.CreateCoreWebView2ControllerAsync(view.Container), controller => {
+		Complete(environment.CreateCoreWebView2CompositionControllerAsync(window), controller => {
 			if (_disposed || !view.Wanted) {
 				controller.Close();
 				return;
 			}
 
 			view.Controller = controller;
+			controller.RootVisualTarget = Marshal.GetObjectForIUnknown(view.Visual);
+			controller.CursorChanged += (_, _) => {
+				_cursor = controller.Cursor;
+				_cursorChanged?.Invoke();
+			};
 
 			Configure(id, view, controller);
 
@@ -342,7 +343,7 @@ public sealed class WebviewHost(nint window, string userDataFolder, Action<Actio
 		});
 	}
 
-	private void Configure(string id, View view, CoreWebView2Controller controller) {
+	private void Configure(string id, View view, CoreWebView2CompositionController controller) {
 		CoreWebView2 core = controller.CoreWebView2;
 		CoreWebView2Settings settings = core.Settings;
 
@@ -355,7 +356,8 @@ public sealed class WebviewHost(nint window, string userDataFolder, Action<Actio
 		settings.IsGeneralAutofillEnabled = false;
 		settings.IsPasswordAutosaveEnabled = false;
 
-		controller.DefaultBackgroundColor = Color.Transparent;
+		Theming.Color background = Theming.Theme.ChromeBackground;
+		controller.DefaultBackgroundColor = Color.FromArgb(255, (int)(background.R * 255f), (int)(background.G * 255f), (int)(background.B * 255f));
 
 		core.SetVirtualHostNameToFolderMapping(PageHost, PageDirectory(id),
 			CoreWebView2HostResourceAccessKind.Allow);
@@ -495,7 +497,7 @@ public sealed class WebviewHost(nint window, string userDataFolder, Action<Actio
 
 	private static string Shorten(string value) => value.Length > 600 ? value[..600] + "..." : value;
 
-	private static void Release(View view) {
+	private static void Release(View view, ICompositionHost composition) {
 		if (view.Controller is { } controller) {
 			view.Controller = null;
 
@@ -507,10 +509,10 @@ public sealed class WebviewHost(nint window, string userDataFolder, Action<Actio
 			}
 		}
 
-		if (view.Container == 0) return;
+		if (view.Visual == 0) return;
 
-		_ = Win32.DestroyWindow(view.Container);
-		view.Container = 0;
+		composition.DestroyVisual(view.Visual);
+		view.Visual = 0;
 	}
 
 	private void Complete<T>(Task<T> task, Action<T> continuation) =>

@@ -60,7 +60,10 @@
       <Platform Project="x64" />
     </Project>
   </Folder>
-  <Folder Name="/5. Shell/">
+  <Folder Name="/5. Shell &amp; Workbench/">
+    <Project Path="Forge.Workbench/Forge.Workbench.csproj">
+      <Platform Project="x64" />
+    </Project>
     <Project Path="Forge.Shell/Forge.Shell.csproj">
       <Platform Project="x64" />
     </Project>

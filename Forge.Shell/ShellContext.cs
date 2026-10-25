@@ -32,24 +32,28 @@ public sealed class ShellContext(Workbench workbench, AppWindow window, RenderDe
 
 	public required Action<PixelRect> Damage { get; init; }
 
-	private readonly List<InputTarget> _targets = [];
+	public required Func<float, bool> SetCodeZoom { get; init; }
+
+	private const int MinEditorZoom = -5;
+	private const int MaxEditorZoom = 20;
+	private const float EditorZoomStep = 0.1f;
+
+	private int _editorZoom;
+
+	public void ZoomEditor(int step) {
+		_editorZoom = step == 0 ? 0 : Math.Clamp(_editorZoom + step, MinEditorZoom, MaxEditorZoom);
+
+		if (!SetCodeZoom(1f + (_editorZoom * EditorZoomStep))) return;
+
+		RevealCaret();
+		Refresh();
+	}
 
 	public CommandHost Host => field ??= new CommandHost(Workbench, Refresh);
 
-	public void AddTarget(InputTarget target) => _targets.Add(target);
+	public static bool IsFocused(string contextKey) => Common.UI.Panel.Ui?.HasContext(contextKey) ?? false;
 
-	public InputTarget? Focused {
-		get {
-			foreach (InputTarget target in _targets)
-				if (target.IsActive()) return target;
-
-			return null;
-		}
-	}
-
-	public bool IsFocused(string name) => string.Equals(Focused?.Name, name, StringComparison.Ordinal);
-
-	public bool EditorFocused => IsFocused(InputTargets.Editor);
+	public static bool EditorFocused => IsFocused(Common.UI.ContextKeys.EditorTextFocus);
 
 	public void Run(string commandId) {
 		Workbench.RunCommand(commandId, Host);

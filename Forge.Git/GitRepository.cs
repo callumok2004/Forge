@@ -80,11 +80,11 @@ public sealed class GitRepository : IGitRepository
 	}
 
 	private void Load() {
-		string? status = GitProcess.Run(_rootPath, "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all");
+		string? status = GitProcess.Run(_rootPath, "--no-optional-locks", "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all");
 
 		if (status is null) return;
 
-		string ignored = GitProcess.Run(_rootPath, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory", "--no-empty-directory") ?? string.Empty;
+		string ignored = GitProcess.Run(_rootPath, "--no-optional-locks", "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory", "--no-empty-directory") ?? string.Empty;
 
 		if (status == _lastStatus && ignored == _lastIgnored) return;
 

@@ -64,6 +64,25 @@ public sealed class FontSet : IFontSet, IDisposable
 
 	public float GetScale() => Scale;
 
+	public float CodeZoom { get; private set; } = 1f;
+
+	public bool SetCodeZoom(float zoom) {
+		if (MathF.Abs(zoom - CodeZoom) < 0.001f) return false;
+
+		CodeZoom = zoom;
+
+		TextFont oldCode = Code;
+		TextFont oldCodeStrong = CodeStrong;
+		TextFont oldCodeSmall = CodeSmall;
+
+		BuildCode(Scale);
+
+		oldCode.Dispose();
+		oldCodeStrong.Dispose();
+		oldCodeSmall.Dispose();
+		return true;
+	}
+
 	public bool Rescale(float scale) {
 		if (MathF.Abs(scale - Scale) < 0.001f) return false;
 
@@ -87,15 +106,20 @@ public sealed class FontSet : IFontSet, IDisposable
 		return true;
 	}
 
-	private void Build(float scale) {
-		float codePixels = MathF.Round(_codeSize * scale);
-
+	private void BuildCode(float scale) {
+		float codePixels = MathF.Round(_codeSize * CodeZoom * scale);
 		DWrite.IDWriteFontCollection? bundled = _bundled.Collection;
-		float lineHeight = _lineHeight > 0f ? _lineHeight * scale : codePixels * Theming.Metrics.EditorLineHeightRatio;
+		float lineHeight = _lineHeight > 0f ? _lineHeight * CodeZoom * scale : codePixels * Theming.Metrics.EditorLineHeightRatio;
 
 		Code = new TextFont(_factory, bundled, _codeFamily, codePixels, TextWeight.Regular, lineHeight);
 		CodeStrong = new TextFont(_factory, bundled, _codeFamily, codePixels, TextWeight.Bold, lineHeight);
 		CodeSmall = new TextFont(_factory, bundled, _codeFamily, MathF.Round(codePixels * 0.85f), TextWeight.Regular, lineHeight);
+	}
+
+	private void Build(float scale) {
+		DWrite.IDWriteFontCollection? bundled = _bundled.Collection;
+
+		BuildCode(scale);
 
 		Ui = new TextFont(_factory, bundled, _uiFamily, MathF.Round(_uiSize * scale));
 		UiStrong = new TextFont(_factory, bundled, _uiFamily, MathF.Round(_labelSize * scale), TextWeight.SemiBold);

@@ -20,6 +20,8 @@ public sealed class WindowEvents
 
 	public Action? TitleBarMouseLeave;
 
+	public Action? PointerLeftClient;
+
 	public Action<int, int>? MouseDown;
 	public Action<int, int>? MouseUp;
 	public Action<uint>? KeyDown;
@@ -311,9 +313,10 @@ public sealed unsafe class AppWindow : IAppWindow, IDisposable
 						? new PixelRect(update.Left, update.Top, update.Right, update.Bottom)
 						: PixelRect.Empty;
 
+					Win32.ValidateRect(hwnd, 0);
+
 					if (!damage.IsEmpty) window.Events.Render?.Invoke(damage);
 
-					Win32.ValidateRect(hwnd, 0);
 					return 0;
 				}
 
@@ -337,7 +340,6 @@ public sealed unsafe class AppWindow : IAppWindow, IDisposable
 				}
 
 			case Win32.WmMouseMove:
-				window.Events.TitleBarMouseLeave?.Invoke();
 				window.Events.MouseMove?.Invoke(Win32.LowWord(lParam), Win32.HighWord(lParam));
 				return 0;
 
@@ -353,9 +355,18 @@ public sealed unsafe class AppWindow : IAppWindow, IDisposable
 				window.Events.TitleBarMouseLeave?.Invoke();
 				break;
 
+			case Win32.WmKillFocus:
+				window.Events.PointerLeftClient?.Invoke();
+				break;
+
 			case Win32.WmNcLeftButtonDown
 				when wParam == Win32.HtMinButton || wParam == Win32.HtMaxButton || wParam == Win32.HtClose:
+				window.Events.PointerLeftClient?.Invoke();
 				return 0;
+
+			case Win32.WmNcLeftButtonDown:
+				window.Events.PointerLeftClient?.Invoke();
+				break;
 
 			case Win32.WmNcLeftButtonUp when wParam == Win32.HtMinButton:
 				window.Minimize();

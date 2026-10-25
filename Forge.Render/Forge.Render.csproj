@@ -31,6 +31,7 @@
 		<PackageReference Include="Vortice.Direct3D11" />
 		<PackageReference Include="Vortice.D3DCompiler" />
 		<PackageReference Include="Vortice.DXGI" />
+		<PackageReference Include="Vortice.DirectComposition" />
 		<PackageReference Include="Vortice.Win32" />
 	</ItemGroup>
 </Project>

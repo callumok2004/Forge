@@ -9,7 +9,7 @@ public static class EditorCommands
 	private const string Category = "Editor";
 
 	public static void Register(ICommandRegistry registry, ShellContext context) {
-		bool Focused() => context.EditorFocused;
+		static bool Focused() => ShellContext.EditorFocused;
 
 		void Add(string id, string title, string? keybinding, Action<TextView> action, bool navigates = false, bool deletes = false) =>
 			registry.Register(new Command(id, title, Category, _ => {

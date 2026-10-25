@@ -20,11 +20,47 @@ public sealed class TextEntry : Panel
 		Cursor = CursorCode.IBeam;
 	}
 
+	private static readonly Color InvalidBorder = Color.Parse("#BE1100");
+
 	public string Placeholder { get; set; } = string.Empty;
+
+	public bool Invalid {
+		get;
+		set {
+			if (field == value) return;
+
+			field = value;
+			Repaint();
+		}
+	}
+
+	public Thickness TextInset { get; set; } = Thickness.Zero;
+
+	public void SelectAll() {
+		_allSelected = _length > 0;
+		_caret = _length;
+		Repaint();
+	}
+
+	public void SetText(ReadOnlySpan<char> text) {
+		if (text.SequenceEqual(Text)) return;
+
+		if (text.Length > _buffer.Length) Array.Resize(ref _buffer, text.Length);
+
+		text.CopyTo(_buffer);
+		_length = text.Length;
+		_caret = _length;
+		_allSelected = false;
+		Changed();
+	}
 
 	public Action? TextChanged { get; set; }
 
 	public ReadOnlySpan<char> Text => _buffer.AsSpan(0, _length);
+
+	public string GetString() => new(Text);
+
+	public void Append(char character) => Insert([character]);
 
 	public void Clear() {
 		if (_length == 0) return;
@@ -178,12 +214,12 @@ public sealed class TextEntry : Panel
 		bool focused = HasFocus;
 
 		painter.FillRoundedRectangle(ScreenX, ScreenY, Wide, Tall, radius, Theme.InputBackground);
-		painter.StrokeRoundedRectangle(ScreenX, ScreenY, Wide, Tall, radius, Metrics.StrokeThickness * scale, focused ? Theme.FocusBorder : Theme.InputBorder);
+		painter.StrokeRoundedRectangle(ScreenX, ScreenY, Wide, Tall, radius, Metrics.StrokeThickness * scale, Invalid ? InvalidBorder : focused ? Theme.FocusBorder : Theme.InputBorder);
 
 		float textLeft = ScreenX + (Metrics.Space6 * scale);
 		float baseline = ScreenY + ((Tall - font.GetLineHeight()) / 2f) + font.GetBaseline();
 
-		painter.PushClip(textLeft, ScreenY, MathF.Max(0f, Wide - (Metrics.Space12 * scale)), Tall);
+		painter.PushClip(textLeft, ScreenY, MathF.Max(0f, Wide - (Metrics.Space12 * scale) - (TextInset.Right * scale)), Tall);
 
 		if (_allSelected) painter.FillRectangle(textLeft, baseline - font.GetBaseline(), font.Measure(Text), font.GetLineHeight(), Theme.SelectionBackground);
 

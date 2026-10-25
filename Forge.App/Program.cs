@@ -12,6 +12,7 @@ public static class Program
 		new ForgeBuilder()
 			.WithAssembly("Forge.Render")
 			.WithAssembly("Forge.UI")
+			.WithAssembly("Forge.Workbench")
 			.WithAssembly("Forge.Editor")
 			.WithAssembly("Forge.Commands")
 			.WithAssembly("Forge.Workspace")

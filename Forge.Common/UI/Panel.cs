@@ -45,6 +45,8 @@ public class Panel
 
 	public string? ContextKey { get; init; }
 
+	public bool ShortcutsFirst { get; init; }
+
 	public Thickness DockMargin { get; set; } = Thickness.Zero;
 
 	public Thickness DockPadding { get; set; } = Thickness.Zero;

@@ -19,6 +19,14 @@ public sealed class TextView(TextBuffer buffer, string? path = null) : ITextView
 
 	public int GetCaretColumn() => CaretColumn;
 
+	public int GetSelectionLength() => HasSelection ? Selection.Length : 0;
+
+	public int GetTabWidth() => TabWidth;
+
+	public LineEnding GetLineEnding() => Buffer.LineEnding;
+
+	public string GetLanguageName() => Highlighter.Language.Name;
+
 	(float X, float Y) ITextView.PointForOffset(ITextFont font, int offset, float viewportX, float viewportY) =>
 		PointForOffset((ITextFont)font, offset, viewportX, viewportY);
 

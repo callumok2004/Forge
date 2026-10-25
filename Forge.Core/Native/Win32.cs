@@ -85,6 +85,7 @@ public static unsafe partial class Win32
 	public const uint ScClose = 0xF060;
 
 	public const int SwShow = 5;
+	public const int SwHide = 0;
 	public const int SwShowNormal = 1;
 
 	public const uint SizeMinimized = 1;
@@ -97,6 +98,7 @@ public static unsafe partial class Win32
 	public const int IdcIBeam = 32513;
 
 	public const int IdcSizeWestEast = 32644;
+	public const int IdcHand = 32649;
 	public const int IdcSizeNorthSouth = 32645;
 
 	#endregion

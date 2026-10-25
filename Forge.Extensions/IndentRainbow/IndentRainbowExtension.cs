@@ -98,6 +98,34 @@ public static class IndentRainbow
 		}
 	}
 
+	public static void ScanLine(ReadOnlySpan<char> text, int line, int tabSize, int levels, List<IndentSpan> into) {
+		if (tabSize <= 0 || levels <= 0) return;
+
+		int end = 0;
+
+		while (end < text.Length && text[end] is ' ' or '	') end++;
+
+		if (end == 0) return;
+
+		int width = 0;
+
+		for (int i = 0; i < end; i++) width += text[i] == '	' ? tabSize : 1;
+
+		if (width % tabSize != 0) {
+			into.Add(new IndentSpan(line, 0, end, 0, IndentKind.Error));
+			return;
+		}
+
+		int offset = 0;
+		int depth = 0;
+
+		while (offset < end) {
+			int from = offset;
+			offset += text[offset] == '	' ? 1 : tabSize;
+			into.Add(new IndentSpan(line, from, Math.Min(offset, end), depth++, IndentKind.Level));
+		}
+	}
+
 	public static uint ColorOf(IndentSpan span, uint[] colors, uint errorColor, uint tabMixColor) =>
 		span.Kind switch {
 			IndentKind.Error => errorColor,

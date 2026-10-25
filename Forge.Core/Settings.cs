@@ -34,6 +34,8 @@ public sealed class Settings
 
 	public bool MinimapEnabled { get; private set; } = true;
 
+	public bool MouseWheelZoom { get; private set; }
+
 	public string? DefaultTerminalProfile { get; private set; }
 
 	public int TabSize { get; private set; } = 4;
@@ -134,6 +136,7 @@ public sealed class Settings
 		EditorFontFamily = FontStack(root, "editor.fontFamily", EditorFontFamily);
 		UiFontFamily = FontStack(root, "window.uiFontFamily", UiFontFamily);
 		MinimapEnabled = Boolean(root, "editor.minimap.enabled", MinimapEnabled);
+		MouseWheelZoom = Boolean(root, "editor.mouseWheelZoom", MouseWheelZoom);
 		SuggestDetailsVisible = Boolean(root, "editor.suggest.expandDocs", SuggestDetailsVisible);
 
 		DefaultTerminalProfile = root["terminal.integrated.defaultProfile.windows"]

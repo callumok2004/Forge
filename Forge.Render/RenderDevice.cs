@@ -3,12 +3,13 @@ using DWrite = Vortice.DirectWrite;
 using Vortice.DXGI;
 using Vortice.Direct3D11;
 using Vortice.Direct3D;
+using Vortice.DirectComposition;
 
 using Forge.Common.Render;
 
 namespace Forge.Render;
 
-public sealed class RenderDevice : IRenderDevice, IDisposable
+public sealed class RenderDevice : IRenderDevice, ICompositionHost, IDisposable
 {
 	private readonly ID3D11Device _d3dDevice = null!;
 	private readonly ID3D11DeviceContext _d3dContext = null!;
@@ -17,6 +18,12 @@ public sealed class RenderDevice : IRenderDevice, IDisposable
 	private readonly D2D.ID2D1Device _d2dDevice = null!;
 	private D2D.ID2D1Bitmap1? _target;
 	private D2D.ID2D1Bitmap1? _surface;
+	private readonly IDCompositionDevice _composition = null!;
+	private readonly IDCompositionTarget _compositionTarget = null!;
+	private readonly IDCompositionVisual _root = null!;
+	private readonly IDCompositionVisual _content = null!;
+	private readonly IDCompositionVisual _webviews = null!;
+	private readonly Dictionary<nint, IDCompositionVisual> _visuals = [];
 
 	private bool _disposed;
 
@@ -53,15 +60,27 @@ public sealed class RenderDevice : IRenderDevice, IDisposable
 			SampleDescription = new SampleDescription(1, 0),
 			BufferUsage = Usage.RenderTargetOutput,
 			BufferCount = 2,
-			Scaling = Scaling.None,
+			Scaling = Scaling.Stretch,
 			SwapEffect = SwapEffect.FlipSequential,
-			AlphaMode = Vortice.DXGI.AlphaMode.Ignore,
+			AlphaMode = Vortice.DXGI.AlphaMode.Premultiplied,
 			Flags = SwapChainFlags.None,
 		};
 
-		_swapChain = factory.CreateSwapChainForHwnd(_d3dDevice, hwnd, description);
+		_swapChain = factory.CreateSwapChainForComposition(_d3dDevice, description);
 
 		factory.MakeWindowAssociation(hwnd, WindowAssociationFlags.IgnoreAltEnter);
+
+		_composition = DComp.DCompositionCreateDevice<IDCompositionDevice>(dxgiDevice);
+		_composition.CreateTargetForHwnd(hwnd, true, out _compositionTarget).CheckError();
+		_composition.CreateVisual(out _root).CheckError();
+		_composition.CreateVisual(out _webviews).CheckError();
+		_composition.CreateVisual(out _content).CheckError();
+
+		_content.SetContent(_swapChain).CheckError();
+		_root.AddVisual(_webviews, false, null).CheckError();
+		_root.AddVisual(_content, true, _webviews).CheckError();
+		_compositionTarget.SetRoot(_root).CheckError();
+		_composition.Commit().CheckError();
 
 		_d2dFactory = D2D.D2D1.D2D1CreateFactory<D2D.ID2D1Factory1>(D2D.FactoryType.SingleThreaded);
 		_d2dDevice = _d2dFactory.CreateDevice(dxgiDevice);
@@ -131,6 +150,31 @@ public sealed class RenderDevice : IRenderDevice, IDisposable
 		_swapChain.Present(0, PresentFlags.None);
 	}
 
+	public nint CreateVisual() {
+		_composition.CreateVisual(out IDCompositionVisual visual).CheckError();
+		_webviews.AddVisual(visual, true, null).CheckError();
+		_visuals[visual.NativePointer] = visual;
+		return visual.NativePointer;
+	}
+
+	public void DestroyVisual(nint visual) {
+		if (!_visuals.Remove(visual, out IDCompositionVisual? removed)) return;
+
+		_webviews.RemoveVisual(removed);
+		removed.Dispose();
+		Commit();
+	}
+
+	public void SetVisualBounds(nint visual, int left, int top, int width, int height) {
+		if (!_visuals.TryGetValue(visual, out IDCompositionVisual? target)) return;
+
+		target.SetOffsetX((float)left);
+		target.SetOffsetY((float)top);
+		target.SetClip(new Vortice.RawRectF(0f, 0f, Math.Max(width, 0), Math.Max(height, 0)));
+	}
+
+	public void Commit() => _composition.Commit();
+
 	public void Clear(Theming.Color color) =>
 		Context.Clear(new Vortice.Mathematics.Color4(color.R, color.G, color.B, color.A));
 
@@ -156,7 +200,7 @@ public sealed class RenderDevice : IRenderDevice, IDisposable
 		using IDXGISurface surface = _swapChain.GetBuffer<IDXGISurface>(0);
 
 		D2D.BitmapProperties1 properties = new(
-			new Vortice.DCommon.PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Ignore),
+			new Vortice.DCommon.PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied),
 			96f,
 			96f,
 			D2D.BitmapOptions.Target | D2D.BitmapOptions.CannotDraw);
@@ -175,7 +219,7 @@ public sealed class RenderDevice : IRenderDevice, IDisposable
 			nint.Zero,
 			0,
 			new D2D.BitmapProperties1(
-				new Vortice.DCommon.PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Ignore),
+				new Vortice.DCommon.PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied),
 				96f,
 				96f,
 				D2D.BitmapOptions.Target));
@@ -189,6 +233,15 @@ public sealed class RenderDevice : IRenderDevice, IDisposable
 		Context?.Target = null;
 
 		_target?.Dispose();
+		_surface?.Dispose();
+
+		foreach (IDCompositionVisual visual in _visuals.Values) visual.Dispose();
+
+		_content?.Dispose();
+		_webviews?.Dispose();
+		_root?.Dispose();
+		_compositionTarget?.Dispose();
+		_composition?.Dispose();
 		Context?.Dispose();
 		DWriteFactory?.Dispose();
 		_d2dDevice?.Dispose();

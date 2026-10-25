@@ -79,15 +79,15 @@ public sealed class VectorIcon : IVectorIcon, IDisposable
 	}
 
 	public static VectorIcon? Load(D2D.ID2D1Factory1 factory, string filePath) {
-		string svg;
-
 		try {
-			svg = File.ReadAllText(filePath);
+			return Parse(factory, File.ReadAllText(filePath));
 		}
 		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
 			return null;
 		}
+	}
 
+	public static VectorIcon? Parse(D2D.ID2D1Factory1 factory, string svg) {
 		ReadOnlySpan<char> source = svg;
 		float viewBox = ReadViewBox(source, out float minX, out float minY);
 
