@@ -48,6 +48,7 @@ public sealed class Ambient : IAmbient, IDisposable
 
 	private int _width;
 	private int _height;
+	private int _band;
 	private bool _failed;
 	private bool _disposed;
 
@@ -170,7 +171,7 @@ public sealed class Ambient : IAmbient, IDisposable
 			Vector4 loader = _glow.W > 0.01f ? _glow / _glow.W : Opaque(Theme.Accent);
 
 			data = new Constants {
-				Frame = new Vector4(_width, _height, time, 0f),
+				Frame = new Vector4(_width, _height, time, _band),
 				Glow = _glow * strength,
 				Loader = loader with { W = LoaderProgress() },
 			};
@@ -180,7 +181,7 @@ public sealed class Ambient : IAmbient, IDisposable
 
 		context.ClearState();
 		context.OMSetRenderTargets(_view!);
-		context.RSSetViewport(0f, 0f, _width, _height);
+		context.RSSetViewport(0f, 0f, _width, _band);
 		context.IASetPrimitiveTopology(PrimitiveTopology.TriangleList);
 		context.VSSetShader(_vertexShader);
 		context.PSSetShader(_pixelShader);
@@ -192,7 +193,7 @@ public sealed class Ambient : IAmbient, IDisposable
 	public void Composite(RenderDevice device) {
 		if (_failed || _bitmap is null) return;
 
-		device.Context.DrawImage(_bitmap, new Vector2(0f, 0f),
+		device.Context.DrawImage(_bitmap, new Vector2(0f, _height - _band),
 			D2D.InterpolationMode.Linear, D2D.CompositeMode.SourceOver);
 	}
 
@@ -227,10 +228,11 @@ public sealed class Ambient : IAmbient, IDisposable
 
 		_width = width;
 		_height = height;
+		_band = Math.Clamp((int)MathF.Ceiling(height * GlowHeightFraction), 1, height);
 
 		_texture = device.D3DDevice.CreateTexture2D(new Texture2DDescription {
 			Width = (uint)width,
-			Height = (uint)height,
+			Height = (uint)_band,
 			MipLevels = 1,
 			ArraySize = 1,
 			Format = Format.B8G8R8A8_UNorm,

@@ -46,6 +46,7 @@ public sealed class NodeExtensionHost : IDisposable
 				WorkingDirectory = Path.GetDirectoryName(BootstrapPath),
 			};
 
+			startInfo.ArgumentList.Add("--smol");
 			startInfo.ArgumentList.Add(BootstrapPath);
 			startInfo.Environment["FORGE_EXTENSION_HOST"] = "1";
 

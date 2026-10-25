@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<RootNamespace>Forge.VSCode</RootNamespace>
-		<BunVersion>1.4.0</BunVersion>
-		<BunDirectory>$(MSBuildThisFileDirectory)..\third-party\bun\</BunDirectory>
+		<BunVersion>1.4.4</BunVersion>
+		<BunDirectory>$(MSBuildThisFileDirectory)..\third-party\bun\$(BunVersion)\</BunDirectory>
 		<BunExecutable>$(BunDirectory)bun.exe</BunExecutable>
 	</PropertyGroup>
 

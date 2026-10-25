@@ -13,11 +13,13 @@ public sealed class RenderDevice : IRenderDevice, ICompositionHost, IDisposable
 {
 	private readonly ID3D11Device _d3dDevice = null!;
 	private readonly ID3D11DeviceContext _d3dContext = null!;
-	private readonly IDXGISwapChain1 _swapChain = null!;
+	private static readonly D2D.BitmapProperties1 TargetProperties = new(new Vortice.DCommon.PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied), 96f, 96f, D2D.BitmapOptions.Target | D2D.BitmapOptions.CannotDraw);
+
 	private readonly D2D.ID2D1Factory1 _d2dFactory = null!;
 	private readonly D2D.ID2D1Device _d2dDevice = null!;
 	private D2D.ID2D1Bitmap1? _target;
-	private D2D.ID2D1Bitmap1? _surface;
+	private IDCompositionSurface _surface = null!;
+	private bool _drawn;
 	private readonly IDCompositionDevice _composition = null!;
 	private readonly IDCompositionTarget _compositionTarget = null!;
 	private readonly IDCompositionVisual _root = null!;
@@ -50,33 +52,13 @@ public sealed class RenderDevice : IRenderDevice, ICompositionHost, IDisposable
 
 		using IDXGIDevice dxgiDevice = _d3dDevice.QueryInterface<IDXGIDevice>();
 		using IDXGIAdapter adapter = dxgiDevice.GetAdapter();
-		using IDXGIFactory2 factory = adapter.GetParent<IDXGIFactory2>();
-
-		SwapChainDescription1 description = new() {
-			Width = (uint)Math.Max(width, 1),
-			Height = (uint)Math.Max(height, 1),
-			Format = Format.B8G8R8A8_UNorm,
-			Stereo = false,
-			SampleDescription = new SampleDescription(1, 0),
-			BufferUsage = Usage.RenderTargetOutput,
-			BufferCount = 2,
-			Scaling = Scaling.Stretch,
-			SwapEffect = SwapEffect.FlipSequential,
-			AlphaMode = Vortice.DXGI.AlphaMode.Premultiplied,
-			Flags = SwapChainFlags.None,
-		};
-
-		_swapChain = factory.CreateSwapChainForComposition(_d3dDevice, description);
-
-		factory.MakeWindowAssociation(hwnd, WindowAssociationFlags.IgnoreAltEnter);
-
 		_composition = DComp.DCompositionCreateDevice<IDCompositionDevice>(dxgiDevice);
 		_composition.CreateTargetForHwnd(hwnd, true, out _compositionTarget).CheckError();
 		_composition.CreateVisual(out _root).CheckError();
 		_composition.CreateVisual(out _webviews).CheckError();
 		_composition.CreateVisual(out _content).CheckError();
 
-		_content.SetContent(_swapChain).CheckError();
+		CreateSurface(Math.Max(width, 1), Math.Max(height, 1));
 		_root.AddVisual(_webviews, false, null).CheckError();
 		_root.AddVisual(_content, true, _webviews).CheckError();
 		_compositionTarget.SetRoot(_root).CheckError();
@@ -86,9 +68,9 @@ public sealed class RenderDevice : IRenderDevice, ICompositionHost, IDisposable
 		_d2dDevice = _d2dFactory.CreateDevice(dxgiDevice);
 		Context = _d2dDevice.CreateDeviceContext(D2D.DeviceContextOptions.None);
 
-		DWriteFactory = DWrite.DWrite.DWriteCreateFactory<DWrite.IDWriteFactory>();
+		Context.Dpi = new Vortice.Mathematics.Size(96f, 96f);
 
-		CreateTargetFromSwapChain();
+		DWriteFactory = DWrite.DWrite.DWriteCreateFactory<DWrite.IDWriteFactory>();
 	}
 
 	public D2D.ID2D1DeviceContext Context { get; private set; } = null!;
@@ -118,36 +100,40 @@ public sealed class RenderDevice : IRenderDevice, ICompositionHost, IDisposable
 	public string? GetLastFailure() => LastFailure;
 
 	public void BeginDraw() {
-		Context.Target = _surface;
-		Context.BeginDraw();
+		_drawn = false;
+		LastFailure = null;
+	}
+
+	public bool BeginPass(int left, int top, int right, int bottom) {
+		try {
+			using IDXGISurface surface = _surface.BeginDraw<IDXGISurface>(new Vortice.RawRect(left, top, right, bottom), out Vortice.Mathematics.Int2 offset);
+			_target = Context.CreateBitmapFromDxgiSurface(surface, TargetProperties);
+			Context.Target = _target;
+			Context.BeginDraw();
+			Context.Transform = System.Numerics.Matrix3x2.CreateTranslation(offset.X - left, offset.Y - top);
+			return true;
+		}
+		catch (SharpGen.Runtime.SharpGenException exception) {
+			LastFailure = exception.Message;
+			return false;
+		}
+	}
+
+	public void EndPass() {
+		SharpGen.Runtime.Result result = Context.EndDraw();
+
+		if (result.Failure) LastFailure = $"0x{result.Code:X8} {result.Description}";
+
+		Context.Transform = System.Numerics.Matrix3x2.Identity;
+		Context.Target = null;
+		_target?.Dispose();
+		_target = null;
+		_surface.EndDraw();
+		_drawn = true;
 	}
 
 	public void EndDraw() {
-		SharpGen.Runtime.Result result = Context.EndDraw();
-
-		if (result.Failure) {
-			LastFailure = $"0x{result.Code:X8} {result.Description}";
-			return;
-		}
-
-		Context.Target = _target;
-		Context.BeginDraw();
-
-		if (_surface is not null) {
-			Context.DrawImage(_surface, new System.Numerics.Vector2(0f, 0f),
-				D2D.InterpolationMode.NearestNeighbor, D2D.CompositeMode.SourceCopy);
-		}
-
-		result = Context.EndDraw();
-
-		if (result.Failure) {
-			LastFailure = $"0x{result.Code:X8} {result.Description}";
-			return;
-		}
-
-		LastFailure = null;
-
-		_swapChain.Present(0, PresentFlags.None);
+		if (_drawn) _composition.Commit();
 	}
 
 	public nint CreateVisual() {
@@ -186,43 +172,16 @@ public sealed class RenderDevice : IRenderDevice, ICompositionHost, IDisposable
 
 		Dpi = dpi;
 
-		Context.Target = null;
-		_target?.Dispose();
-		_target = null;
-		_surface?.Dispose();
-		_surface = null;
-
-		_swapChain.ResizeBuffers(0, (uint)width, (uint)height, Format.Unknown, SwapChainFlags.None);
-		CreateTargetFromSwapChain();
+		CreateSurface(width, height);
+		_composition.Commit();
 	}
 
-	private void CreateTargetFromSwapChain() {
-		using IDXGISurface surface = _swapChain.GetBuffer<IDXGISurface>(0);
-
-		D2D.BitmapProperties1 properties = new(
-			new Vortice.DCommon.PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied),
-			96f,
-			96f,
-			D2D.BitmapOptions.Target | D2D.BitmapOptions.CannotDraw);
-
-		_target = Context.CreateBitmapFromDxgiSurface(surface, properties);
-		Context.Target = _target;
-
-		Context.Dpi = new Vortice.Mathematics.Size(96f, 96f);
-
-		SwapChainDescription1 description = _swapChain.Description1;
-		Width = (int)description.Width;
-		Height = (int)description.Height;
-
-		_surface = Context.CreateBitmap(
-			new Vortice.Mathematics.SizeI(Math.Max(Width, 1), Math.Max(Height, 1)),
-			nint.Zero,
-			0,
-			new D2D.BitmapProperties1(
-				new Vortice.DCommon.PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied),
-				96f,
-				96f,
-				D2D.BitmapOptions.Target));
+	private void CreateSurface(int width, int height) {
+		_surface?.Dispose();
+		_composition.CreateSurface((uint)width, (uint)height, Format.B8G8R8A8_UNorm, Vortice.DXGI.AlphaMode.Premultiplied, out _surface).CheckError();
+		_content.SetContent(_surface).CheckError();
+		Width = width;
+		Height = height;
 	}
 
 	public void Dispose() {
@@ -246,7 +205,6 @@ public sealed class RenderDevice : IRenderDevice, ICompositionHost, IDisposable
 		DWriteFactory?.Dispose();
 		_d2dDevice?.Dispose();
 		_d2dFactory?.Dispose();
-		_swapChain?.Dispose();
 		_d3dContext?.Dispose();
 		_d3dDevice?.Dispose();
 	}

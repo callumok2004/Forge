@@ -32,6 +32,10 @@
 		<RetainVMGarbageCollection>false</RetainVMGarbageCollection>
 	</PropertyGroup>
 
+	<ItemGroup>
+		<RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="5" />
+	</ItemGroup>
+
 	<PropertyGroup Condition="'$(Configuration)'=='Release'">
 		<Optimize>true</Optimize>
 		<DebugType>portable</DebugType>

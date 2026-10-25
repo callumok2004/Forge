@@ -11,6 +11,8 @@ public interface IRenderDevice
 	string? GetLastFailure();
 
 	void BeginDraw();
+	bool BeginPass(int left, int top, int right, int bottom);
+	void EndPass();
 	void EndDraw();
 
 	void Clear(Color color);

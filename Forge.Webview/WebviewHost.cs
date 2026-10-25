@@ -15,6 +15,7 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 {
 	private const string BrowserArguments =
 		"--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,Translate " +
+		"--enable-features=NetworkServiceInProcess2 --in-process-gpu " +
 		"--renderer-process-limit=1 --disable-background-timer-throttling " +
 		"--js-flags=--max-old-space-size=192";
 
@@ -187,6 +188,7 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 
 		if (view.Controller is { } controller) {
 			Place(view);
+			controller.CoreWebView2.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Normal;
 			controller.IsVisible = true;
 
 			if (changed) Navigate(id, view);
@@ -231,7 +233,10 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 	private static void Conceal(View view) {
 		view.Wanted = false;
 
-		if (view.Controller is { } controller) controller.IsVisible = false;
+		if (view.Controller is not { } controller) return;
+
+		controller.IsVisible = false;
+		controller.CoreWebView2.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Low;
 	}
 
 	public void PostMessage(string id, string json) {

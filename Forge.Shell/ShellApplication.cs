@@ -766,7 +766,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			for (int pass = 0; pass < frameDamage.Count; pass++) {
 				PixelRect repaint = frameDamage[pass].Intersect(surface);
 
-				if (repaint.IsEmpty) continue;
+				if (repaint.IsEmpty || !device.BeginPass(repaint.Left, repaint.Top, repaint.Right, repaint.Bottom)) continue;
 
 				painter.BeginFrame(repaint);
 				painter.PushClip(repaint.Left, repaint.Top, repaint.Width, repaint.Height);
@@ -788,6 +788,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 				}
 
 				painter.PopClip();
+				device.EndPass();
 			}
 
 			device.EndDraw();

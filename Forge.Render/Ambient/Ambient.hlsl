@@ -43,7 +43,7 @@ float GlowFalloff(float2 pixel)
 float4 PSMain(Fragment input) : SV_Target
 {
 	float2 uv = input.Uv;
-	float2 pixel = uv * Frame.xy;
+	float2 pixel = float2(uv.x * Frame.x, Frame.y - Frame.w + uv.y * Frame.w);
 	float time = Frame.z;
 
 	float4 result = Glow * GlowFalloff(pixel);
