@@ -1,0 +1,3 @@
+[submodule "native/netcoredbg"]
+	path = native/netcoredbg
+	url = https://github.com/callumok2004/netcoredbg.git
