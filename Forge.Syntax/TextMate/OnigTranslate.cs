@@ -1,36 +1,14 @@
-using System.Text.RegularExpressions;
 using System.Text;
 
 namespace Forge.Syntax.TextMate;
 
 public static class OnigTranslate
 {
-	private static readonly Dictionary<string, Regex> Cache = [with(StringComparer.Ordinal)];
-	private static readonly Lock Sync = new();
-
-	public static Regex? Compile(string pattern) {
-		lock (Sync) {
-			if (Cache.TryGetValue(pattern, out Regex? cached)) return cached;
-		}
-
-		Regex? compiled = null;
-
-		try {
-			compiled = new Regex(Translate(pattern), RegexOptions.Multiline | RegexOptions.CultureInvariant);
-		}
-		catch (ArgumentException) {
-		}
-
-		lock (Sync) Cache[pattern] = compiled!;
-
-		return compiled;
-	}
-
 	public static readonly List<string> Unresolved = [];
 
 	public static string Debug(string pattern) => Translate(pattern);
 
-	private static string Translate(string pattern) {
+	public static string Translate(string pattern) {
 		StringBuilder builder = new(pattern.Length + 16);
 
 		bool extended = false;

@@ -46,6 +46,12 @@ public sealed class EditorPart : Panel
 			stops.Place(left + gutter, _workbench.EditorTop, _workbench.TextWidth(windowWidth) - gutter, ui.GetFonts().GetCode().GetLineHeight(), left, top);
 		}
 
+		if (_workbench.Peek is { } peek && Ui is { } peekUi) {
+			if (peek.Widget.Parent is null) AddChild(peek.Widget);
+
+			peek.Place(left, _workbench.EditorTop, _workbench.TextWidth(windowWidth), _workbench.EditorHeight(windowHeight), peekUi.GetFonts().GetCode(), left, top);
+		}
+
 		intelliSense.Place(left, top, left, _workbench.EditorTop, _workbench.EditorBottom(windowHeight), left + _workbench.EditorWidth(windowWidth));
 	}
 

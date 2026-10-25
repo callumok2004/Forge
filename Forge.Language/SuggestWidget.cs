@@ -18,7 +18,10 @@ public sealed class SuggestWidget : Panel
 
 	private readonly List<CompletionEntry> _all = [];
 	private readonly List<int> _rows = [];
-	private readonly Dictionary<int, int[]> _highlights = [];
+	private readonly List<(int Start, int Count)> _highlights = [];
+	private readonly List<int> _matchPool = [];
+	private readonly List<int> _scratchPool = [];
+	private readonly List<(int Index, int Score, int Start, int Count)> _scored = [];
 
 	private int _scrollRow;
 	private int _hoverRow = -1;
@@ -78,6 +81,7 @@ public sealed class SuggestWidget : Panel
 		_all.Clear();
 		_rows.Clear();
 		_highlights.Clear();
+		_matchPool.Clear();
 		_detailFor = -1;
 		_hoverRow = -1;
 	}
@@ -87,17 +91,20 @@ public sealed class SuggestWidget : Panel
 
 		_rows.Clear();
 		_highlights.Clear();
+		_matchPool.Clear();
+		_scratchPool.Clear();
+		_scored.Clear();
 
-		List<(int Index, int Score, int[] Matched)> scored = [];
+		Span<int> matched = stackalloc int[FuzzyScore.MaxMatches];
 		int anchor = caretColumn;
 
 		for (int i = 0; i < _all.Count; i++) {
 			CompletionEntry entry = _all[i];
 			int wordLength = Math.Clamp(caretColumn - entry.ReplaceStartColumn, 0, Math.Max(0, Math.Min(leading.Length, caretColumn - 1)));
-			string word = wordLength == 0 ? string.Empty : leading.Substring(caretColumn - 1 - wordLength, wordLength);
+			ReadOnlySpan<char> word = wordLength == 0 ? [] : leading.AsSpan(caretColumn - 1 - wordLength, wordLength);
 
-			if (word.Length == 0) {
-				scored.Add((i, -100, []));
+			if (word.IsEmpty) {
+				_scored.Add((i, -100, 0, 0));
 				anchor = Math.Min(anchor, entry.ReplaceStartColumn);
 				continue;
 			}
@@ -105,18 +112,21 @@ public sealed class SuggestWidget : Panel
 			string label = entry.Label;
 			string filter = entry.FilterText is { Length: > 0 } text ? text : label;
 
-			if (!FuzzyScore.TryScore(word, filter, out int score, out int[] matched)) continue;
+			if (!FuzzyScore.TryScore(word, filter, out int score, matched, out int count)) continue;
 
-			if (!string.Equals(filter, label, StringComparison.OrdinalIgnoreCase) && !FuzzyScore.TryScore(word, label, out _, out matched)) matched = [];
+			if (!string.Equals(filter, label, StringComparison.OrdinalIgnoreCase) && !FuzzyScore.TryScore(word, label, out _, matched, out count)) count = 0;
 
-			scored.Add((i, score, matched));
+			_scored.Add((i, score, _scratchPool.Count, count));
+			foreach (int position in matched[..count]) _scratchPool.Add(position);
 			anchor = Math.Min(anchor, entry.ReplaceStartColumn);
 		}
 
-		scored.Sort(static (left, right) => right.Score != left.Score ? right.Score.CompareTo(left.Score) : left.Index.CompareTo(right.Index));
+		_scored.Sort(static (left, right) => right.Score != left.Score ? right.Score.CompareTo(left.Score) : left.Index.CompareTo(right.Index));
 
-		foreach ((int index, _, int[] matched) in scored) {
-			if (matched.Length > 0) _highlights[_rows.Count] = matched;
+		foreach ((int index, _, int start, int count) in _scored) {
+			_highlights.Add((_matchPool.Count, count));
+
+			for (int m = 0; m < count; m++) _matchPool.Add(_scratchPool[start + m]);
 
 			_rows.Add(index);
 		}
@@ -270,9 +280,12 @@ public sealed class SuggestWidget : Panel
 			painter.PushClip(labelLeft, rowTop, labelLimit, rowHeight);
 			painter.DrawText(font, entry.Label, labelLeft, baseline, foreground);
 
-			if (_highlights.TryGetValue(row, out int[]? matched)) {
-				foreach (int position in matched)
-					if (position < entry.Label.Length) painter.DrawText(bold, entry.Label.AsSpan(position, 1), labelLeft + font.Measure(entry.Label.AsSpan(0, position)), baseline, Theme.SuggestHighlightForeground);
+			(int matchStart, int matchCount) = _highlights[row];
+
+			for (int m = matchStart; m < matchStart + matchCount; m++) {
+				int position = _matchPool[m];
+
+				if (position < entry.Label.Length) painter.DrawText(bold, entry.Label.AsSpan(position, 1), labelLeft + font.Measure(entry.Label.AsSpan(0, position)), baseline, Theme.SuggestHighlightForeground);
 			}
 
 			if (entry.LabelDetail is { Length: > 0 } signature) painter.DrawText(font, signature.ReplaceLineEndings(string.Empty), labelLeft + font.Measure(entry.Label), baseline, foreground.WithAlpha(foreground.A * 0.6f));

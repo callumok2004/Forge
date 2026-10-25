@@ -55,12 +55,68 @@ public sealed class HoverWidget : Panel
 
 				if (text.Trim().Length == 0 && (_lines.Count == 0 || _lines[^1].Text.Length == 0)) continue;
 
-				_lines.Add((text, inFence));
+				_lines.Add((inFence ? text : Inline(text), inFence));
 			}
 
 			_rewrap = true;
 			IsOpen = _lines.Count > 0;
 		}
+	}
+
+	private static readonly System.Buffers.SearchValues<char> InlineMarkers = System.Buffers.SearchValues.Create("`\\*_[&");
+
+	public static string Inline(string text) {
+		if (!text.AsSpan().ContainsAny(InlineMarkers)) return text;
+
+		char[]? rented = text.Length > 512 ? System.Buffers.ArrayPool<char>.Shared.Rent(text.Length) : null;
+		Span<char> buffer = rented ?? stackalloc char[512];
+		string result = new(buffer[..Inline(text, buffer)]);
+
+		if (rented is not null) System.Buffers.ArrayPool<char>.Shared.Return(rented);
+
+		return result;
+	}
+
+	private static int Inline(ReadOnlySpan<char> text, Span<char> destination) {
+		int written = 0;
+		bool inCode = false;
+
+		for (int i = 0; i < text.Length; i++) {
+			char c = text[i];
+
+			if (c == '`') {
+				inCode = !inCode;
+				continue;
+			}
+
+			if (inCode) {
+				destination[written++] = c;
+				continue;
+			}
+
+			if (c == '\\' && i + 1 < text.Length && !char.IsAsciiLetterOrDigit(text[i + 1]) && text[i + 1] is > ' ' and < '\x7f') {
+				destination[written++] = text[++i];
+				continue;
+			}
+
+			if (c is '*' or '_' && (c == '*' || i == 0 || !char.IsLetterOrDigit(text[i - 1]) || i + 1 >= text.Length || !char.IsLetterOrDigit(text[i + 1]))) continue;
+
+			if (c == '[' && text[i..].IndexOf("](") is int close and > 0 && text[(i + close)..].IndexOf(')') is int end and > 0) {
+				written += Inline(text.Slice(i + 1, close - 1), destination[written..]);
+				i += close + end;
+				continue;
+			}
+
+			if (c == '&' && text[i..].StartsWith("&nbsp;")) {
+				destination[written++] = ' ';
+				i += 5;
+				continue;
+			}
+
+			destination[written++] = c;
+		}
+
+		return written;
 	}
 
 	public void Hide() {

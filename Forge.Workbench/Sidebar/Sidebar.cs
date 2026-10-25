@@ -86,6 +86,10 @@ public sealed class Sidebar : Panel
 
 	public void SetTree(IFileTree tree) => Explorer.SetTree(tree);
 
+	public void CaptureExpanded(List<string> destination) => Explorer.CaptureExpanded(destination);
+
+	public void RestoreExpanded(IReadOnlyList<string> paths) => Explorer.RestoreExpanded(paths);
+
 	public void Resize(float width) => Width = Math.Clamp(width, Metrics.SidebarMinWidth, Metrics.SidebarMaxWidth);
 
 	private void SyncView() {

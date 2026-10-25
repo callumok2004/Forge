@@ -10,6 +10,8 @@ public static class UserData
 
 	public static string WindowStatePath => Path.Combine(Directory, "window.json");
 
+	public static string GlobalStatePath => Path.Combine(Directory, "state.json");
+
 	public static string TerminalHistoryPath => Path.Combine(Directory, "terminal-history.json");
 
 	public static string SourceControlStatePath => Path.Combine(Directory, "source-control.txt");

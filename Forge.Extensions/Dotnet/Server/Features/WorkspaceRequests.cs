@@ -91,6 +91,10 @@ public sealed class WorkspaceRequests(RoslynLanguageClient client)
 				SemanticTokensRefreshRequested?.Invoke();
 				break;
 
+			case "workspace/codeLens/refresh":
+				client.CodeLenses.Invalidate();
+				break;
+
 			case "workspace/projectContext/_vs_refresh":
 				client.Contexts.Invalidate();
 				break;

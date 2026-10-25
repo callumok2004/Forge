@@ -37,6 +37,39 @@ public sealed class FileTree : IFileTree
 		if (node.IsExpanded) Load(node);
 	}
 
+	public void CaptureExpanded(List<string> destination) {
+		destination.Clear();
+
+		if (_root.Children is not null) CaptureExpanded(_root.Children, destination);
+	}
+
+	private static void CaptureExpanded(List<FileNode> nodes, List<string> destination) {
+		foreach (FileNode node in nodes) {
+			if (!node.IsDirectory || !node.IsExpanded) continue;
+
+			destination.Add(node.FullPath);
+
+			if (node.Children is not null) CaptureExpanded(node.Children, destination);
+		}
+	}
+
+	public void RestoreExpanded(IReadOnlyList<string> paths) {
+		HashSet<string> wanted = new(paths, StringComparer.OrdinalIgnoreCase);
+
+		if (wanted.Count > 0 && _root.Children is not null) RestoreExpanded(_root.Children, wanted);
+	}
+
+	private static void RestoreExpanded(List<FileNode> nodes, HashSet<string> wanted) {
+		foreach (FileNode node in nodes) {
+			if (!node.IsDirectory || !wanted.Contains(node.FullPath)) continue;
+
+			node.IsExpanded = true;
+			Load(node);
+
+			if (node.Children is not null) RestoreExpanded(node.Children, wanted);
+		}
+	}
+
 	public void Flatten(List<FileNode> destination) {
 		destination.Clear();
 

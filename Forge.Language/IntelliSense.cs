@@ -35,6 +35,20 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 
 	public CodeActionController Actions => field ??= new CodeActionController(workbench, Ui, Message);
 
+	public CodeLensController CodeLenses => field ??= new CodeLensController(workbench, Ui);
+
+	public Common.Debug.IDebug? Debug { get; set; }
+
+	public DebugValuesController DebugValues => field ??= new DebugValuesController(workbench, Ui) { Hover = { Changed = refresh } };
+
+	private float _editorLeft;
+	private float _editorTop;
+	private float _editorWidth;
+
+	public void ExecuteCodeLens(int index) {
+		if (Features is { } features) CodeLenses.Execute(features, index);
+	}
+
 	public void ShowCodeActions() {
 		if (Available && Features is { } features) Actions.Invoke(features);
 	}
@@ -269,6 +283,12 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 		if (Message.IsOpen && workbench.GetActiveView()?.GetCaretOffset() != Message.Offset) Message.Hide();
 		Occurrences.Tick();
 
+		if (Panel.Ui is { } lensUi) {
+			IFontSet fonts = lensUi.GetFonts();
+			CodeLenses.Tick(Features, Core.Settings.Current.GetBoolean("editor.codeLens") ?? true, fonts.GetCodeLens().GetLineHeight(), fonts.GetCode().GetLineHeight());
+			DebugValues.Tick(Debug, Features, InlineValuesEnabled(), _editorWidth, fonts.GetCode().GetCellWidth());
+		}
+
 		if (Available && Features is { } actionFeatures && Panel.Ui is { } actionUi) Actions.Tick(actionFeatures, actionUi.GetFonts().GetCode().GetCellWidth(), Panel.Scale);
 		else Actions.Clear();
 
@@ -294,11 +314,28 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 
 		_hoverRequested = true;
 
-		if (!Available || Features is not { } hoverFeatures ||
-			workbench.GetActiveFilePath() is not { } path) return;
+		if (!Available || workbench.GetActiveFilePath() is not { } path) return;
 
 		int line = Hover.Line;
 		int column = Hover.Column;
+
+		if (Debug is { } debug && workbench.GetActiveView() is { } debugView && Panel.Ui is { } debugUi && (debugUi.GetModifiers() & KeyModifiers.Alt) == 0) {
+			ITextFont code = debugUi.GetFonts().GetCode();
+			TextSnapshot snapshot = debugView.GetSnapshot();
+
+			if (line >= 1 && line <= snapshot.LineCount) {
+				int lineStart = snapshot.GetLineStartOffset(line - 1);
+				(float anchorX, float lineTop) = debugView.PointForOffset(code, lineStart, _editorLeft, _editorTop);
+
+				if (DebugValues.TryHover(debug, Features, path, debugView, line, column, anchorX, lineTop, code.GetLineHeight(), offset => debugView.PointForOffset(code, lineStart + offset, _editorLeft, _editorTop).X, () => RequestLanguageHover(path, line, column))) return;
+			}
+		}
+
+		RequestLanguageHover(path, line, column);
+	}
+
+	private void RequestLanguageHover(string path, int line, int column) {
+		if (Features is not { } hoverFeatures || line != Hover.Line || column != Hover.Column) return;
 
 		_ = Task.Run(async () => {
 			if (await hoverFeatures.HoverAsync(path, line, column).ConfigureAwait(false) is { Length: > 0 } text) {
@@ -311,6 +348,8 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 	public void PointerMoved(int line, int column, float x, float y) {
 		if (line == Hover.Line && column == Hover.Column) return;
 
+		if (DebugValues.Hover.IsOpen && (line != DebugValues.Hover.Line || column - 1 < DebugValues.Hover.StartColumn || column - 1 > DebugValues.Hover.EndColumn)) DebugValues.CancelHover();
+
 		Hover.Hide();
 		Hover.Aim(line, column, x, y);
 
@@ -322,7 +361,16 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 		_pointerRestingSince = 0;
 		_hoverRequested = false;
 		Hover.Hide();
+
+		if (Panel.Ui?.GetMouseOver() is { } over && (over == DebugValues.Hover || over.Parent == DebugValues.Hover)) return;
+
+		DebugValues.CancelHover();
 	}
+
+	private static bool InlineValuesEnabled() => Core.Settings.Current.GetString("debug.inlineValues") switch {
+		"off" or "false" => false,
+		_ => Core.Settings.Current.GetBoolean("debug.inlineValues") ?? true,
+	};
 
 	private void RequestSignature(char trigger) {
 		if (Features is not { } features || workbench.GetActiveFilePath() is not { } path ||
@@ -347,7 +395,7 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 		});
 	}
 
-	public IEnumerable<Panel> Widgets => [Signature, Hover, Suggest, Suggest.Details, Renaming.Widget, Message];
+	public IEnumerable<Panel> Widgets => [Signature, Hover, DebugValues.Hover, Suggest, Suggest.Details, Renaming.Widget, Message];
 
 	public void Place(float originX, float originY, float editorLeft, float editorTop, float editorBottom, float editorRight) {
 		Suggest.Accepted ??= Accept;
@@ -377,6 +425,19 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 		else Signature.Visible = false;
 
 		Hover.Place(editorTop, editorBottom, editorRight, originX, originY);
+
+		_editorLeft = editorLeft;
+		_editorTop = editorTop;
+		_editorWidth = editorRight - editorLeft;
+
+		DebugHoverWidget debugHover = DebugValues.Hover;
+		debugHover.Place(editorTop, editorBottom, editorRight, originX, originY);
+
+		if (view is TextView textView) {
+			TextView.HoverRange? range = debugHover.IsOpen ? new TextView.HoverRange(debugHover.Line - 1, debugHover.StartColumn, debugHover.EndColumn) : null;
+
+			if (textView.HoverHighlight != range) textView.HoverHighlight = range;
+		}
 
 		if (Renaming.Widget.IsOpen) {
 			TextSnapshot snapshot = view.GetSnapshot();

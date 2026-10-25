@@ -40,11 +40,15 @@ public sealed class FontSet : IFontSet, IDisposable
 
 	public TextFont CodeSmall { get; private set; } = null!;
 
+	public TextFont CodeLens { get; private set; } = null!;
+
 	public TextFont Ui { get; private set; } = null!;
 
 	public TextFont UiStrong { get; private set; } = null!;
 
 	public TextFont UiSmall { get; private set; } = null!;
+
+	public TextFont UiDescription { get; private set; } = null!;
 
 	public IconFont Icons { get; }
 
@@ -56,11 +60,15 @@ public sealed class FontSet : IFontSet, IDisposable
 
 	public ITextFont GetCodeSmall() => CodeSmall;
 
+	public ITextFont GetCodeLens() => CodeLens;
+
 	public ITextFont GetUi() => Ui;
 
 	public ITextFont GetUiStrong() => UiStrong;
 
 	public ITextFont GetUiSmall() => UiSmall;
+
+	public ITextFont GetUiDescription() => UiDescription;
 
 	public float GetScale() => Scale;
 
@@ -74,12 +82,14 @@ public sealed class FontSet : IFontSet, IDisposable
 		TextFont oldCode = Code;
 		TextFont oldCodeStrong = CodeStrong;
 		TextFont oldCodeSmall = CodeSmall;
+		TextFont oldCodeLens = CodeLens;
 
 		BuildCode(Scale);
 
 		oldCode.Dispose();
 		oldCodeStrong.Dispose();
 		oldCodeSmall.Dispose();
+		oldCodeLens.Dispose();
 		return true;
 	}
 
@@ -89,9 +99,11 @@ public sealed class FontSet : IFontSet, IDisposable
 		TextFont oldCode = Code;
 		TextFont oldCodeStrong = CodeStrong;
 		TextFont oldCodeSmall = CodeSmall;
+		TextFont oldCodeLens = CodeLens;
 		TextFont oldUi = Ui;
 		TextFont oldUiStrong = UiStrong;
 		TextFont oldUiSmall = UiSmall;
+		TextFont oldUiDescription = UiDescription;
 
 		Build(scale);
 		Scale = scale;
@@ -99,9 +111,11 @@ public sealed class FontSet : IFontSet, IDisposable
 		oldCode.Dispose();
 		oldCodeStrong.Dispose();
 		oldCodeSmall.Dispose();
+		oldCodeLens.Dispose();
 		oldUi.Dispose();
 		oldUiStrong.Dispose();
 		oldUiSmall.Dispose();
+		oldUiDescription.Dispose();
 
 		return true;
 	}
@@ -114,6 +128,9 @@ public sealed class FontSet : IFontSet, IDisposable
 		Code = new TextFont(_factory, bundled, _codeFamily, codePixels, TextWeight.Regular, lineHeight);
 		CodeStrong = new TextFont(_factory, bundled, _codeFamily, codePixels, TextWeight.Bold, lineHeight);
 		CodeSmall = new TextFont(_factory, bundled, _codeFamily, MathF.Round(codePixels * 0.85f), TextWeight.Regular, lineHeight);
+
+		float lensPixels = MathF.Floor(codePixels * 0.9f);
+		CodeLens = new TextFont(_factory, bundled, _codeFamily, lensPixels, TextWeight.Regular, MathF.Floor(lensPixels * MathF.Max(1.3f, lineHeight / codePixels)));
 	}
 
 	private void Build(float scale) {
@@ -124,6 +141,7 @@ public sealed class FontSet : IFontSet, IDisposable
 		Ui = new TextFont(_factory, bundled, _uiFamily, MathF.Round(_uiSize * scale));
 		UiStrong = new TextFont(_factory, bundled, _uiFamily, MathF.Round(_labelSize * scale), TextWeight.SemiBold);
 		UiSmall = new TextFont(_factory, bundled, _uiFamily, MathF.Round(9f * scale), TextWeight.SemiBold);
+		UiDescription = new TextFont(_factory, bundled, _uiFamily, MathF.Round(_uiSize * scale * 0.9f));
 	}
 
 	public void Dispose() {
@@ -134,9 +152,11 @@ public sealed class FontSet : IFontSet, IDisposable
 		Code?.Dispose();
 		CodeStrong?.Dispose();
 		CodeSmall?.Dispose();
+		CodeLens?.Dispose();
 		Ui?.Dispose();
 		UiStrong?.Dispose();
 		UiSmall?.Dispose();
+		UiDescription?.Dispose();
 		Icons?.Dispose();
 		_bundled.Dispose();
 	}

@@ -132,8 +132,13 @@ public sealed class RenderDevice : IRenderDevice, ICompositionHost, IDisposable
 		_drawn = true;
 	}
 
+	private bool _commitPending;
+
 	public void EndDraw() {
-		if (_drawn) _composition.Commit();
+		if (!_drawn && !_commitPending) return;
+
+		_commitPending = false;
+		_composition.Commit();
 	}
 
 	public nint CreateVisual() {
@@ -157,6 +162,7 @@ public sealed class RenderDevice : IRenderDevice, ICompositionHost, IDisposable
 		target.SetOffsetX((float)left);
 		target.SetOffsetY((float)top);
 		target.SetClip(new Vortice.RawRectF(0f, 0f, Math.Max(width, 0), Math.Max(height, 0)));
+		_commitPending = true;
 	}
 
 	public void Commit() => _composition.Commit();
@@ -173,7 +179,7 @@ public sealed class RenderDevice : IRenderDevice, ICompositionHost, IDisposable
 		Dpi = dpi;
 
 		CreateSurface(width, height);
-		_composition.Commit();
+		_commitPending = true;
 	}
 
 	private void CreateSurface(int width, int height) {

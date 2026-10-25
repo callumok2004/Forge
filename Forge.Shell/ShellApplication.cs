@@ -144,6 +144,12 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		debugger.Attach(rootPath, UserData.BreakpointsPath);
 
 		WorkspaceMemory memory = WorkspaceMemory.Load(rootPath);
+		GlobalMemory global = GlobalMemory.Load(UserData.GlobalStatePath);
+		global.TouchFolder(rootPath);
+		workbench.Palette.History = global.RecentCommands;
+		workbench.PeekRatio = global.PeekRatio;
+		workbench.PeekHeightInLines = global.PeekHeightInLines;
+		workbench.FileOpened += global.TouchFile;
 
 		if (memory.DebugConfiguration is { Length: > 0 } remembered) {
 			foreach (DebugConfiguration configuration in debugger.GetConfigurations()) {
@@ -346,11 +352,17 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			window.CaptureState().Save(UserData.WindowStatePath);
 			CaptureWorkspace(workbench, debugger, memory);
 			memory.Save();
+			global.PeekRatio = workbench.PeekRatio;
+			global.PeekHeightInLines = workbench.PeekHeightInLines;
+			global.Save();
 			settings.Save();
 		}
 	}
 
 	private static void RestoreWorkspace(Workbench workbench, WorkspaceMemory memory) {
+		workbench.ViewStates = memory.ViewStates;
+		workbench.QuickOpen.History = memory.QuickOpenHistory;
+		workbench.Sidebar.RestoreExpanded(memory.ExpandedFolders);
 		workbench.ShowSidebar = memory.ShowSidebar;
 
 		if (memory.SidebarWidth >= Metrics.SidebarMinWidth) workbench.Sidebar.Width = memory.SidebarWidth;
@@ -388,6 +400,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			if (document.Path is { Length: > 0 } path) memory.OpenFiles.Add(path);
 		}
 
+		workbench.CaptureViewStates();
+		workbench.Sidebar.CaptureExpanded(memory.ExpandedFolders);
 		memory.ActiveFile = workbench.ActiveFilePath;
 		memory.ShowSidebar = workbench.ShowSidebar;
 		memory.SidebarWidth = workbench.Sidebar.Width;
@@ -506,6 +520,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		workbench.IntelliSense = new IntelliSense(workbench, Refresh) {
 			DetailsVisibleChanged = settings.SetSuggestDetailsVisible,
+			Debug = debugger,
 		};
 
 		workbench.IntelliSense.Suggest.DetailsVisible = settings.SuggestDetailsVisible;
@@ -560,6 +575,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		DebugStopPresenter stops = new(workbench, context, window.Handle);
 		workbench.DebugStops = stops;
+		workbench.Peek = new PeekPresenter(workbench, context);
 		debugger.RevealSource = reveal => workbench.Post(() => stops.Reveal(reveal));
 		debugger.ExceptionCleared = () => workbench.Post(stops.Clear);
 
@@ -817,7 +833,21 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			device.Resize(width, height, window.Dpi);
 
 			workbench.TitleBar.IsMaximized = window.IsMaximized;
-			window.Invalidate();
+
+			if (rendering) {
+				window.Invalidate();
+				return;
+			}
+
+			rendering = true;
+
+			try {
+				pending.Add(PixelRect.FromSize(device.Width, device.Height));
+				RenderFrame(PixelRect.FromSize(device.Width, device.Height));
+			}
+			finally {
+				rendering = false;
+			}
 		};
 
 		window.Events.DpiChanged += _ => ApplyZoom();

@@ -25,9 +25,13 @@ public interface IPainter
 	ITextFont GetCode();
 	ITextFont GetCodeStrong();
 	ITextFont GetCodeSmall();
+
+	ITextFont GetCodeLens();
 	ITextFont GetUi();
 	ITextFont GetUiStrong();
 	ITextFont GetUiSmall();
+
+	ITextFont GetUiDescription();
 
 	void FillRectangle(float x, float y, float width, float height, Color color);
 	void FillRoundedRectangle(float x, float y, float width, float height, float radius, Color color);

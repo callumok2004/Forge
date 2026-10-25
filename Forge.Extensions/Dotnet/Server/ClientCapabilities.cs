@@ -85,6 +85,7 @@ internal static class ClientCapabilities
 			["didChangeWatchedFiles"] = new JsonObject { ["dynamicRegistration"] = false },
 			["diagnostics"] = new JsonObject { ["refreshSupport"] = true },
 			["semanticTokens"] = new JsonObject { ["refreshSupport"] = true },
+			["codeLens"] = new JsonObject { ["refreshSupport"] = true },
 		},
 		["window"] = new JsonObject {
 			["workDoneProgress"] = true,

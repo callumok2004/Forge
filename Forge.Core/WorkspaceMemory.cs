@@ -38,6 +38,14 @@ public sealed class WorkspaceMemory
 
 	public string? DebugConfiguration { get; set; }
 
+	public List<string> ExpandedFolders { get; set; } = [];
+
+	public Dictionary<string, EditorViewState> ViewStates { get; set; } = [];
+
+	public List<string> QuickOpenHistory { get; set; } = [];
+
+	public List<string> CollapsedSections { get; set; } = [];
+
 	public static WorkspaceMemory Load(string root) {
 		string path = PathFor(root);
 
@@ -87,6 +95,8 @@ public sealed class WorkspaceMemory
 		return Path.Combine(UserData.WorkspacesDirectory, name + ".json");
 	}
 }
+
+public sealed record EditorViewState(int Anchor, int Caret, float ScrollTop);
 
 [JsonSourceGenerationOptions(WriteIndented = true)]
 [JsonSerializable(typeof(WorkspaceMemory))]

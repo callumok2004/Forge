@@ -8,6 +8,27 @@
 		<Content Include="Grammars\*.json" CopyToOutputDirectory="PreserveNewest" />
 	</ItemGroup>
 
+	<PropertyGroup>
+		<BundledGrammars>csharp json jsonc xml markdown powershell yaml</BundledGrammars>
+		<BundledRegexFile>$(BaseIntermediateOutputPath)generated\BundledRegexes.g.cs</BundledRegexFile>
+		<GrammarGenerator>$(MSBuildThisFileDirectory)..\tools\Forge.Syntax.Generator\Forge.Syntax.Generator.csproj</GrammarGenerator>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<GrammarGeneratorInput Include="Grammars\*.tmLanguage.json;TextMate\OnigTranslate.cs;..\tools\Forge.Syntax.Generator\*.cs;$(MSBuildThisFileFullPath)" />
+	</ItemGroup>
+
+	<Target Name="GenerateBundledRegexes" BeforeTargets="CoreCompile" Inputs="@(GrammarGeneratorInput)" Outputs="$(BundledRegexFile)">
+		<Exec Command="dotnet run --project &quot;$(GrammarGenerator)&quot; -c Release -- &quot;$(MSBuildThisFileDirectory)Grammars&quot; &quot;$(BundledRegexFile)&quot; $(BundledGrammars)" />
+		<Touch Files="$(BundledRegexFile)" />
+	</Target>
+
+	<Target Name="IncludeBundledRegexes" BeforeTargets="CoreCompile" AfterTargets="GenerateBundledRegexes">
+		<ItemGroup>
+			<Compile Include="$(BundledRegexFile)" />
+		</ItemGroup>
+	</Target>
+
 	<ItemGroup>
 		<ProjectReference Include="..\Forge.Text\Forge.Text.csproj" />
 		<ProjectReference Include="..\Forge.Theming\Forge.Theming.csproj" />

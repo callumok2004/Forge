@@ -68,6 +68,10 @@ public sealed class Painter : IPainter, IDisposable
 
 	ITextFont IPainter.GetCodeSmall() => CodeSmall;
 
+	ITextFont IPainter.GetCodeLens() => _fonts.CodeLens;
+
+	ITextFont IPainter.GetUiDescription() => _fonts.UiDescription;
+
 	ITextFont IPainter.GetUi() => Ui;
 
 	ITextFont IPainter.GetUiStrong() => UiStrong;

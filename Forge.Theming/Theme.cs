@@ -14,6 +14,27 @@ public static class Theme
 	public static readonly Color CurrentLineBackground = Color.Parse("#121b2d");
 	public static readonly Color SelectionBackground = Color.Parse("#1f5bff40");
 	public static readonly Color EditorLinkActiveForeground = Color.Parse("#4e94ce");
+	public static readonly Color EditorCodeLensForeground = Color.Parse("#4a5568");
+	public static readonly Color EditorInlayHintForeground = Color.Parse("#7d8aa0");
+	public static readonly Color EditorInlayHintBackground = Color.Parse("#1a2232");
+	public static readonly Color EditorInfoForeground = Color.Parse("#5aa8ff");
+	public static readonly Color EditorHoverBorder = Color.Parse("#263149");
+	public static readonly Color EditorHoverHighlightBackground = Color.Parse("#264f7840");
+	public static readonly Color EditorInlineValuesForeground = Color.Parse("#ffffff80");
+	public static readonly Color EditorInlineValuesBackground = Color.Parse("#ffc80033");
+
+	public static readonly Color PeekViewBorder = Color.Parse("#263149");
+	public static readonly Color PeekViewTitleBackground = Color.Parse("#121722");
+	public static readonly Color PeekViewTitleForeground = Color.Parse("#ffffff");
+	public static readonly Color PeekViewTitleInfoForeground = Color.Parse("#ccccccb3");
+	public static readonly Color PeekViewEditorBackground = Color.Parse("#0f141e");
+	public static readonly Color PeekViewEditorMatchHighlight = Color.Parse("#e3b34133");
+	public static readonly Color PeekViewResultBackground = Color.Parse("#121722");
+	public static readonly Color PeekViewResultLineForeground = Color.Parse("#bbbbbb");
+	public static readonly Color PeekViewResultFileForeground = Color.Parse("#ffffff");
+	public static readonly Color PeekViewResultSelectionBackground = Color.Parse("#17305e");
+	public static readonly Color PeekViewResultSelectionForeground = Color.Parse("#ffffff");
+	public static readonly Color PeekViewResultMatchHighlight = Color.Parse("#e3b34133");
 	public static readonly Color EditorLightBulbForeground = Color.Parse("#ffcc00");
 	public static readonly Color EditorLightBulbAutoFixForeground = Color.Parse("#75beff");
 	public static readonly Color WordHighlightBackground = Color.Parse("#575757b8");

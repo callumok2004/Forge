@@ -51,6 +51,6 @@ public sealed class ReferencesView : Panel
 		painter.DrawText(font, label, cursor, baseline, Theme.SectionHeaderForeground);
 		cursor += font.Measure(label) + (Metrics.Space12 * scale);
 
-		painter.DrawText(font, location.Preview, cursor, baseline, Theme.EditorForeground);
+		painter.DrawText(font, location.Preview.AsSpan().Trim(), cursor, baseline, Theme.EditorForeground);
 	}
 }

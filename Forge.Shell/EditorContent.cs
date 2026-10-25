@@ -64,7 +64,15 @@ public sealed class EditorContent : Panel
 		if (_workbench.ActiveView is not { } view) return;
 
 		bool inGlyphMargin = x < TextView.GlyphMarginWidth;
-		Cursor = inGlyphMargin ? CursorCode.Arrow : _linkActive ? CursorCode.Hand : CursorCode.IBeam;
+		(float lensX, float lensY) = Absolute(x, y);
+		int lens = _selecting ? -1 : view.CodeLensAt(lensX, lensY);
+
+		if (lens != view.HoveredLens) {
+			view.HoveredLens = lens;
+			Repaint();
+		}
+
+		Cursor = inGlyphMargin ? CursorCode.Arrow : _linkActive || lens >= 0 ? CursorCode.Hand : CursorCode.IBeam;
 
 		int gutterLine = inGlyphMargin ? view.Snapshot.GetLineAt(OffsetAt(view, x, y)) : -1;
 
@@ -150,6 +158,12 @@ public sealed class EditorContent : Panel
 		if (view.LightbulbBounds is { } bulb && absoluteX >= bulb.Left && absoluteX < bulb.Left + bulb.Width && absoluteY >= bulb.Top && absoluteY < bulb.Top + bulb.Height) {
 			_workbench.IntelliSense?.OpenLightbulbMenu(bulb.Left, bulb.Top + bulb.Height);
 			Pressed?.Invoke();
+			return true;
+		}
+
+		if (view.IsInCodeLensRow(absoluteY)) {
+			if (view.CodeLensAt(absoluteX, absoluteY) is >= 0 and int lens) _workbench.IntelliSense?.ExecuteCodeLens(lens);
+
 			return true;
 		}
 

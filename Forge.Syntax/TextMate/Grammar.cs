@@ -33,27 +33,27 @@ public sealed class GrammarRule
 
 	public Dictionary<int, GrammarRule>? EndCaptureRules { get; init; }
 
-	private Regex? _match;
-	private Regex? _begin;
-	private Regex? _end;
-	private Regex? _while;
+	private TieredRegex? _match;
+	private TieredRegex? _begin;
+	private TieredRegex? _end;
+	private TieredRegex? _while;
 	private bool _compiled;
 
-	public Regex? MatchRegex => Compiled()._match;
+	public TieredRegex? MatchRegex => Compiled()._match;
 
-	public Regex? BeginRegex => Compiled()._begin;
+	public TieredRegex? BeginRegex => Compiled()._begin;
 
-	public Regex? EndRegex => Compiled()._end;
+	public TieredRegex? EndRegex => Compiled()._end;
 
-	public Regex? WhileRegex => Compiled()._while;
+	public TieredRegex? WhileRegex => Compiled()._while;
 
 	private GrammarRule Compiled() {
 		if (_compiled) return this;
 
-		_match = Match is { } match ? OnigTranslate.Compile(match) : null;
-		_begin = Begin is { } begin ? OnigTranslate.Compile(begin) : null;
-		_end = End is { } end ? OnigTranslate.Compile(end) : null;
-		_while = While is { } loop ? OnigTranslate.Compile(loop) : null;
+		_match = Match is { } match ? TieredRegex.For(match) : null;
+		_begin = Begin is { } begin ? TieredRegex.For(begin) : null;
+		_end = End is { } end ? TieredRegex.For(end) : null;
+		_while = While is { } loop ? TieredRegex.For(loop) : null;
 		_compiled = true;
 
 		return this;

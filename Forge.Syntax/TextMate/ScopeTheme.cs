@@ -15,20 +15,57 @@ public sealed class ScopeTheme
 
 	public Color Foreground { get; }
 
-	private readonly record struct Rule(string[] Path, Color Color, int Order)
+	private const int CacheLimit = 8192;
+
+	private readonly System.Collections.Concurrent.ConcurrentDictionary<IReadOnlyList<string>, Color> _cache = new(ScopesComparer.Instance);
+
+	private readonly record struct Rule(string[] Path, Color Color, int Order, int Specificity)
 	{
-		public int Specificity {
-			get {
-				int total = 0;
+		public static int Measure(string[] path) {
+			int total = 0;
 
-				foreach (string part in Path) total += part.Count(static c => c == '.') + 1;
+			foreach (string part in path) total += part.AsSpan().Count('.') + 1;
 
-				return total;
-			}
+			return total;
+		}
+	}
+
+	private sealed class ScopesComparer : IEqualityComparer<IReadOnlyList<string>>
+	{
+		public static readonly ScopesComparer Instance = new();
+
+		public bool Equals(IReadOnlyList<string>? left, IReadOnlyList<string>? right) {
+			if (ReferenceEquals(left, right)) return true;
+
+			if (left is null || right is null || left.Count != right.Count) return false;
+
+			for (int i = 0; i < left.Count; i++)
+				if (!string.Equals(left[i], right[i], StringComparison.Ordinal)) return false;
+
+			return true;
+		}
+
+		public int GetHashCode(IReadOnlyList<string> scopes) {
+			HashCode hash = new();
+
+			for (int i = 0; i < scopes.Count; i++) hash.Add(scopes[i], StringComparer.Ordinal);
+
+			return hash.ToHashCode();
 		}
 	}
 
 	public Color ColorFor(IReadOnlyList<string> scopes) {
+		if (_cache.TryGetValue(scopes, out Color cached)) return cached;
+
+		Color resolved = Resolve(scopes);
+
+		if (_cache.Count >= CacheLimit) _cache.Clear();
+
+		_cache[scopes] = resolved;
+		return resolved;
+	}
+
+	private Color Resolve(IReadOnlyList<string> scopes) {
 		for (int at = scopes.Count - 1; at >= 0; at--) {
 			Color best = Foreground;
 			int bestSpecificity = -1;
@@ -101,7 +138,7 @@ public sealed class ScopeTheme
 					string[] parts = selector.Split(' ',
 						StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-					if (parts.Length > 0) theme._rules.Add(new Rule(parts, colour, order));
+					if (parts.Length > 0) theme._rules.Add(new Rule(parts, colour, order, Rule.Measure(parts)));
 				}
 
 				order++;

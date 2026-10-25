@@ -36,6 +36,16 @@ public sealed record DefinitionResult(int OriginLine, int OriginStartColumn, int
 	public bool HasOrigin => OriginLine > 0;
 }
 
+public readonly record struct EvaluatableExpression(int StartColumn, int EndColumn, string Expression);
+
+public readonly record struct InlineValueLookup(int Line, int StartColumn, int EndColumn, string Name);
+
+public readonly record struct CodeLensEntry(int Index, int Line, int Column, string? Title);
+
+public readonly record struct CodeLensTitle(string Text, bool IsCommand);
+
+public sealed record CodeLensReferences(string Title, int Line, int Column, IReadOnlyList<HostLocation> Locations);
+
 public readonly record struct CodeActionEntry(int Index, string Title, string Kind, bool IsPreferred, string? DisabledReason);
 
 public readonly record struct RenameTarget(int Line, int StartColumn, int EndColumn, string Placeholder);

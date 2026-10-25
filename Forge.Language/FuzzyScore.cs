@@ -27,17 +27,26 @@ public static class FuzzyScore
 
 	private const int Stride = MaxLength + 1;
 
-	public static bool TryScore(string pattern, string word, out int score, out int[] matches) {
+	public const int MaxMatches = MaxLength;
+
+	public static bool TryScore(ReadOnlySpan<char> pattern, ReadOnlySpan<char> word, out int score) => TryScore(pattern, word, out score, [], out _);
+
+	public static bool TryScore(ReadOnlySpan<char> pattern, ReadOnlySpan<char> word, out int score, Span<int> matches, out int matchCount) {
 		score = 0;
-		matches = [];
+		matchCount = 0;
 
 		int patternLength = Math.Min(pattern.Length, MaxLength);
 		int wordLength = Math.Min(word.Length, MaxLength);
 
 		if (patternLength == 0 || wordLength == 0 || patternLength > wordLength) return false;
 
-		string patternLow = pattern.ToLowerInvariant();
-		string wordLow = word.ToLowerInvariant();
+		pattern = pattern[..patternLength];
+		word = word[..wordLength];
+
+		Span<char> patternLow = stackalloc char[patternLength];
+		Span<char> wordLow = stackalloc char[wordLength];
+		pattern.ToLowerInvariant(patternLow);
+		word.ToLowerInvariant(wordLow);
 
 		int[] table = _table ??= new int[Stride * Stride];
 		int[] diagonal = _diagonal ??= new int[Stride * Stride];
@@ -129,7 +138,7 @@ public static class FuzzyScore
 		int backwardsDiagLength = 0;
 		int maxMatchColumn = 0;
 
-		List<int> positions = [];
+		bool record = matches.Length >= patternLength;
 
 		while (currentRow >= 1) {
 			int diagColumn = currentColumn;
@@ -153,20 +162,18 @@ public static class FuzzyScore
 
 			currentRow--;
 			currentColumn = diagColumn - 1;
-			positions.Add(currentColumn);
+			if (record) matches[currentRow] = currentColumn;
 		}
 
 		if (wordLength == patternLength) score += 2;
 
 		score -= maxMatchColumn - patternLength;
-
-		positions.Reverse();
-		matches = [.. positions];
+		matchCount = record ? patternLength : 0;
 
 		return true;
 	}
 
-	private static bool IsPatternInWord(string patternLow, int patternLength, string wordLow,
+	private static bool IsPatternInWord(ReadOnlySpan<char> patternLow, int patternLength, ReadOnlySpan<char> wordLow,
 		int wordLength, int[] minWordMatchPos) {
 		int patternPos = 0;
 		int wordPos = 0;
@@ -183,8 +190,8 @@ public static class FuzzyScore
 		return patternPos == patternLength;
 	}
 
-	private static void FillMaxWordMatchPos(int patternLength, int wordLength, string patternLow,
-		string wordLow, int[] maxWordMatchPos) {
+	private static void FillMaxWordMatchPos(int patternLength, int wordLength, ReadOnlySpan<char> patternLow,
+		ReadOnlySpan<char> wordLow, int[] maxWordMatchPos) {
 		int patternPos = patternLength - 1;
 		int wordPos = wordLength - 1;
 
@@ -198,8 +205,8 @@ public static class FuzzyScore
 		}
 	}
 
-	private static int DoScore(string pattern, string patternLow, int patternPos, string word,
-		string wordLow, int wordPos, int wordLength, bool newMatchStart, ref bool firstMatchStrong) {
+	private static int DoScore(ReadOnlySpan<char> pattern, ReadOnlySpan<char> patternLow, int patternPos, ReadOnlySpan<char> word,
+		ReadOnlySpan<char> wordLow, int wordPos, int wordLength, bool newMatchStart, ref bool firstMatchStrong) {
 		if (patternLow[patternPos] != wordLow[wordPos]) return int.MinValue;
 
 		int score = 1;
@@ -237,14 +244,14 @@ public static class FuzzyScore
 		return score;
 	}
 
-	private static bool IsUpperCaseAt(string word, string wordLow, int index) =>
+	private static bool IsUpperCaseAt(ReadOnlySpan<char> word, ReadOnlySpan<char> wordLow, int index) =>
 		index >= 0 && index < word.Length && word[index] != wordLow[index];
 
-	private static bool IsSeparatorAt(string value, int index) =>
+	private static bool IsSeparatorAt(ReadOnlySpan<char> value, int index) =>
 		index >= 0 && index < value.Length && value[index] is
 			'_' or '-' or '.' or ' ' or '/' or '\\' or '\'' or '"' or ':' or '$' or '<' or '>' or
 			'(' or ')' or '[' or ']' or '{' or '}';
 
-	private static bool IsWhitespaceAt(string value, int index) =>
+	private static bool IsWhitespaceAt(ReadOnlySpan<char> value, int index) =>
 		index >= 0 && index < value.Length && value[index] is ' ' or '\t';
 }

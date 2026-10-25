@@ -50,31 +50,56 @@ public sealed partial class GrammarTokenizer(Grammar grammar)
 	public GrammarState Tokenize(string line, GrammarState state, List<ScopedToken> into) =>
 		Tokenize(line, state, into, 0, null);
 
+	private readonly record struct CachedMatch(int From, Match? Result);
+
+	private readonly Stack<Dictionary<TieredRegex, CachedMatch>> _cachePool = [];
+	private readonly Stack<HashSet<(GrammarRule, int)>> _exhaustedPool = [];
+
+	private static Match? Search(TieredRegex regex, string line, int position, Dictionary<TieredRegex, CachedMatch> cache) {
+		if (cache.TryGetValue(regex, out CachedMatch cached) && cached.From <= position && (cached.Result is null || cached.Result.Index >= position)) return cached.Result;
+
+		Match match = regex.Use().Match(line, position);
+		Match? result = match.Success ? match : null;
+
+		if (!regex.AnchorsAtStart) cache[regex] = new CachedMatch(position, result);
+
+		return result;
+	}
+
 	public GrammarState Tokenize(string line, GrammarState state, List<ScopedToken> into, int from,
 		IReadOnlyList<string>? baseScopes) {
 		state = ContinueWhile(line, state);
 
-		IReadOnlyList<string>?[] map = new IReadOnlyList<string>?[line.Length];
+		IReadOnlyList<string>?[] map = System.Buffers.ArrayPool<IReadOnlyList<string>?>.Shared.Rent(Math.Max(line.Length, 1));
+		Dictionary<TieredRegex, CachedMatch> cache = _cachePool.Count > 0 ? _cachePool.Pop() : new(ReferenceEqualityComparer.Instance);
+		HashSet<(GrammarRule, int)> exhausted = _exhaustedPool.Count > 0 ? _exhaustedPool.Pop() : [];
 
+		try {
+			return Tokenize(line, state, into, from, baseScopes, map.AsSpan(0, line.Length), cache, exhausted);
+		}
+		finally {
+			Array.Clear(map, 0, line.Length);
+			System.Buffers.ArrayPool<IReadOnlyList<string>?>.Shared.Return(map);
+			cache.Clear();
+			_cachePool.Push(cache);
+			exhausted.Clear();
+			_exhaustedPool.Push(exhausted);
+		}
+	}
+
+	private GrammarState Tokenize(string line, GrammarState state, List<ScopedToken> into, int from,
+		IReadOnlyList<string>? baseScopes, Span<IReadOnlyList<string>?> map, Dictionary<TieredRegex, CachedMatch> cache, HashSet<(GrammarRule, int)> exhausted) {
 		if (baseScopes is not null) state = state.Push(NoRule, baseScopes, null, null);
 
 		IReadOnlyList<string> outermost = state.Scopes;
-
-		HashSet<(GrammarRule, int)> exhausted = [];
 
 		int position = from;
 		int steps = 0;
 
 		while (position <= line.Length && steps++ < MaxStepsPerLine) {
-			Match? endMatch = null;
+			Match? endMatch = state.EndPattern is { } pattern && TieredRegex.For(pattern) is { } endRegex ? Search(endRegex, line, position, cache) : null;
 
-			if (state.EndPattern is { } pattern && OnigTranslate.Compile(pattern) is { } endRegex) {
-				endMatch = endRegex.Match(line, position);
-
-				if (!endMatch.Success) endMatch = null;
-			}
-
-			(GrammarRule? rule, Match? match) = Best(line, position, state, exhausted);
+			(GrammarRule? rule, Match? match) = Best(line, position, state, exhausted, cache);
 
 			bool ending = endMatch is not null && (match is null || endMatch.Index <= match.Index);
 
@@ -162,37 +187,31 @@ public sealed partial class GrammarTokenizer(Grammar grammar)
 
 	private static readonly GrammarRule NoRule = new();
 
-	private static GrammarState ContinueWhile(string line, GrammarState state) {
-		List<GrammarState> stack = [];
+	private static GrammarState ContinueWhile(string line, GrammarState state) => FailedWhile(line, state) ?? state;
 
-		for (GrammarState? at = state; at is not null && at.Rule is not null; at = at.Parent) stack.Add(at);
+	private static GrammarState? FailedWhile(string line, GrammarState? state) {
+		if (state is null || state.Rule is null) return null;
 
-		stack.Reverse();
+		if (FailedWhile(line, state.Parent) is { } outer) return outer;
 
-		foreach (GrammarState entry in stack) {
-			if (entry.WhilePattern is not { } pattern) continue;
+		if (state.WhilePattern is not { } pattern) return null;
 
-			if (OnigTranslate.Compile(pattern) is not { } regex || !regex.IsMatch(line)) return entry.Pop();
-		}
-
-		return state;
+		return TieredRegex.For(pattern) is not { } regex || !regex.Use().IsMatch(line) ? state.Pop() : null;
 	}
 
 	private (GrammarRule?, Match?) Best(string line, int position, GrammarState state,
-		HashSet<(GrammarRule, int)> exhausted) {
+		HashSet<(GrammarRule, int)> exhausted, Dictionary<TieredRegex, CachedMatch> cache) {
 		GrammarRule? bestRule = null;
 		Match? best = null;
 
-		IReadOnlyList<GrammarRule> candidates = Flatten(state.Rule?.Patterns ?? Grammar.Patterns);
+		List<GrammarRule> candidates = Flatten(state.Rule?.Patterns ?? Grammar.Patterns);
 
 		foreach (GrammarRule candidate in candidates) {
-			Regex? regex = candidate.MatchRegex ?? candidate.BeginRegex;
+			TieredRegex? regex = candidate.MatchRegex ?? candidate.BeginRegex;
 
 			if (regex is null) continue;
 
-			Match match = regex.Match(line, position);
-
-			if (!match.Success || (best is not null && match.Index >= best.Index)) continue;
+			if (Search(regex, line, position, cache) is not { } match || (best is not null && match.Index >= best.Index)) continue;
 
 			if (match.Length == 0 && candidate.Begin is not null &&
 				exhausted.Contains((candidate, match.Index))) continue;
@@ -261,14 +280,14 @@ public sealed partial class GrammarTokenizer(Grammar grammar)
 
 	private static readonly Regex Substitution = MyRegex();
 
-	private static void Paint(IReadOnlyList<string>?[] map, int start, int length,
+	private static void Paint(Span<IReadOnlyList<string>?> map, int start, int length,
 		IReadOnlyList<string> scopes) {
 		int end = Math.Min(start + length, map.Length);
 
 		for (int i = Math.Max(0, start); i < end; i++) map[i] = scopes;
 	}
 
-	private static void Coalesce(IReadOnlyList<string>?[] map, IReadOnlyList<string> fallback,
+	private static void Coalesce(Span<IReadOnlyList<string>?> map, IReadOnlyList<string> fallback,
 		List<ScopedToken> into) {
 		int start = 0;
 
@@ -280,37 +299,7 @@ public sealed partial class GrammarTokenizer(Grammar grammar)
 		}
 	}
 
-	private void PaintMatchCaptures(IReadOnlyList<string>?[] map, string line, Match match,
-		GrammarRule rule, IReadOnlyList<string> scopes) {
-		if (rule.Captures is null && rule.CaptureRules is null) return;
-
-		for (int group = 1; group < match.Groups.Count; group++) {
-			Group captured = match.Groups[group];
-
-			if (!captured.Success || captured.Length == 0) continue;
-
-			string? name = rule.Captures?.GetValueOrDefault(group);
-			GrammarRule? nested = rule.CaptureRules?.GetValueOrDefault(group);
-
-			if (name is null && nested is null) continue;
-
-			IReadOnlyList<string> captureScopes = With(scopes, name, match);
-			Paint(map, captured.Index, captured.Length, captureScopes);
-
-			if (nested is null) continue;
-
-			List<ScopedToken> inner = [];
-
-			Tokenize(line[..(captured.Index + captured.Length)], GrammarState.Root, inner,
-				captured.Index, captureScopes);
-
-			foreach (ScopedToken token in inner) {
-				if (token.Start >= captured.Index) Paint(map, token.Start, token.Length, token.Scopes);
-			}
-		}
-	}
-
-	private void PaintCaptures(IReadOnlyList<string>?[] map, string line, IReadOnlyList<string> scopes,
+	private void PaintCaptures(Span<IReadOnlyList<string>?> map, string line, IReadOnlyList<string> scopes,
 		Match match, Dictionary<int, string>? captures, Dictionary<int, GrammarRule>? captureRules) {
 		if (captures is null && captureRules is null) return;
 
@@ -331,9 +320,9 @@ public sealed partial class GrammarTokenizer(Grammar grammar)
 		}
 	}
 
-	private void Retokenize(IReadOnlyList<string>?[] map, string line, Group captured,
+	private void Retokenize(Span<IReadOnlyList<string>?> map, string line, Group captured,
 		IReadOnlyList<string> scopes, GrammarRule rule) {
-		List<ScopedToken> inner = [];
+		List<ScopedToken> inner = _innerPool.Count > 0 ? _innerPool.Pop() : [];
 
 		GrammarState state = GrammarState.Root.Push(rule, scopes, null, null);
 
@@ -344,19 +333,12 @@ public sealed partial class GrammarTokenizer(Grammar grammar)
 				Paint(map, token.Start, token.Length, token.Scopes);
 			}
 		}
+
+		inner.Clear();
+		_innerPool.Push(inner);
 	}
 
-	private static IReadOnlyList<string> Concat(IReadOnlyList<string> outer, IReadOnlyList<string> inner) {
-		if (inner.Count == 0) return outer;
-
-		string[] all = new string[outer.Count + inner.Count];
-
-		for (int i = 0; i < outer.Count; i++) all[i] = outer[i];
-
-		for (int i = 0; i < inner.Count; i++) all[outer.Count + i] = inner[i];
-
-		return all;
-	}
+	private readonly Stack<List<ScopedToken>> _innerPool = [];
 
 	private static string? Substitute(string? pattern, Match begin) {
 		if (pattern is null || !pattern.Contains('\\')) return pattern;

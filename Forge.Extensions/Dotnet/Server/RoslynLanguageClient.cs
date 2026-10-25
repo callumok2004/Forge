@@ -34,9 +34,12 @@ public sealed partial class RoslynLanguageClient : IDisposable
 		Highlights = new HighlightRequests(this);
 		Rename = new RenameRequests(this);
 		CodeActions = new CodeActionRequests(this);
+		CodeLenses = new CodeLensRequests(this);
 	}
 
 	public CodeActionRequests CodeActions { get; }
+
+	public CodeLensRequests CodeLenses { get; }
 
 	public RenameRequests Rename { get; }
 
@@ -286,6 +289,7 @@ public sealed partial class RoslynLanguageClient : IDisposable
 
 			case "workspace/projectInitializationComplete":
 				SetState(LanguageServerState.Running, "Ready");
+				CodeLenses.Invalidate();
 				ProjectsLoaded?.Invoke();
 				break;
 

@@ -17,4 +17,6 @@ public interface IEditorHost
 	void GoTo(string path, int line, int column);
 
 	void ShowReferences(string title, IReadOnlyList<HostLocation> locations);
+
+	void PeekReferences(string title, int line, int column, IReadOnlyList<HostLocation> locations);
 }

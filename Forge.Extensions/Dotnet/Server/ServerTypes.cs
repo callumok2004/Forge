@@ -1,6 +1,6 @@
 namespace Forge.Extensions.Dotnet.Server;
 
-public readonly record struct ServerLocation(string Path, int Line, int Column, string Preview);
+public readonly record struct ServerLocation(string Path, int Line, int Column, int EndLine, int EndColumn, string Preview);
 
 public readonly record struct ServerSymbol(string Name, int Kind, int Depth, int Line, int Column);
 
@@ -23,7 +23,7 @@ public sealed record ProjectContexts(IReadOnlyList<ProjectContext> All, int Defa
 	}
 }
 
-public readonly record struct ServerToken(int Line, int StartColumn, int Length, string Type);
+public readonly record struct ServerToken(int Line, int StartColumn, int Length, string Type, bool IsStatic = false);
 
 public readonly record struct ServerCompletion(int Index, string Label, string LabelDetail, string LabelDescription, string InsertText, string Detail, string Kind, string SortText, string FilterText, bool Preselect, int ReplaceLine, int ReplaceStartColumn, int ReplaceEndColumn);
 

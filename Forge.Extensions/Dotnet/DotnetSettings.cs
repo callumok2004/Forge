@@ -30,6 +30,8 @@ public sealed class DotnetSettings
 
 	public bool InsertSpaces { get; private set; } = true;
 
+	public bool FormatOnType { get; private set; }
+
 	public string StorageDirectory { get; init; } = UserData.Directory;
 
 	public void Read(Settings settings) {
@@ -45,6 +47,7 @@ public sealed class DotnetSettings
 		PreserveCommentIndentation = settings.GetBoolean("dotnet.formatting.preserveCommentIndentation") ?? PreserveCommentIndentation;
 		TabSize = settings.GetInt32("editor.tabSize") ?? TabSize;
 		InsertSpaces = settings.GetBoolean("editor.insertSpaces") ?? InsertSpaces;
+		FormatOnType = settings.GetBoolean("editor.formatOnType") ?? false;
 	}
 
 	private static Dictionary<string, string> ReadEnvironment(JsonNode? node) {

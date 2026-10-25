@@ -377,6 +377,8 @@ public sealed class DebugService : IDebug, IDisposable
 		_output += handler;
 	}
 
+	public DebugCapabilities GetCapabilities() => _session?.Capabilities ?? new DebugCapabilities();
+
 	public Task<IReadOnlyList<DebugScope>> ScopesAsync(int frameId) =>
 		_session?.ScopesAsync(frameId) ?? Task.FromResult<IReadOnlyList<DebugScope>>([]);
 
@@ -390,7 +392,7 @@ public sealed class DebugService : IDebug, IDisposable
 	private void WithThread(Func<DebugSession, int, Task> action) {
 		if (_session is not { } session) return;
 
-		int thread = session.StoppedThreadId ?? (session.Threads.Count > 0 ? session.Threads[0].Id : 0);
+		int thread = FocusedThreadId ?? session.StoppedThreadId ?? (session.Threads.Count > 0 ? session.Threads[0].Id : 0);
 
 		if (thread == 0) return;
 
@@ -400,8 +402,27 @@ public sealed class DebugService : IDebug, IDisposable
 	private async Task RefreshCallStackAsync(DebugSession session) {
 		if (session.StoppedThreadId is not { } thread) return;
 
-		IReadOnlyList<DebugStackFrame> frames = await session.StackTraceAsync(thread, 0, 200)
-			.ConfigureAwait(false);
+		IReadOnlyList<DebugStackFrame> frames = await session.StackTraceAsync(thread, 0, 200).ConfigureAwait(false);
+		DebugStackFrame? top = TopStackFrame(frames, session.StopReason);
+
+		if (top is null) {
+			await session.RefreshThreadsAsync().ConfigureAwait(false);
+
+			foreach (DebugThread candidate in session.Threads) {
+				if (candidate.Id == thread) continue;
+
+				IReadOnlyList<DebugStackFrame> other = await session.StackTraceAsync(candidate.Id, 0, 200).ConfigureAwait(false);
+
+				if (TopStackFrame(other, session.StopReason) is not { } found) continue;
+
+				thread = candidate.Id;
+				frames = other;
+				top = found;
+				break;
+			}
+		}
+
+		FocusedThreadId = thread;
 
 		lock (_callStack) {
 			_callStack.Clear();
@@ -409,20 +430,38 @@ public sealed class DebugService : IDebug, IDisposable
 		}
 
 		if (frames.Count > 0) {
-			_focusedFrameId = frames[0].Id;
+			DebugStackFrame focused = top ?? frames[0];
+			_focusedFrameId = focused.Id;
 
 			DebugExceptionInfo? exception = session.StopReason == "exception" ? await session.ExceptionInfoAsync(thread).ConfigureAwait(false) : null;
 
-			if (frames[0].SourcePath is { Length: > 0 } path) RevealSource?.Invoke(new DebugReveal(path, frames[0].Line, frames[0].Column, true, exception));
+			if (focused.SourcePath is { Length: > 0 } path) RevealSource?.Invoke(new DebugReveal(path, focused.Line, focused.Column, focused == frames[0], exception));
 		}
 
 		_modelChanged?.Invoke();
 	}
 
+	private static readonly string[] KeepSubtleFrameAtTopReasons = ["breakpoint", "step", "function breakpoint"];
+
+	public static DebugStackFrame? TopStackFrame(IReadOnlyList<DebugStackFrame> frames, string? stopReason) {
+		bool keepSubtle = stopReason is not null && Array.IndexOf(KeepSubtleFrameAtTopReasons, stopReason) >= 0;
+
+		foreach (DebugStackFrame frame in frames) {
+			if (frame.SourcePath is not { Length: > 0 } path || !File.Exists(path)) continue;
+
+			if (keepSubtle || frame.PresentationHint is not ("deemphasize" or "subtle")) return frame;
+		}
+
+		return null;
+	}
+
+	public int? FocusedThreadId { get; private set; }
+
 	private void ClearCallStack() {
 		lock (_callStack) _callStack.Clear();
 
 		_focusedFrameId = -1;
+		FocusedThreadId = null;
 		ExceptionCleared?.Invoke();
 		_modelChanged?.Invoke();
 	}

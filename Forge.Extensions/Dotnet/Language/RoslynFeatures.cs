@@ -64,7 +64,7 @@ public sealed class RoslynFeatures(RoslynLanguageClient server, DotnetSettings s
 
 	public async Task<IReadOnlyList<HostLocation>> ReferencesAsync(string path, int line, int column) => Locations(await server.Navigation.ReferencesAsync(path, line, column).ConfigureAwait(false));
 
-	private static HostLocation[] Locations(IReadOnlyList<ServerLocation> found) => [.. found.Select(static location => new HostLocation(location.Path, location.Line, location.Column, location.Preview))];
+	private static HostLocation[] Locations(IReadOnlyList<ServerLocation> found) => [.. found.Select(static location => new HostLocation(location.Path, location.Line, location.Column, location.EndLine, location.EndColumn, location.Preview))];
 
 	public async Task<IReadOnlyList<CodeActionEntry>> CodeActionsAsync(string path, int startLine, int startColumn, int endLine, int endColumn, bool automatic) {
 		IReadOnlyList<ServerCodeAction> found = await server.CodeActions.RequestAsync(path, startLine, startColumn, endLine, endColumn, automatic).ConfigureAwait(false);
@@ -74,6 +74,40 @@ public sealed class RoslynFeatures(RoslynLanguageClient server, DotnetSettings s
 
 	public Task ExecuteCodeActionAsync(int index) => actions.ExecuteAsync(host, index);
 
+	public EvaluatableExpression? EvaluatableExpressionAt(string path, int line, string lineText, int column) => Debugger.DebugExpressions.Evaluatable(lineText, line, column, server.SemanticTokens.Cached(path));
+
+	public bool ProvidesInlineValues => true;
+
+	public void InlineValues(string path, int firstLine, int lastLine, Func<int, string> lineText, List<InlineValueLookup> into) => Debugger.DebugExpressions.InlineValues(firstLine, lastLine, lineText, into);
+
+	public int CodeLensVersion => server.CodeLenses.Version;
+
+	public async Task<IReadOnlyList<CodeLensEntry>> CodeLensesAsync(string path) {
+		IReadOnlyList<ServerCodeLens> lenses = await server.CodeLenses.RequestAsync(path).ConfigureAwait(false);
+
+		return [.. lenses.Select(static lens => new CodeLensEntry(lens.Index, lens.Line, lens.Column, lens.Title))];
+	}
+
+	public async Task<CodeLensTitle?> ResolveCodeLensAsync(string path, int index) => await server.CodeLenses.ResolveAsync(path, index).ConfigureAwait(false) is { } command ? new CodeLensTitle(command.Title, command.Command is { Length: > 0 }) : null;
+
+	public async Task<CodeLensReferences?> ExecuteCodeLensAsync(string path, int index) {
+		if (await server.CodeLenses.ResolveAsync(path, index).ConfigureAwait(false) is not { Command: { Length: > 0 } id } command) return null;
+
+		if (id == PeekReferencesCommand) {
+			if (command.Arguments is not [_, { } position, ..]) return null;
+
+			int line = LspJson.Line(position);
+			int column = LspJson.Column(position);
+
+			return new CodeLensReferences(command.Title, line, column, await ReferencesAsync(path, line, column).ConfigureAwait(false));
+		}
+
+		await server.Workspace.ExecuteAsync(new ServerCommand(command.Title, id, command.Arguments)).ConfigureAwait(false);
+		return null;
+	}
+
+	private const string PeekReferencesCommand = "roslyn.client.peekReferences";
+
 	public Task<RenameTarget?> PrepareRenameAsync(string path, int line, int column) => server.Rename.PrepareAsync(path, line, column);
 
 	public Task<WorkspaceEdit?> RenameAsync(string path, int line, int column, string newName) => server.Rename.RenameAsync(path, line, column, newName);
@@ -81,7 +115,7 @@ public sealed class RoslynFeatures(RoslynLanguageClient server, DotnetSettings s
 	public LanguageTriggers GetTriggers() {
 		ServerTriggers triggers = server.Typing.Triggers;
 
-		return new LanguageTriggers(triggers.Suggest, triggers.Signature, triggers.SignatureRetrigger, triggers.OnTypeFormatting, triggers.AutoInsert);
+		return new LanguageTriggers(triggers.Suggest, triggers.Signature, triggers.SignatureRetrigger, settings.FormatOnType ? triggers.OnTypeFormatting : string.Empty, triggers.AutoInsert);
 	}
 
 	public async Task<IReadOnlyList<HostTextEdit>> OnTypeFormattingAsync(string path, int line, int column, char character) {

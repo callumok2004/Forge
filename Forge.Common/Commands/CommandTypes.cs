@@ -19,7 +19,7 @@ public readonly record struct CompletionDetail(string Detail, string Documentati
 
 public sealed record SignatureHelp(string Label, IReadOnlyList<(int Start, int Length)> Parameters, string Documentation, int ParameterIndex, int OverloadIndex, int OverloadCount);
 
-public readonly record struct HostLocation(string Path, int Line, int Column, string Preview);
+public readonly record struct HostLocation(string Path, int Line, int Column, int EndLine, int EndColumn, string Preview);
 
 public readonly record struct SemanticToken(int Line, int StartColumn, int Length, uint Color);
 

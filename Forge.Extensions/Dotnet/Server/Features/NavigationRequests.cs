@@ -19,6 +19,7 @@ public sealed class NavigationRequests(RoslynLanguageClient client)
 
 		JsonNode? result = await client.RequestAsync(method, parameters).ConfigureAwait(false);
 		List<ServerLocation> locations = [];
+		Dictionary<string, string[]> lines = new(StringComparer.OrdinalIgnoreCase);
 
 		foreach (JsonNode? entry in result as JsonArray ?? (result is null ? [] : [result])) {
 			string? uri = entry?["uri"]?.GetValue<string>() ?? entry?["targetUri"]?.GetValue<string>();
@@ -26,9 +27,12 @@ public sealed class NavigationRequests(RoslynLanguageClient client)
 
 			if (uri is null || range?["start"] is not { } start || await client.PathOfAsync(uri).ConfigureAwait(false) is not { } file) continue;
 
+			JsonNode? end = range["end"] ?? start;
 			int targetLine = LspJson.Line(start);
 
-			locations.Add(new ServerLocation(file, targetLine, LspJson.Column(start), ReadLine(file, targetLine)));
+			if (!lines.TryGetValue(file, out string[]? text)) lines[file] = text = ReadLines(file);
+
+			locations.Add(new ServerLocation(file, targetLine, LspJson.Column(start), LspJson.Line(end), LspJson.Column(end), (uint)(targetLine - 1) < (uint)text.Length ? text[targetLine - 1] : string.Empty));
 		}
 
 		return locations;
@@ -55,17 +59,12 @@ public sealed class NavigationRequests(RoslynLanguageClient client)
 		}
 	}
 
-	private static string ReadLine(string path, int line) {
+	private static string[] ReadLines(string path) {
 		try {
-			int number = 1;
-
-			foreach (string text in File.ReadLines(path)) {
-				if (number++ == line) return text.Trim();
-			}
+			return File.ReadAllLines(path);
 		}
 		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
+			return [];
 		}
-
-		return string.Empty;
 	}
 }

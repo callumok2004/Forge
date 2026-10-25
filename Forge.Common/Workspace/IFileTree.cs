@@ -10,4 +10,7 @@ public interface IFileTree
 	void Flatten(List<FileNode> destination);
 
 	bool Refresh(string directoryPath);
+
+	void CaptureExpanded(List<string> destination);
+	void RestoreExpanded(IReadOnlyList<string> paths);
 }

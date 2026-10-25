@@ -57,6 +57,211 @@ public sealed class TextView : ITextView
 		return total;
 	}
 
+	public readonly record struct LensSegment(string Text, bool IsCommand, int Index);
+
+	public readonly record struct LensLine(int Line, LensSegment[] Segments);
+
+	private sealed class LensRow(int zoneId, LensSegment[] segments)
+	{
+		public readonly int ZoneId = zoneId;
+		public LensSegment[] Segments = segments;
+		public long ShownAt;
+	}
+
+	public const int CodeLensFadeMilliseconds = 100;
+
+	public bool IsCodeLensFading {
+		get {
+			long now = Environment.TickCount64;
+
+			foreach (LensRow row in _lensRows)
+				if (row.ShownAt != 0 && now - row.ShownAt < CodeLensFadeMilliseconds) return true;
+
+			return false;
+		}
+	}
+
+	private static void MarkShown(LensRow row) {
+		if (row.ShownAt != 0) return;
+
+		foreach (LensSegment segment in row.Segments) {
+			if (segment.Text.Length == 0) continue;
+
+			row.ShownAt = Environment.TickCount64;
+			return;
+		}
+	}
+
+	private readonly List<LensRow> _lensRows = [];
+	private readonly List<(float Left, float Top, float Right, float Bottom, int Index)> _lensHits = [];
+
+	public int HoveredLens { get; set; } = -1;
+
+	public void SetCodeLenses(ReadOnlySpan<LensLine> lines, float rowHeight) {
+		StableScroll stable = CaptureScroll();
+
+		ApplyCodeLenses(lines, rowHeight);
+		RestoreScroll(stable);
+	}
+
+	public readonly record struct StableScroll(float ScrollTop, float ContentHeight, int Line, float Delta);
+
+	public StableScroll CaptureScroll() {
+		float lineHeight = LastLineHeight;
+
+		if (ScrollY == 0f) return new StableScroll(0f, ContentHeight(lineHeight), -1, 0f);
+
+		int line = LineAtY(ScrollY, lineHeight);
+
+		return new StableScroll(ScrollY, ContentHeight(lineHeight), line, ScrollY - TopOf(line, lineHeight));
+	}
+
+	public void RestoreScroll(StableScroll stable) {
+		float lineHeight = LastLineHeight;
+
+		if (stable.Line < 0 || (stable.ContentHeight == ContentHeight(lineHeight) && stable.ScrollTop == ScrollY)) return;
+
+		ScrollY = MathF.Max(0f, TopOf(stable.Line, lineHeight) + stable.Delta);
+	}
+
+	private void ApplyCodeLenses(ReadOnlySpan<LensLine> lines, float rowHeight) {
+		int previous = _lensRows.Count;
+		Span<bool> kept = previous <= 256 ? stackalloc bool[previous] : new bool[previous];
+
+		foreach (LensLine line in lines) {
+			int existing = -1;
+
+			for (int i = 0; i < previous; i++) {
+				if (kept[i] || ZoneLine(_lensRows[i].ZoneId) != line.Line) continue;
+
+				existing = i;
+				break;
+			}
+
+			if (existing >= 0) {
+				kept[existing] = true;
+				_lensRows[existing].Segments = line.Segments;
+				MarkShown(_lensRows[existing]);
+				ResizeZone(_lensRows[existing].ZoneId, rowHeight);
+				continue;
+			}
+
+			LensRow added = new(AddZone(line.Line - 1, rowHeight), line.Segments);
+			MarkShown(added);
+			_lensRows.Add(added);
+		}
+
+		for (int i = kept.Length - 1; i >= 0; i--) {
+			if (kept[i]) continue;
+
+			RemoveZone(_lensRows[i].ZoneId);
+			_lensRows.RemoveAt(i);
+		}
+	}
+
+	public void ResolveCodeLens(int index, string text, bool isCommand) {
+		foreach (LensRow row in _lensRows) {
+			for (int i = 0; i < row.Segments.Length; i++)
+				if (row.Segments[i].Index == index) row.Segments[i] = new LensSegment(text, isCommand, index);
+
+			MarkShown(row);
+		}
+	}
+
+	public void VisibleCodeLenses(List<int> destination, float lineHeight) {
+		destination.Clear();
+
+		foreach (LensRow row in _lensRows) {
+			float top = ZoneTop(row.ZoneId, lineHeight);
+
+			if (top + lineHeight < ScrollY || top > ScrollY + LastViewportHeight) continue;
+
+			foreach (LensSegment segment in row.Segments)
+				if (segment.Text.Length == 0) destination.Add(segment.Index);
+		}
+	}
+
+	private readonly List<(float Top, float Bottom)> _lensZones = [];
+
+	public bool IsInCodeLensRow(float y) {
+		foreach ((float top, float bottom) in _lensZones)
+			if (y >= top && y < bottom) return true;
+
+		return false;
+	}
+
+	public int CodeLensAt(float x, float y) {
+		foreach ((float left, float top, float right, float bottom, int index) in _lensHits)
+			if (x >= left && x < right && y >= top && y < bottom) return index;
+
+		return -1;
+	}
+
+	private int ZoneLine(int id) {
+		foreach (ViewZone zone in _zones)
+			if (zone.Id == id) return zone.AfterLine + 1;
+
+		return -1;
+	}
+
+	private const string LensSeparator = " | ";
+
+	private void DrawCodeLenses(IPainter painter, float y, float textLeft, float width, float lineHeight) {
+		_lensHits.Clear();
+		_lensZones.Clear();
+
+		if (_lensRows.Count == 0) return;
+
+		ITextFont font = painter.GetCodeLens();
+		float cellWidth = painter.GetCode().GetCellWidth();
+		long now = Environment.TickCount64;
+
+		foreach (LensRow row in _lensRows) {
+			float opacity = row.ShownAt == 0 ? 0f : Math.Clamp((now - row.ShownAt) / (float)CodeLensFadeMilliseconds, 0f, 1f);
+			Theming.Color foreground = Theme.EditorCodeLensForeground.WithAlpha(Theme.EditorCodeLensForeground.A * opacity);
+
+			if (_zones.Find(zone => zone.Id == row.ZoneId) is not { Id: > 0 } zone) continue;
+
+			float top = y + ZoneTop(zone.Id, lineHeight) - ScrollY;
+
+			if (top + zone.Height < y || top > y + LastViewportHeight) continue;
+
+			bool paint = painter.NeedsPaint(textLeft, top, width, zone.Height);
+			_lensZones.Add((top, top + zone.Height));
+
+			int line = Math.Clamp(zone.AfterLine + 1, 0, Snapshot.LineCount - 1);
+			TextSpan span = Snapshot.GetLineSpan(line);
+			int indent = 0;
+
+			while (indent < span.Length && Snapshot[span.Start + indent] is ' ' or '\t') indent++;
+
+			float x = textLeft + (VisualColumnAt(line, span.Start + indent) * cellWidth);
+			float baseline = top + ((zone.Height - font.GetLineHeight()) / 2f) + font.GetBaseline();
+			bool first = true;
+
+			foreach (LensSegment segment in row.Segments) {
+				if (segment.Text.Length == 0) continue;
+
+				if (!first) {
+					if (paint) painter.DrawText(font, LensSeparator, x, baseline, foreground);
+
+					x += font.Measure(LensSeparator);
+				}
+
+				first = false;
+
+				float segmentWidth = font.Measure(segment.Text);
+				bool hovered = segment.IsCommand && segment.Index == HoveredLens;
+
+				if (paint) painter.DrawText(font, segment.Text, x, baseline, hovered ? Theme.EditorLinkActiveForeground : foreground);
+
+				if (segment.IsCommand) _lensHits.Add((x, top, x + segmentWidth, top + zone.Height, segment.Index));
+
+				x += segmentWidth;
+			}
+		}
+	}
+
 	public float TopOf(int line, float lineHeight) => (line * lineHeight) + ZonesBefore(line);
 
 	public float ZoneTop(int id, float lineHeight) {
@@ -141,7 +346,7 @@ public sealed class TextView : ITextView
 
 	private const int GutterPaddingLeft = 12;
 	private const int GutterPaddingRight = 16;
-	private const int TextPaddingLeft = 8;
+	public const int TextPaddingLeft = 8;
 	private const int LinesPerWheelNotch = 3;
 	private const int ColumnsPerWheelNotch = 6;
 	private const float CaretWidth = 2f;
@@ -203,6 +408,7 @@ public sealed class TextView : ITextView
 		buffer.CursorState = CurrentSelection;
 		buffer.Changed += OnBufferChanged;
 		_zones.Clear();
+		_lensRows.Clear();
 		Snapshot = buffer.CreateSnapshot();
 		ScrollY = 0;
 		ScrollX = 0;
@@ -1000,6 +1206,20 @@ public sealed class TextView : ITextView
 		ScrollY = Math.Clamp(ScrollY, 0f, maxScroll);
 	}
 
+	public void RestoreViewState(int anchor, int caret, float scrollTop) {
+		SelectionAnchor = Math.Clamp(anchor, 0, Snapshot.Length);
+		CaretOffset = Math.Clamp(caret, 0, Snapshot.Length);
+		ScrollY = Math.Max(0f, scrollTop);
+		_desiredColumn = -1;
+	}
+
+	public int? CenterLineOnNextRender { get; set; }
+
+	public void RevealLineInCenter(int line, float lineHeight, float viewportHeight) {
+		ScrollY = TopOf(line, lineHeight) - ((viewportHeight - lineHeight) / 2f);
+		ClampScroll(lineHeight, viewportHeight);
+	}
+
 	public void RevealLineInCenterIfOutsideViewport(int line, float lineHeight, float viewportHeight) {
 		float top = TopOf(line, lineHeight);
 
@@ -1190,11 +1410,13 @@ public sealed class TextView : ITextView
 
 	#region Rendering
 
+	public Theming.Color Background { get; set; } = Theme.EditorBackground;
+
 	public void Render(IPainter painter, float x, float y, float width, float height) {
 		ITextFont font = painter.GetCode();
 		float lineHeight = font.GetLineHeight();
 
-		painter.FillRectangle(x, y, width, height, Theme.EditorBackground);
+		painter.FillRectangle(x, y, width, height, Background);
 
 		float gutterWidth = GutterWidth(font);
 		float textLeft = x + gutterWidth + TextPaddingLeft - ScrollX;
@@ -1233,11 +1455,17 @@ public sealed class TextView : ITextView
 			DrawLineNumber(painter, line, caretLine, x, lineTop, gutterWidth);
 			DrawGlyphMargin(painter, line, x, lineTop, lineHeight);
 
+			DrawHoverHighlight(painter, line, textLeft, lineTop, lineHeight);
+
 			if (Link is { } link && link.Line == line) DrawLinkedLine(painter, link, textLeft, lineTop, lineHeight, x + width);
 			else DrawLineText(painter, line, textLeft, lineTop);
 
+			DrawInlineValue(painter, line, textLeft, lineTop, lineHeight);
+
 			DrawLightbulb(painter, line, x, textLeft, lineTop, lineHeight);
 		}
+
+		DrawCodeLenses(painter, y, textLeft, width, lineHeight);
 
 		if (CaretVisible) DrawCaret(painter, caretLine, firstLine, textLeft, y, lineHeight);
 
@@ -1249,6 +1477,34 @@ public sealed class TextView : ITextView
 		DrawHorizontalScrollbar(painter, x, y, width, height, gutterWidth);
 
 		RecordRendered(x, y, width, height);
+	}
+
+	public IReadOnlyDictionary<int, string>? InlineValues { get; set; }
+
+	public readonly record struct HoverRange(int Line, int StartColumn, int EndColumn);
+
+	public HoverRange? HoverHighlight { get; set; }
+
+	private void DrawHoverHighlight(IPainter painter, int line, float textLeft, float lineTop, float lineHeight) {
+		if (HoverHighlight is not { } range || range.Line != line) return;
+
+		TextSpan span = Snapshot.GetLineSpan(line);
+		float cellWidth = painter.GetCode().GetCellWidth();
+		int start = VisualColumnAt(line, Math.Min(span.Start + range.StartColumn, span.End));
+		int end = VisualColumnAt(line, Math.Min(span.Start + range.EndColumn, span.End));
+
+		painter.FillRectangle(textLeft + (start * cellWidth), lineTop, (end - start) * cellWidth, lineHeight, Theme.EditorHoverHighlightBackground);
+	}
+
+	private void DrawInlineValue(IPainter painter, int line, float textLeft, float lineTop, float lineHeight) {
+		if (InlineValues is null || !InlineValues.TryGetValue(line, out string? text)) return;
+
+		ITextFont font = painter.GetCode();
+		float cellWidth = font.GetCellWidth();
+		float left = textLeft + ((VisualColumnAt(line, Snapshot.GetLineSpan(line).End) + 1) * cellWidth);
+
+		painter.FillRectangle(left, lineTop, font.Measure(text), lineHeight, Theme.EditorInlineValuesBackground);
+		painter.DrawText(font, text, left, lineTop + font.GetBaseline(), Theme.EditorInlineValuesForeground);
 	}
 
 	public IReadOnlyList<Decoration>? Decorations { get; set; }

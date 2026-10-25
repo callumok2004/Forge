@@ -193,6 +193,12 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	public DebugStopPresenter? DebugStops { get; set; }
 
+	public PeekPresenter? Peek { get; set; }
+
+	public float PeekRatio { get; set; } = PeekReferencesWidget.DefaultRatio;
+
+	public int PeekHeightInLines { get; set; } = PeekReferencesWidget.DefaultHeightInLines;
+
 	public NavigationHistory History => field ??= new NavigationHistory(this);
 
 	public IFrameStats? FrameStats { get => FrameStatsOverlay.Stats; set => FrameStatsOverlay.Stats = value; }
@@ -341,11 +347,33 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	#region Documents
 
+	public Dictionary<string, EditorViewState> ViewStates { get; set; } = [];
+
 	public void Open(Document document) {
+		TextView view = new(document.Buffer, document.Path) { Diff = Diff };
+
+		if (document.Path is { } path && ViewStates.TryGetValue(path, out EditorViewState? state)) view.RestoreViewState(state.Anchor, state.Caret, state.ScrollTop);
+
 		_documents.Add(document);
-		_views.Add(new TextView(document.Buffer, document.Path) { Diff = Diff });
+		_views.Add(view);
 		ActiveIndex = _documents.Count - 1;
+		TouchHistory();
 		SyncBreadcrumbs();
+	}
+
+	public void CaptureViewStates() {
+		for (int i = 0; i < _documents.Count; i++) CaptureViewState(i);
+	}
+
+	private void CaptureViewState(int index) {
+		if (_documents[index].Path is not { } path) return;
+
+		TextView view = _views[index];
+		ViewStates[path] = new EditorViewState(view.SelectionAnchor, view.CaretOffset, view.ScrollY);
+	}
+
+	private void TouchHistory() {
+		if (ActiveDocument?.Path is { } path) QuickOpen.Touch(path);
 	}
 
 	public void OpenFile(string path) {
@@ -400,6 +428,11 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	public void ShowReferences(string title, IReadOnlyList<HostLocation> locations) => Panel.SetReferences(title, locations);
 
+	public void PeekReferences(string title, int line, int column, IReadOnlyList<HostLocation> locations) {
+		if (Peek is { } peek) peek.Show(title, line, column, locations);
+		else ShowReferences(title, locations);
+	}
+
 	public bool ApplyWorkspaceEdit(WorkspaceEdit edit) {
 		bool applied = new WorkspaceEditApplier(this).Apply(edit);
 
@@ -442,6 +475,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		if (index >= 0 && index < _documents.Count) {
 			ActiveIndex = index;
 			Sidebar.SelectedPath = _documents[index].Path;
+			TouchHistory();
 			SyncBreadcrumbs();
 		}
 	}
@@ -450,6 +484,8 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		if (index < 0 || index >= _documents.Count) return;
 
 		bool wasLarge = _documents[index].Buffer.Length >= LargeDocumentChars;
+
+		CaptureViewState(index);
 
 		if (_documents[index].Path is { } closedPath && _publishedVersions.Remove(closedPath)) PublishDocument(DocumentEvent.Closed, closedPath, null);
 

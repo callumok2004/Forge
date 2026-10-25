@@ -43,6 +43,15 @@ public sealed class ExplorerView : Panel
 		Rebuild();
 	}
 
+	public void CaptureExpanded(List<string> destination) => _tree?.CaptureExpanded(destination);
+
+	public void RestoreExpanded(IReadOnlyList<string> paths) {
+		if (_tree is not { } tree) return;
+
+		tree.RestoreExpanded(paths);
+		Rebuild();
+	}
+
 	public void Reload(IEnumerable<string> directories) {
 		if (_tree is not { } tree) return;
 

@@ -13,5 +13,11 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\Forge.Text\Forge.Text.csproj" />
+		<ProjectReference Include="..\Forge.Search\Forge.Search.csproj" />
+		<ProjectReference Include="..\Forge.Language\Forge.Language.csproj" />
+		<ProjectReference Include="..\Forge.Syntax\Forge.Syntax.csproj" />
+		<ProjectReference Include="..\Forge.Workspace\Forge.Workspace.csproj" />
+		<ProjectReference Include="..\Forge.Terminal\Forge.Terminal.csproj" />
+		<ProjectReference Include="..\Forge.Debug\Forge.Debug.csproj" />
 	</ItemGroup>
 </Project>

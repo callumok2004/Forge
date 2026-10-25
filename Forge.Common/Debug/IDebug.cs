@@ -72,6 +72,14 @@ public interface IDebug
 
 	void FocusStackFrame(int frameId);
 
+	DebugCapabilities GetCapabilities();
+
+	Task<IReadOnlyList<DebugScope>> ScopesAsync(int frameId);
+
+	Task<IReadOnlyList<DebugVariable>> VariablesAsync(int variablesReference);
+
+	Task<DebugVariable?> EvaluateAsync(string expression, string context);
+
 	IReadOnlyList<string> GetWatchExpressions();
 
 	void AddWatchExpression(string expression);

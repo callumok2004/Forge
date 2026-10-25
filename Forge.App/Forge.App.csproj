@@ -7,6 +7,10 @@
 		<ApplicationIcon>Assets\forge.ico</ApplicationIcon>
 	</PropertyGroup>
 
+	<PropertyGroup Condition="'$(PublishAot)'!='true'">
+		<PublishReadyToRun>true</PublishReadyToRun>
+	</PropertyGroup>
+
 	<PropertyGroup Condition="'$(PublishAot)'=='true'">
 		<StackTraceSupport>false</StackTraceSupport>
 		<IlcOptimizationPreference>Speed</IlcOptimizationPreference>

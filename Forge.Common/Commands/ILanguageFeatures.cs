@@ -32,5 +32,19 @@ public interface ILanguageFeatures
 
 	Task<WorkspaceEdit?> RenameAsync(string path, int line, int column, string newName) => Task.FromResult<WorkspaceEdit?>(null);
 
+	EvaluatableExpression? EvaluatableExpressionAt(string path, int line, string lineText, int column) => null;
+
+	bool ProvidesInlineValues => false;
+
+	void InlineValues(string path, int firstLine, int lastLine, Func<int, string> lineText, List<InlineValueLookup> into) { }
+
+	int CodeLensVersion => 0;
+
+	Task<IReadOnlyList<CodeLensEntry>> CodeLensesAsync(string path) => Task.FromResult<IReadOnlyList<CodeLensEntry>>([]);
+
+	Task<CodeLensTitle?> ResolveCodeLensAsync(string path, int index) => Task.FromResult<CodeLensTitle?>(null);
+
+	Task<CodeLensReferences?> ExecuteCodeLensAsync(string path, int index) => Task.FromResult<CodeLensReferences?>(null);
+
 	Task<AutoInsertEdit?> AutoInsertAsync(string path, int line, int column, char character) => Task.FromResult<AutoInsertEdit?>(null);
 }

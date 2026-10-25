@@ -41,9 +41,20 @@ public sealed class NavigationController(IEditorHost workbench, UiQueue ui, Edit
 	}
 
 	private void Open(string title, IReadOnlyList<HostLocation> found, bool alwaysList, string empty, int offset) {
-		if (found.Count == 0) message.Show(empty, offset);
-		else if (found.Count == 1 && !alwaysList) workbench.GoTo(found[0].Path, found[0].Line, found[0].Column);
-		else workbench.ShowReferences(title, found);
+		if (found.Count == 0) {
+			message.Show(empty, offset);
+			return;
+		}
+
+		if (found.Count == 1 && !alwaysList) {
+			workbench.GoTo(found[0].Path, found[0].Line, found[0].Column);
+			return;
+		}
+
+		if (workbench.GetActiveView() is not { } view) return;
+
+		int line = view.GetSnapshot().GetLineAt(offset);
+		workbench.PeekReferences(title, line + 1, offset - view.GetSnapshot().GetLineStartOffset(line) + 1, found);
 	}
 
 	public void Hover(ILanguageFeatures features, int offset) {

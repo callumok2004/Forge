@@ -106,6 +106,7 @@ public sealed class ServerLifecycle(RoslynLanguageClient server, SolutionWorkspa
 		server.Files.Watch(host.GetWorkspacePath());
 		diagnostics.Attach(host);
 		workspaceCommands.Attach(host);
+		server.CodeLenses.Changed += host.Refresh;
 		host.ProvideLanguageFeatures(new RoslynFeatures(server, settings, actions, host));
 		host.ObserveDocuments((kind, path, text) => OnDocument(host, kind, path, text));
 	}
