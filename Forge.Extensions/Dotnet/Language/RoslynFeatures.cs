@@ -1,11 +1,13 @@
 using Forge.Common.Commands;
+using Forge.Common.Editor;
+using Forge.Extensions.Dotnet.Layout;
 using Forge.Extensions.Dotnet.Server;
 using Forge.Extensions.Dotnet.Server.Features;
 using Forge.Extensions.Dotnet.Solution;
 
 namespace Forge.Extensions.Dotnet.Language;
 
-public sealed class RoslynFeatures(RoslynLanguageClient server, DotnetSettings settings, CodeActionRunner actions, ICommandHost host) : ILanguageFeatures
+public sealed class RoslynFeatures(RoslynLanguageClient server, DotnetSettings settings, CodeActionRunner actions, ICommandHost host, TypeLayoutFeature layout) : ILanguageFeatures
 {
 	public bool Handles(string path) => ProjectDiscovery.IsSource(path);
 
@@ -43,7 +45,23 @@ public sealed class RoslynFeatures(RoslynLanguageClient server, DotnetSettings s
 		return new SignatureHelp(active.Label, active.Parameters, active.Documentation, help.ParameterIndex, help.ActiveIndex, help.Overloads.Count);
 	}
 
-	public Task<string?> HoverAsync(string path, int line, int column) => server.Hover.RequestAsync(path, line, column);
+	public async Task<string?> HoverAsync(string path, int line, int column) {
+		Task<string?> sizes = layout.HoverAsync(path, line, column);
+		string? hover = await server.Hover.RequestAsync(path, line, column).ConfigureAwait(false);
+		string? table = await sizes.ConfigureAwait(false);
+
+		return table is null ? hover : hover is { Length: > 0 } ? string.Concat(hover, "\n\n---\n\n", table) : table;
+	}
+
+	public async Task<IReadOnlyList<WorkspaceSymbol>> WorkspaceSymbolsAsync(string query) {
+		IReadOnlyList<ServerWorkspaceSymbol> symbols = await server.Navigation.WorkspaceSymbolsAsync(query).ConfigureAwait(false);
+
+		return [.. symbols.Select(static symbol => new WorkspaceSymbol(symbol.Name, symbol.Container, (SymbolKind)symbol.Kind, symbol.Path, symbol.Line, symbol.Column))];
+	}
+
+	public int LineHintsVersion => layout.Version;
+
+	public IReadOnlyDictionary<int, LineHint>? LineHints(string path, int version) => layout.Hints(path, version);
 
 	public async Task<IReadOnlyList<DocumentHighlight>> DocumentHighlightsAsync(string path, int line, int column) {
 		IReadOnlyList<ServerHighlight> highlights = await server.Highlights.RequestAsync(path, line, column).ConfigureAwait(false);

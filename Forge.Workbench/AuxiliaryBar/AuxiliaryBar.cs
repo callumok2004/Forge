@@ -8,7 +8,7 @@ using Forge.VSCode;
 
 namespace Forge.Workbench;
 
-public sealed class AuxiliaryBar : Panel
+public sealed class AuxiliaryBar : Panel, IViewPart
 {
 	public const float MinWidth = 240f;
 	public const float MaxWidth = 900f;
@@ -25,6 +25,7 @@ public sealed class AuxiliaryBar : Panel
 	private readonly WebviewSurface _surface;
 
 	private IReadOnlyList<WebviewViewEntry> _views = [];
+	private readonly ViewPartHost _host;
 
 	public AuxiliaryBar() {
 		Name = "AuxiliaryBar";
@@ -41,6 +42,47 @@ public sealed class AuxiliaryBar : Panel
 		AddChild(_status);
 		AddChild(_surface = new WebviewSurface(this));
 		Strip = new AuxiliaryStrip(this);
+		_host = new ViewPartHost(this, _header, SyncTitle);
+	}
+
+	public string? ActiveContainer => _host.Active?.Container.Id;
+
+	public IReadOnlyList<ViewPaneContainer> Containers => _host.Containers;
+
+	public void Attach(ViewPaneContainer container) {
+		_host.Attach(container);
+		Strip.Rebuild();
+	}
+
+	public void Detach(ViewPaneContainer container) {
+		bool wasActive = ReferenceEquals(_host.Active, container);
+		_host.Detach(container);
+
+		if (wasActive) {
+			ActiveViewId = _host.Containers.Count > 0 ? _host.Containers[0].Container.Id : _views.Count > 0 ? _views[0].ViewId : null;
+
+			if (ActiveViewId is { } next) ShowView(next);
+			else _surface.Visible = true;
+		}
+
+		Strip.Rebuild();
+		SyncTitle();
+	}
+
+	public void ShowContainer(string? id) {
+		if (id is null) return;
+
+		ShowView(id);
+	}
+
+	private void ShowView(string id) {
+		bool container = _host.Containers.Any(candidate => candidate.Container.Id == id);
+		ActiveViewId = id;
+		_host.Show(container ? id : null);
+		_surface.Visible = !container;
+		Strip.Sync();
+		SyncTitle();
+		InvalidateLayout();
 	}
 
 	public AuxiliaryStrip Strip { get; }
@@ -72,7 +114,7 @@ public sealed class AuxiliaryBar : Panel
 
 	public IReadOnlyList<WebviewViewEntry> Views => _views;
 
-	public bool HasViews => _views.Count > 0;
+	public bool HasViews => _views.Count > 0 || _host.Containers.Count > 0;
 
 	public WebviewViewEntry? Active => ActiveViewId is { } id ? Find(id) : null;
 
@@ -101,7 +143,7 @@ public sealed class AuxiliaryBar : Panel
 
 		_views = mine;
 
-		if (ActiveViewId is not { } active || Find(active) is null) ActiveViewId = mine.Count > 0 ? mine[0].ViewId : null;
+		if (ActiveViewId is not { } active || (Find(active) is null && !_host.Containers.Any(container => container.Container.Id == active))) ActiveViewId = _host.Containers.Count > 0 ? _host.Containers[0].Container.Id : mine.Count > 0 ? mine[0].ViewId : null;
 
 		Strip.Rebuild();
 		SyncTitle();
@@ -121,17 +163,17 @@ public sealed class AuxiliaryBar : Panel
 	}
 
 	public bool Select(string viewId) {
-		if (Find(viewId) is null || string.Equals(ActiveViewId, viewId, StringComparison.Ordinal)) return false;
+		if ((Find(viewId) is null && !_host.Containers.Any(container => container.Container.Id == viewId)) || string.Equals(ActiveViewId, viewId, StringComparison.Ordinal)) return false;
 
-		ActiveViewId = viewId;
-		Strip.Sync();
-		SyncTitle();
+		ShowView(viewId);
 		return true;
 	}
 
 	public void RestoreSelection(string viewId) {
 		ActiveViewId = viewId;
-		SyncTitle();
+
+		if (_host.Containers.Any(container => container.Container.Id == viewId)) ShowView(viewId);
+		else SyncTitle();
 	}
 
 	public void Resize(float width) => Width = Math.Clamp(width, MinWidth, MaxWidth);
@@ -155,7 +197,7 @@ public sealed class AuxiliaryBar : Panel
 
 	public Action? Activated { get; set; }
 
-	private void SyncTitle() => _title.SetText(Active?.Title.ToUpperInvariant());
+	private void SyncTitle() => _title.SetText((_host.Active?.Container.Title ?? Active?.Title)?.ToUpperInvariant());
 
 	public override void PerformLayout() {
 		float scale = Scale;
@@ -168,6 +210,7 @@ public sealed class AuxiliaryBar : Panel
 		_close.SetSize(close, close);
 		_close.DockMargin = new Thickness(0f, (header - close) / 2f, 0f, (header - close) / 2f);
 		_status.SetSize(Wide, header);
+		_host.LayoutActions(close, header);
 
 		_surface.DockMargin = new Thickness(stroke, 0f, stroke, stroke);
 

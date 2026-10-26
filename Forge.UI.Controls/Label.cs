@@ -71,7 +71,9 @@ public class Label : Panel
 		Parent?.InvalidateLayout();
 	}
 
-	protected ITextFont FontFor(IFontSet fonts) => Font switch {
+	public float FontSize { get; init; }
+
+	protected ITextFont FontFor(IFontSet fonts) => FontSize > 0f ? fonts.GetUi(FontSize, Font == FontRole.UiStrong) : Font switch {
 		FontRole.UiStrong => fonts.GetUiStrong(),
 		FontRole.UiSmall => fonts.GetUiSmall(),
 		FontRole.Code => fonts.GetCode(),

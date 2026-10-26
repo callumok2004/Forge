@@ -277,11 +277,53 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 	private IReadOnlyList<HostTextEdit> _resolvedEdits = [];
 	private int _resolvedFor = -1;
 
+	private TextView? _hinted;
+	private IReadOnlyDictionary<int, LineHint>? _languageHints;
+	private IReadOnlyDictionary<int, LineHint>? _extensionHints;
+	private IReadOnlyDictionary<int, LineHint>? _mergedHints;
+
+	private void SyncLineHints() {
+		TextView? view = workbench.GetActiveView() as TextView;
+		string? path = workbench.GetActiveFilePath();
+		IReadOnlyDictionary<int, LineHint>? language = view is not null && path is not null && Features is { } features && features.Handles(path) ? features.LineHints(path, view.Buffer.Version) : null;
+		IReadOnlyDictionary<int, LineHint>? extension = view is not null && path is not null ? workbench.ExtensionLineHints(path) : null;
+		IReadOnlyDictionary<int, LineHint>? hints = MergeHints(language, extension);
+
+		if (!ReferenceEquals(_hinted, view) && _hinted is not null) {
+			_hinted.LineHints = null;
+			_hinted = null;
+		}
+
+		if (view is null || ReferenceEquals(view.LineHints, hints)) return;
+
+		view.LineHints = hints;
+		_hinted = view;
+		refresh();
+	}
+
+	private IReadOnlyDictionary<int, LineHint>? MergeHints(IReadOnlyDictionary<int, LineHint>? language, IReadOnlyDictionary<int, LineHint>? extension) {
+		if (extension is null) return language;
+
+		if (language is null) return extension;
+
+		if (ReferenceEquals(language, _languageHints) && ReferenceEquals(extension, _extensionHints)) return _mergedHints;
+
+		Dictionary<int, LineHint> merged = new(language);
+
+		foreach ((int line, LineHint hint) in extension) merged.TryAdd(line, hint);
+
+		_languageHints = language;
+		_extensionHints = extension;
+		_mergedHints = merged;
+		return merged;
+	}
+
 	public void Tick() {
 		Ui.Drain();
 
 		if (Message.IsOpen && workbench.GetActiveView()?.GetCaretOffset() != Message.Offset) Message.Hide();
 		Occurrences.Tick();
+		SyncLineHints();
 
 		if (Panel.Ui is { } lensUi) {
 			IFontSet fonts = lensUi.GetFonts();

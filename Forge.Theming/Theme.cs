@@ -130,6 +130,9 @@ public static class Theme
 	public static readonly Color ButtonBackground = Color.Parse("#1f5bff");
 	public static readonly Color ButtonHoverBackground = Color.Parse("#3a70ff");
 	public static readonly Color ButtonForeground = Color.Parse("#ffffff");
+	public static readonly Color ButtonSecondaryBackground = Color.Parse("#232c3b");
+	public static readonly Color ButtonSecondaryHoverBackground = Color.Parse("#2c3749");
+	public static readonly Color ButtonSecondaryForeground = Color.Parse("#c9d1dc");
 
 	public static readonly Color BadgeBackground = Color.Parse("#1a2232");
 	public static readonly Color BadgeForeground = Color.Parse("#9aa7bb");

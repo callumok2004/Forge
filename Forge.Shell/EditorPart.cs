@@ -26,8 +26,9 @@ public sealed class EditorPart : Panel
 
 		SetBounds(_workbench.EditorLeft, top, _workbench.EditorWidth(windowWidth), _workbench.EditorBottom(windowHeight) - top);
 
-		_workbench.Tabs.Sync(_workbench.Documents, _workbench.ActiveIndex);
+		_workbench.Tabs.Sync(_workbench.Documents, _workbench.ActiveIndex, _workbench.PaneIcon);
 		_workbench.Breadcrumbs.Visible = _workbench.ActiveView is not null;
+		SyncPane();
 
 		if (_workbench.IntelliSense is not { } intelliSense) return;
 
@@ -56,6 +57,30 @@ public sealed class EditorPart : Panel
 	}
 
 	private bool _widgetsAttached;
+	private EditorPane? _shownPane;
+
+	private void SyncPane() {
+		EditorPane? pane = _workbench.ActivePane;
+		Content.Visible = pane is null;
+
+		if (!ReferenceEquals(pane, _shownPane)) {
+			if (_shownPane is not null) _shownPane.Visible = false;
+
+			_shownPane = pane;
+
+			if (pane is not null) {
+				if (!ReferenceEquals(pane.Parent, this)) AddChild(pane);
+
+				pane.Visible = true;
+				pane.Dock = DockType.None;
+			}
+		}
+
+		if (pane is null) return;
+
+		float top = _workbench.BreadcrumbsTop - _workbench.ShellTop;
+		pane.SetBounds(0f, top, Wide, Tall - top);
+	}
 
 	public override void PerformLayout() {
 		float scale = Scale;

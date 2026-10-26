@@ -19,4 +19,8 @@ public interface IEditorHost
 	void ShowReferences(string title, IReadOnlyList<HostLocation> locations);
 
 	void PeekReferences(string title, int line, int column, IReadOnlyList<HostLocation> locations);
+
+	int LineHintsVersion => 0;
+
+	IReadOnlyDictionary<int, LineHint>? ExtensionLineHints(string path) => null;
 }

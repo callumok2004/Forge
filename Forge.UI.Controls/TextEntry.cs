@@ -56,6 +56,12 @@ public sealed class TextEntry : Panel
 
 	public Action? TextChanged { get; set; }
 
+	public Action? Submitted { get; set; }
+
+	public float FontSize { get; init; }
+
+	private ITextFont FontOf(IFontSet fonts) => FontSize > 0f ? fonts.GetUi(FontSize) : fonts.GetUi();
+
 	public ReadOnlySpan<char> Text => _buffer.AsSpan(0, _length);
 
 	public string GetString() => new(Text);
@@ -79,6 +85,7 @@ public sealed class TextEntry : Panel
 
 	public override void OnKillFocus(Panel? newFocus) {
 		RemoveTickSignal();
+		Submitted?.Invoke();
 		Repaint();
 	}
 
@@ -98,6 +105,10 @@ public sealed class TextEntry : Panel
 		bool control = (modifiers & KeyModifiers.Control) != 0;
 
 		switch (key) {
+			case VirtualKey.Return when Submitted is not null:
+				Submitted();
+				return true;
+
 			case VirtualKey.Back when _allSelected:
 			case VirtualKey.Delete when _allSelected:
 				DeleteAll();
@@ -149,7 +160,7 @@ public sealed class TextEntry : Panel
 		RequestFocus();
 		_allSelected = false;
 
-		ITextFont font = Ui!.GetFonts().GetUi();
+		ITextFont font = FontOf(Ui!.GetFonts());
 		float textLeft = Metrics.Space6 * Scale;
 		int caret = 0;
 		float advance = textLeft;
@@ -209,7 +220,7 @@ public sealed class TextEntry : Panel
 
 	public override void Paint(IPainter painter) {
 		float scale = Scale;
-		ITextFont font = painter.GetUi();
+		ITextFont font = FontSize > 0f ? painter.GetUi(FontSize) : painter.GetUi();
 		float radius = Metrics.RadiusSmall * scale;
 		bool focused = HasFocus;
 

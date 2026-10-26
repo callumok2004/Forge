@@ -68,6 +68,10 @@ public sealed class Painter : IPainter, IDisposable
 
 	ITextFont IPainter.GetCodeSmall() => CodeSmall;
 
+	public ITextFont GetUi(float size, bool strong = false) => _fonts.GetUi(size, strong);
+
+	public ITextFont GetMono(float size, bool strong = false) => _fonts.GetMono(size, strong);
+
 	ITextFont IPainter.GetCodeLens() => _fonts.CodeLens;
 
 	ITextFont IPainter.GetUiDescription() => _fonts.UiDescription;
@@ -201,28 +205,47 @@ public sealed class Painter : IPainter, IDisposable
 
 		bool monospace = font.IsMonospace();
 		float cellWidth = font.CellWidth;
-
+		int face = -1;
 		int count = 0;
+		float runWidth = 0f;
+		bool colored = false;
+
 		for (int i = 0; i < text.Length; i++) {
 			char character = text[i];
 
 			if (character < ' ') continue;
 
-			_glyphIndices[count] = font.GetGlyphIndex(character);
-			_glyphAdvances[count] = monospace ? cellWidth : font.GetAdvance(character);
+			(int glyphFace, ushort glyph, float advance) = font.GetGlyph(character);
+
+			if (glyphFace != face && count > 0) {
+				Flush();
+				x += runWidth;
+				count = 0;
+				runWidth = 0f;
+			}
+
+			face = glyphFace;
+			_glyphIndices[count] = glyph;
+			_glyphAdvances[count] = monospace && glyphFace == 0 ? cellWidth : advance;
+			runWidth += _glyphAdvances[count];
 			count++;
 		}
 
-		if (count == 0) return;
+		if (count > 0) Flush();
 
-		SetColor(color);
+		void Flush() {
+			if (!colored) {
+				SetColor(color);
+				colored = true;
+			}
 
-		_textRun.FontFace = font.FontFace;
-		_textRun.FontEmSize = font.SizeInPixels;
-		_textRun.Indices = ExactIndices(count);
-		_textRun.Advances = ExactAdvances(count);
+			_textRun.FontFace = font.FaceAt(face);
+			_textRun.FontEmSize = font.SizeInPixels;
+			_textRun.Indices = ExactIndices(count);
+			_textRun.Advances = ExactAdvances(count);
 
-		_context.DrawGlyphRun(new Vector2(x, baselineY), _textRun, _brush, Vortice.DCommon.MeasuringMode.Natural);
+			_context.DrawGlyphRun(new Vector2(x, baselineY), _textRun, _brush, Vortice.DCommon.MeasuringMode.Natural);
+		}
 	}
 
 	public void EndFrame() {
@@ -241,6 +264,41 @@ public sealed class Painter : IPainter, IDisposable
 		}
 
 		_context.FillGeometry(geometry, _brush);
+	}
+
+	private D2D.ID2D1StrokeStyle? _roundStroke;
+
+	public void FillPolygon(ReadOnlySpan<Vector2> points, Color color) {
+		if (points.Length < 3) return;
+
+		SetColor(color);
+
+		using D2D.ID2D1PathGeometry geometry = Figure(points, D2D.FigureBegin.Filled, D2D.FigureEnd.Closed);
+		_context.FillGeometry(geometry, _brush);
+	}
+
+	public void StrokePolyline(ReadOnlySpan<Vector2> points, float thickness, Color color) {
+		if (points.Length < 2) return;
+
+		SetColor(color);
+		_roundStroke ??= _factory.CreateStrokeStyle(new D2D.StrokeStyleProperties { StartCap = D2D.CapStyle.Round, EndCap = D2D.CapStyle.Round, LineJoin = D2D.LineJoin.Round });
+
+		using D2D.ID2D1PathGeometry geometry = Figure(points, D2D.FigureBegin.Hollow, D2D.FigureEnd.Open);
+		_context.DrawGeometry(geometry, _brush, thickness, _roundStroke);
+	}
+
+	private D2D.ID2D1PathGeometry Figure(ReadOnlySpan<Vector2> points, D2D.FigureBegin begin, D2D.FigureEnd end) {
+		D2D.ID2D1PathGeometry geometry = _factory.CreatePathGeometry();
+
+		using D2D.ID2D1GeometrySink sink = geometry.Open();
+		sink.BeginFigure(points[0], begin);
+
+		for (int i = 1; i < points.Length; i++) sink.AddLine(points[i]);
+
+		sink.EndFigure(end);
+		sink.Close();
+
+		return geometry;
 	}
 
 	public void DrawImage(Image image, float centreX, float centreY, float size) {
@@ -340,6 +398,7 @@ public sealed class Painter : IPainter, IDisposable
 		_disposed = true;
 		_textRun.FontFace = null;
 		_iconRun.FontFace = null;
+		_roundStroke?.Dispose();
 		_brush.Dispose();
 	}
 }

@@ -58,6 +58,14 @@ public sealed class Settings
 		Save();
 	}
 
+	public void SetValue(string key, JsonNode? value) {
+		if (value is null) _raw.Remove(key);
+		else _raw[key] = value;
+
+		_dirty = true;
+		Save();
+	}
+
 	public void AdjustZoom(float delta) => SetZoom(ZoomLevel + delta);
 
 	public void ResetZoom() => SetZoom(0f);

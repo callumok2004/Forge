@@ -33,11 +33,16 @@ public interface IPainter
 
 	ITextFont GetUiDescription();
 
+	ITextFont GetUi(float size, bool strong = false);
+	ITextFont GetMono(float size, bool strong = false);
+
 	void FillRectangle(float x, float y, float width, float height, Color color);
 	void FillRoundedRectangle(float x, float y, float width, float height, float radius, Color color);
 	void StrokeRoundedRectangle(float x, float y, float width, float height, float radius, float thickness, Color color);
 	void FillCircle(float centreX, float centreY, float radius, Color color);
 	void FillTriangle(float x0, float y0, float x1, float y1, float x2, float y2, Color color);
+	void FillPolygon(ReadOnlySpan<System.Numerics.Vector2> points, Color color);
+	void StrokePolyline(ReadOnlySpan<System.Numerics.Vector2> points, float thickness, Color color);
 
 	void DrawVerticalLine(float x, float top, float bottom, Color color);
 	void DrawHorizontalLine(float y, float left, float right, Color color);

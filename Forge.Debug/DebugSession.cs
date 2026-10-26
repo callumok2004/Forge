@@ -53,6 +53,8 @@ public sealed class DebugSession : IDisposable
 
 	public event Action<string?>? Terminated;
 
+	public event Action<int>? ProcessStarted;
+
 	public event Action<JsonNode?>? BreakpointChanged;
 
 	public event Action<string, string?>? RunInTerminalRequested;
@@ -250,7 +252,7 @@ public sealed class DebugSession : IDisposable
 
 		if (frameId is { } frame) arguments["frameId"] = frame;
 
-		JsonNode? body = await SafeAsync("evaluate", arguments, cancellationToken).ConfigureAwait(false);
+		JsonNode? body = await SafeAsync("evaluate", arguments, cancellationToken, quiet: context is "hover" or "watch").ConfigureAwait(false);
 
 		if (body is null) return null;
 
@@ -335,14 +337,15 @@ public sealed class DebugSession : IDisposable
 	public bool IsRunning => !_disposed && _connection.IsRunning && State != DebugState.Inactive;
 
 	private async Task<JsonNode?> SafeAsync(string command, JsonNode? arguments,
-		CancellationToken cancellationToken) {
+		CancellationToken cancellationToken, bool quiet = false) {
 		if (!IsRunning) return null;
 
 		try {
 			return await _connection.SendAsync(command, arguments, cancellationToken).ConfigureAwait(false);
 		}
 		catch (Exception exception) when (exception is DapException or OperationCanceledException) {
-			Log?.Invoke($"{command} failed: {exception.Message}");
+			if (!quiet) Log?.Invoke($"{command} failed: {exception.Message}");
+
 			return null;
 		}
 	}
@@ -383,6 +386,11 @@ public sealed class DebugSession : IDisposable
 
 			case "breakpoint":
 				BreakpointChanged?.Invoke(body?["breakpoint"]);
+				break;
+
+			case "process":
+				if (body?["systemProcessId"]?.GetValue<int>() is int pid and > 0) ProcessStarted?.Invoke(pid);
+
 				break;
 
 			case "terminated":

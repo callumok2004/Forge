@@ -21,7 +21,7 @@ public enum PanelView
 
 public readonly record struct Problem(string File, int Line, int Column, string Message, bool IsError);
 
-public sealed class PanelPart : Panel, IDisposable
+public sealed class PanelPart : Panel, IDisposable, IViewPart
 {
 	private const float TitleHeight = 32f;
 	private const float ActionSize = 22f;
@@ -39,6 +39,7 @@ public sealed class PanelPart : Panel, IDisposable
 	private readonly ActionButton _profiles;
 	private readonly ActionButton _clearOutput;
 	private readonly Button _channel;
+	private readonly List<(ViewPaneContainer Container, PanelTab Tab)> _containers = [];
 
 	private IReadOnlyList<TerminalProfile> _profileList = [];
 	private Problem[] _problems = [];
@@ -116,6 +117,44 @@ public sealed class PanelPart : Panel, IDisposable
 
 	public PanelView Active { get; private set; } = PanelView.Terminal;
 
+	public string? ActiveContainer { get; private set; }
+
+	public IReadOnlyList<ViewPaneContainer> Containers => [.. _containers.Select(static entry => entry.Container)];
+
+	public void Attach(ViewPaneContainer container) {
+		if (_containers.Exists(entry => ReferenceEquals(entry.Container, container))) return;
+
+		string id = container.Container.Id;
+		PanelTab tab = new(container.Container.Title) { Action = () => ShowContainer(id), DragContainerId = container.Container.Movable ? id : null };
+		container.Visible = false;
+		_containers.Add((container, tab));
+		_title.AddChild(tab);
+		AddChild(container);
+		SyncView();
+	}
+
+	public void Detach(ViewPaneContainer container) {
+		int index = _containers.FindIndex(entry => ReferenceEquals(entry.Container, container));
+
+		if (index < 0) return;
+
+		_title.RemoveChild(_containers[index].Tab);
+		RemoveChild(container);
+		_containers.RemoveAt(index);
+
+		if (ActiveContainer == container.Container.Id) ActiveContainer = null;
+
+		SyncView();
+	}
+
+	public void ShowContainer(string? id) {
+		if (id is null) return;
+
+		IsOpen = true;
+		ActiveContainer = id;
+		SyncView();
+	}
+
 	public float Height { get; set; } = 240f;
 
 	public IOutputChannel Output { get; }
@@ -168,6 +207,7 @@ public sealed class PanelPart : Panel, IDisposable
 	public void Show(PanelView view) {
 		IsOpen = true;
 		Active = view;
+		ActiveContainer = null;
 
 		if (view == PanelView.Terminal) EnsureTerminal();
 
@@ -175,7 +215,7 @@ public sealed class PanelPart : Panel, IDisposable
 	}
 
 	public void Toggle(PanelView view) {
-		if (IsOpen && Active == view) {
+		if (IsOpen && Active == view && ActiveContainer is null) {
 			IsOpen = false;
 			return;
 		}
@@ -188,12 +228,20 @@ public sealed class PanelPart : Panel, IDisposable
 	private void SyncView() {
 		_tabs[(int)PanelView.References].Visible = _references.Length > 0;
 
-		for (int i = 0; i < _tabs.Length; i++) _tabs[i].Selected = i == (int)Active;
+		bool builtIn = ActiveContainer is null;
 
-		for (int i = 0; i < _views.Length; i++) _views[i].Visible = i == (int)Active;
+		for (int i = 0; i < _tabs.Length; i++) _tabs[i].Selected = builtIn && i == (int)Active;
 
-		_newTerminal.Visible = _profiles.Visible = Active == PanelView.Terminal;
-		_clearOutput.Visible = _channel.Visible = Active == PanelView.Output;
+		for (int i = 0; i < _views.Length; i++) _views[i].Visible = builtIn && i == (int)Active;
+
+		foreach ((ViewPaneContainer container, PanelTab tab) in _containers) {
+			bool active = container.Container.Id == ActiveContainer;
+			tab.Selected = active;
+			container.Visible = active;
+		}
+
+		_newTerminal.Visible = _profiles.Visible = builtIn && Active == PanelView.Terminal;
+		_clearOutput.Visible = _channel.Visible = builtIn && Active == PanelView.Output;
 		_channel.SetText($"{ActiveChannel.GetName()} $(chevron-down)");
 		InvalidateLayout();
 		Repaint();

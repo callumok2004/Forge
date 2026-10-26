@@ -32,6 +32,26 @@ public sealed class AuxiliaryStrip : Panel
 
 		_buttons.Clear();
 
+		foreach (ViewPaneContainer container in _bar.Containers) {
+			string id = container.Container.Id;
+			ContainerButton button = new(id) {
+				Name = container.Container.Title,
+				Icon = container.Container.Icon,
+				VectorIcon = container.Container.VectorIcon,
+				IconSize = IconSize,
+				Dock = DockType.Top,
+				Foreground = Theme.ActivityBarForeground,
+				HoverForeground = Theme.Foreground,
+				HoverBackground = Color.Transparent,
+				CheckedRadius = IndicatorRadius,
+				Movable = container.Container.Movable,
+				Action = () => _bar.Activate(id),
+			};
+
+			_buttons.Add((button, id));
+			AddChild(button);
+		}
+
 		foreach (WebviewViewEntry view in _bar.Views) {
 			string viewId = view.ViewId;
 			ActionButton button = new() {
@@ -53,6 +73,12 @@ public sealed class AuxiliaryStrip : Panel
 
 		Sync();
 		InvalidateLayout();
+	}
+
+	public void SetBadge(string id, int count) {
+		foreach ((ActionButton button, string viewId) in _buttons) {
+			if (viewId == id) button.BadgeCount = count;
+		}
 	}
 
 	public void Sync() {

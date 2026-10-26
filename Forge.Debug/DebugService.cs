@@ -23,6 +23,10 @@ public sealed class DebugService : IDebug, IDisposable
 	private readonly HashSet<string> _sentPaths = new(StringComparer.OrdinalIgnoreCase);
 
 	private Action? _stateChanged;
+
+	public event Action<string, string, int>? ProcessStarted;
+
+	public event Action<string>? SessionEnded;
 	private Action? _modelChanged;
 	private Action<DebugOutput>? _output;
 
@@ -147,6 +151,7 @@ public sealed class DebugService : IDebug, IDisposable
 		session.Output += value => _output?.Invoke(value);
 		session.Log += line => _output?.Invoke(new DebugOutput("console", line + "\n", null, 0));
 		session.ThreadsChanged += () => _modelChanged?.Invoke();
+		session.ProcessStarted += pid => ProcessStarted?.Invoke(session.Id, resolved.Name, pid);
 
 		session.Stopped += (_, _) => {
 			_ = RefreshCallStackAsync(session);
@@ -166,6 +171,7 @@ public sealed class DebugService : IDebug, IDisposable
 			_session = null;
 			ClearCallStack();
 			_stateChanged?.Invoke();
+			SessionEnded?.Invoke(session.Id);
 
 			if (resolved.PostDebugTask is { Length: > 0 } after) {
 				RunTaskByLabel(after, resolved.Cwd, null);

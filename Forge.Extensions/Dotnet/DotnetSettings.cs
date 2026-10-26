@@ -32,6 +32,10 @@ public sealed class DotnetSettings
 
 	public bool FormatOnType { get; private set; }
 
+	public bool LayoutEnabled { get; private set; } = true;
+
+	public bool LayoutFieldOffsets { get; private set; } = true;
+
 	public string StorageDirectory { get; init; } = UserData.Directory;
 
 	public void Read(Settings settings) {
@@ -48,6 +52,8 @@ public sealed class DotnetSettings
 		TabSize = settings.GetInt32("editor.tabSize") ?? TabSize;
 		InsertSpaces = settings.GetBoolean("editor.insertSpaces") ?? InsertSpaces;
 		FormatOnType = settings.GetBoolean("editor.formatOnType") ?? false;
+		LayoutEnabled = settings.GetBoolean("dotnet.layout.enabled") ?? true;
+		LayoutFieldOffsets = settings.GetBoolean("dotnet.layout.fieldOffsets") ?? true;
 	}
 
 	private static Dictionary<string, string> ReadEnvironment(JsonNode? node) {

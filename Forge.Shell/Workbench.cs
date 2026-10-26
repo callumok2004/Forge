@@ -6,6 +6,7 @@ using Forge.Common.Editor;
 using Forge.Common.Extensions;
 using Forge.Common.Git;
 using Forge.Common.Render;
+using Forge.Common.UI;
 using Forge.Core;
 using Forge.Editor;
 using Forge.Extensions.Discord;
@@ -26,6 +27,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 {
 	private readonly List<Document> _documents = [];
 	private readonly List<TextView> _views = [];
+	private readonly List<EditorPane?> _panes = [];
 	private readonly Minimap _minimap = new();
 
 	private const int LargeDocumentChars = 4 * 1024 * 1024;
@@ -77,9 +79,45 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	public int ActiveIndex { get; private set; } = -1;
 
-	public Document? ActiveDocument => ActiveIndex >= 0 ? _documents[ActiveIndex] : null;
+	public Document? ActiveDocument => ActiveIndex >= 0 && _panes[ActiveIndex] is null ? _documents[ActiveIndex] : null;
 
-	public TextView? ActiveView => ActiveIndex >= 0 ? _views[ActiveIndex] : null;
+	public TextView? ActiveView => ActiveIndex >= 0 && _panes[ActiveIndex] is null ? _views[ActiveIndex] : null;
+
+	public EditorPane? ActivePane => ActiveIndex >= 0 ? _panes[ActiveIndex] : null;
+
+	public Codicon? PaneIcon(int index) => _panes[index]?.Icon;
+
+	public EditorPane? FindPane(string id) {
+		foreach (EditorPane? pane in _panes) {
+			if (pane is not null && pane.Id == id) return pane;
+		}
+
+		return null;
+	}
+
+	public void OpenPane(EditorPane pane) {
+		for (int i = 0; i < _panes.Count; i++) {
+			if (_panes[i] is { } existing && existing.Id == pane.Id) {
+				Activate(i);
+				return;
+			}
+		}
+
+		_documents.Add(Document.Untitled(pane.Title, string.Empty));
+		_views.Add(new TextView(_documents[^1].Buffer));
+		_panes.Add(pane);
+		ActiveIndex = _documents.Count - 1;
+		SyncBreadcrumbs();
+	}
+
+	public void ClosePane(string id) {
+		for (int i = 0; i < _panes.Count; i++) {
+			if (_panes[i]?.Id == id) {
+				Close(i);
+				return;
+			}
+		}
+	}
 
 	public bool ShowSidebar { get; set; } = true;
 
@@ -106,6 +144,8 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	public IExtensionRegistry? Extensions { get; set; }
 
 	public IExtensionHost? ExtensionHost { get; set; }
+
+	public WorkbenchViews? Views { get; set; }
 
 	public VSCodeBridge? VSCode { get; set; }
 
@@ -347,6 +387,58 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	#region Documents
 
+	private readonly Dictionary<string, IReadOnlyDictionary<string, IReadOnlyDictionary<int, LineHint>>> _hintOwners = [with(StringComparer.Ordinal)];
+	private readonly Dictionary<string, IReadOnlyDictionary<int, LineHint>?> _mergedHints = [with(StringComparer.OrdinalIgnoreCase)];
+
+	public int LineHintsVersion { get; private set; }
+
+	public void SetLineHints(string owner, IReadOnlyDictionary<string, IReadOnlyDictionary<int, LineHint>>? byPath) {
+		if (byPath is null || byPath.Count == 0) _hintOwners.Remove(owner);
+		else _hintOwners[owner] = byPath;
+
+		_mergedHints.Clear();
+		LineHintsVersion++;
+	}
+
+	public IReadOnlyDictionary<int, LineHint>? ExtensionLineHints(string path) {
+		if (_hintOwners.Count == 0) return null;
+
+		if (_mergedHints.TryGetValue(path, out IReadOnlyDictionary<int, LineHint>? cached)) return cached;
+
+		Dictionary<int, LineHint>? merged = null;
+		IReadOnlyDictionary<int, LineHint>? single = null;
+
+		foreach (IReadOnlyDictionary<string, IReadOnlyDictionary<int, LineHint>> owner in _hintOwners.Values) {
+			if (!TryGet(owner, path, out IReadOnlyDictionary<int, LineHint>? hints)) continue;
+
+			if (single is null && merged is null) {
+				single = hints;
+				continue;
+			}
+
+			merged ??= new Dictionary<int, LineHint>(single!);
+
+			foreach ((int line, LineHint hint) in hints) merged.TryAdd(line, hint);
+		}
+
+		IReadOnlyDictionary<int, LineHint>? result = merged ?? single;
+		_mergedHints[path] = result;
+		return result;
+	}
+
+	private static bool TryGet(IReadOnlyDictionary<string, IReadOnlyDictionary<int, LineHint>> owner, string path, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out IReadOnlyDictionary<int, LineHint>? hints) {
+		if (owner.TryGetValue(path, out hints)) return true;
+
+		foreach ((string key, IReadOnlyDictionary<int, LineHint> value) in owner) {
+			if (!string.Equals(key, path, StringComparison.OrdinalIgnoreCase)) continue;
+
+			hints = value;
+			return true;
+		}
+
+		return false;
+	}
+
 	public Dictionary<string, EditorViewState> ViewStates { get; set; } = [];
 
 	public void Open(Document document) {
@@ -356,6 +448,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 		_documents.Add(document);
 		_views.Add(view);
+		_panes.Add(null);
 		ActiveIndex = _documents.Count - 1;
 		TouchHistory();
 		SyncBreadcrumbs();
@@ -366,7 +459,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	}
 
 	private void CaptureViewState(int index) {
-		if (_documents[index].Path is not { } path) return;
+		if (_panes[index] is not null || _documents[index].Path is not { } path) return;
 
 		TextView view = _views[index];
 		ViewStates[path] = new EditorViewState(view.SelectionAnchor, view.CaretOffset, view.ScrollY);
@@ -487,10 +580,19 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 		CaptureViewState(index);
 
-		if (_documents[index].Path is { } closedPath && _publishedVersions.Remove(closedPath)) PublishDocument(DocumentEvent.Closed, closedPath, null);
+		if (_panes[index] is null && _documents[index].Path is { } closedPath && _publishedVersions.Remove(closedPath)) PublishDocument(DocumentEvent.Closed, closedPath, null);
+
+		EditorPane? closedPane = _panes[index];
 
 		_documents.RemoveAt(index);
 		_views.RemoveAt(index);
+		_panes.RemoveAt(index);
+
+		if (closedPane is not null) {
+			closedPane.Parent?.RemoveChild(closedPane);
+			Views?.Forget(closedPane);
+			closedPane.OnClosed();
+		}
 
 		if (wasLarge) {
 			System.Runtime.GCSettings.LargeObjectHeapCompactionMode =
@@ -538,6 +640,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		IntelliSense is { Suggest.IsOpen: true } or { Signature.IsOpen: true } or { Hover.IsOpen: true };
 
 	private bool _floatingLastFrame;
+	private int _sourceControlBadge = -1;
 
 	public void UpdateBeforeFrame() {
 
@@ -559,7 +662,13 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		StatusBar.Sync(ActiveView, BranchName);
 		Sidebar.SourceControl.SyncIfStale();
 
-		ActivityBar.SourceControlCount = Repository is { } counted ? counted.GetStaged().Count + counted.GetUnstaged().Count + counted.GetMerge().Count : 0;
+		int changes = Repository is { } counted ? counted.GetStaged().Count + counted.GetUnstaged().Count + counted.GetMerge().Count : 0;
+
+		if (changes != _sourceControlBadge) {
+			_sourceControlBadge = changes;
+			Views?.SetBadge(Sidebar.SourceControlId, changes);
+		}
+
 		ActivityBar.SidebarVisible = ShowSidebar;
 		ActivityBar.PanelVisible = Panel.IsOpen;
 		ActivityBar.AuxiliaryBarVisible = AuxiliaryWidth > 0f;

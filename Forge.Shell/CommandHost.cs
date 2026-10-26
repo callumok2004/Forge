@@ -1,3 +1,4 @@
+using Forge.Common.Editor;
 using Forge.Common.Commands;
 using Forge.Common.Render;
 using Forge.Editor;
@@ -77,6 +78,13 @@ public sealed class CommandHost(Workbench workbench, Action refresh) : ICommandH
 	public void RemoveStatusItem(string id) => workbench.StatusBar.RemoveItem(id);
 
 	public void ObserveDocuments(Action<DocumentEvent, string, string?> observer) => workbench.ObserveDocuments(observer);
+
+	public ILanguageFeatures? GetLanguageFeatures() => workbench.IntelliSense?.Features;
+
+	public void SetLineHints(string owner, IReadOnlyDictionary<string, IReadOnlyDictionary<int, LineHint>>? byPath) => workbench.Post(() => {
+		workbench.SetLineHints(owner, byPath);
+		refresh();
+	});
 
 	public void ProvideLanguageFeatures(ILanguageFeatures features) {
 		if (workbench.IntelliSense is { } intelliSense) intelliSense.Features = features;

@@ -1,6 +1,7 @@
 using Forge.Common.Commands;
 using Forge.Common.Extensions;
 using Forge.Extensions.Dotnet.Language;
+using Forge.Extensions.Dotnet.Layout;
 using Forge.Extensions.Dotnet.Solution;
 
 namespace Forge.Extensions.Dotnet.Server;
@@ -107,8 +108,35 @@ public sealed class ServerLifecycle(RoslynLanguageClient server, SolutionWorkspa
 		diagnostics.Attach(host);
 		workspaceCommands.Attach(host);
 		server.CodeLenses.Changed += host.Refresh;
-		host.ProvideLanguageFeatures(new RoslynFeatures(server, settings, actions, host));
+		TypeLayoutFeature layout = CreateLayout(host);
+		server.ProjectsLoaded += layout.Refresh;
+		host.ProvideLanguageFeatures(new RoslynFeatures(server, settings, actions, host, layout));
 		host.ObserveDocuments((kind, path, text) => OnDocument(host, kind, path, text));
+	}
+
+	private TypeLayoutFeature CreateLayout(ICommandHost host) {
+		string root = host.GetWorkspacePath() is { Length: > 0 } workspacePath ? Path.TrimEndingDirectorySeparator(Path.GetFullPath(workspacePath)) : string.Empty;
+
+		LayoutEngine engine = new(Definition, Text, InWorkspace);
+
+		return new TypeLayoutFeature(engine, settings, host.Refresh);
+
+		async Task<DefinitionTarget?> Definition(string path, int line, int column) {
+			IReadOnlyList<ServerLocation> found = await server.Navigation.DefinitionsAsync(path, line, column).ConfigureAwait(false);
+
+			return found.Count == 0 ? null : new DefinitionTarget(found[0].Path, found[0].Line, found[0].Column);
+		}
+
+		string? Text(string path) {
+			try {
+				return host.GetDocumentText(path);
+			}
+			catch (Exception exception) when (exception is InvalidOperationException or ArgumentOutOfRangeException) {
+				return null;
+			}
+		}
+
+		bool InWorkspace(string path) => root.Length > 0 && path.Length > root.Length && Path.IsPathRooted(path) && path.StartsWith(root, StringComparison.OrdinalIgnoreCase) && path[root.Length] is '\\' or '/';
 	}
 
 	private void OnDocument(ICommandHost host, DocumentEvent kind, string path, string? text) {

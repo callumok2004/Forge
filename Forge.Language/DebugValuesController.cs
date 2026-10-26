@@ -168,6 +168,7 @@ public sealed class DebugValuesController(IEditorHost host, UiQueue ui)
 		if (key != _inlineKey) {
 			_inlineKey = key;
 			_inlineDue = Environment.TickCount64 + InlineDelayMilliseconds;
+			_ = Task.Delay(InlineDelayMilliseconds).ContinueWith(_ => ui.Post(static () => { }), TaskScheduler.Default);
 		}
 
 		if (_inlineDue == 0 || Environment.TickCount64 < _inlineDue) return;

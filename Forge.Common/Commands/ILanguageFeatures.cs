@@ -1,3 +1,5 @@
+using Forge.Common.Editor;
+
 namespace Forge.Common.Commands;
 
 public interface ILanguageFeatures
@@ -45,6 +47,12 @@ public interface ILanguageFeatures
 	Task<CodeLensTitle?> ResolveCodeLensAsync(string path, int index) => Task.FromResult<CodeLensTitle?>(null);
 
 	Task<CodeLensReferences?> ExecuteCodeLensAsync(string path, int index) => Task.FromResult<CodeLensReferences?>(null);
+
+	Task<IReadOnlyList<WorkspaceSymbol>> WorkspaceSymbolsAsync(string query) => Task.FromResult<IReadOnlyList<WorkspaceSymbol>>([]);
+
+	int LineHintsVersion => 0;
+
+	IReadOnlyDictionary<int, LineHint>? LineHints(string path, int version) => null;
 
 	Task<AutoInsertEdit?> AutoInsertAsync(string path, int line, int column, char character) => Task.FromResult<AutoInsertEdit?>(null);
 }

@@ -1,6 +1,7 @@
 using Forge.Common.Extensions;
 using Forge.Extensions.Discord;
 using Forge.Extensions.Dotnet;
+using Forge.Extensions.DotnetProfiler;
 using Forge.Extensions.MergeConflict;
 using Forge.Extensions.TrailingSpaces;
 
@@ -11,6 +12,7 @@ public static class BuiltInExtensions
 	public static IReadOnlyList<IForgeExtension> All { get; } =
 	[
 		new DotnetExtension(),
+		new DotnetProfilerExtension(),
 		new TrailingSpacesExtension(),
 		new MergeConflictExtension(),
 		new DiscordPresenceExtension(),

@@ -40,4 +40,8 @@ public interface ICommandHost
 
 	void ObserveDocuments(Action<DocumentEvent, string, string?> observer);
 	void ProvideLanguageFeatures(ILanguageFeatures features);
+
+	ILanguageFeatures? GetLanguageFeatures() => null;
+
+	void SetLineHints(string owner, IReadOnlyDictionary<string, IReadOnlyDictionary<int, Editor.LineHint>>? byPath) { }
 }

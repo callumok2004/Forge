@@ -29,7 +29,21 @@ public sealed partial class ProcessTree
 		}
 	}
 
+	private readonly Lock _sampling = new();
+	private ResourceUsage _last;
+
 	public ResourceUsage Sample() {
+		if (!_sampling.TryEnter()) return _last;
+
+		try {
+			return _last = SampleCore();
+		}
+		finally {
+			_sampling.Exit();
+		}
+	}
+
+	private ResourceUsage SampleCore() {
 		long now = System.Diagnostics.Stopwatch.GetTimestamp();
 		double elapsedTicks = _sampledAt == 0 ? 0 : (now - _sampledAt) * (10_000_000.0 / System.Diagnostics.Stopwatch.Frequency);
 		double scale = elapsedTicks > 0 ? 100.0 / elapsedTicks / Environment.ProcessorCount : 0;

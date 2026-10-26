@@ -80,6 +80,16 @@ public class Panel
 
 	public bool IsCursorOver => ReferenceEquals(Ui?.GetMouseOver(), this);
 
+	public bool IsShowing {
+		get {
+			for (Panel? panel = this; panel is not null; panel = panel.Parent) {
+				if (!panel._visible || panel.Wide <= 0f || panel.Tall <= 0f) return false;
+			}
+
+			return true;
+		}
+	}
+
 	public bool IsLayoutInvalid => _needsLayout;
 
 	#region Hierarchy
@@ -276,7 +286,9 @@ public class Panel
 
 	#region Painting
 
-	public void Repaint() => RepaintArea();
+	public void Repaint() {
+		if (IsShowing) RepaintArea();
+	}
 
 	public void Repaint(float x, float y, float wide, float tall) {
 		if (!IsFullyVisible()) return;

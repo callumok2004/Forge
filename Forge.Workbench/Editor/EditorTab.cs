@@ -15,6 +15,7 @@ public sealed class EditorTab : Button
 
 	private readonly TabCloseButton _close;
 	private IDocument? _document;
+	private Codicon? _icon;
 
 	public EditorTab(TabStrip strip) {
 		Font = FontRole.UiStrong;
@@ -42,9 +43,10 @@ public sealed class EditorTab : Button
 
 	public bool Hovered => IsCursorOver || _close.IsCursorOver;
 
-	public void Bind(IDocument document, int index, bool selected) {
+	public void Bind(IDocument document, int index, bool selected, Codicon? icon = null) {
 		Index = index;
 		Selected = selected;
+		_icon = icon;
 		_close.Dirty = document.IsDirty();
 
 		if (ReferenceEquals(_document, document) && Text.SequenceEqual(document.GetName())) return;
@@ -92,7 +94,8 @@ public sealed class EditorTab : Button
 
 		string name = document.GetName();
 
-		if (!painter.DrawFileIcon(name, iconCentre, centreY, iconSize)) painter.DrawIcon(FileIcon(name), iconCentre, centreY, iconSize, FileTypeChip(name, Selected));
+		if (_icon is { } icon) painter.DrawIcon(icon, iconCentre, centreY, iconSize, Selected ? Theme.TabActiveForeground : Theme.TabInactiveForeground);
+		else if (!painter.DrawFileIcon(name, iconCentre, centreY, iconSize)) painter.DrawIcon(FileIcon(name), iconCentre, centreY, iconSize, FileTypeChip(name, Selected));
 
 		PaintContents(painter, Foreground);
 	}

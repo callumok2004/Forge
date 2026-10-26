@@ -19,7 +19,9 @@ public sealed class ExceptionWidget : Panel
 
 	private readonly ActionButton _copy = new() { Icon = Codicon.Copy };
 	private readonly ActionButton _close = new() { Icon = Codicon.Close };
-	private readonly List<(string Text, bool IsCode)> _lines = [];
+	private readonly List<(string Text, bool IsCode, bool Continues)> _lines = [];
+	private readonly TextSelection _selection = new();
+	private bool _selecting;
 
 	private DebugExceptionInfo? _info;
 	private float _laidOutWidth = -1f;
@@ -27,6 +29,7 @@ public sealed class ExceptionWidget : Panel
 	public ExceptionWidget() {
 		Name = "ExceptionWidget";
 		Visible = false;
+		KeyboardInputEnabled = true;
 
 		_copy.Action = () => {
 			if (_info is { } info) Clipboard.SetText(Describe(info));
@@ -88,16 +91,18 @@ public sealed class ExceptionWidget : Panel
 
 		float height = (BorderThickness * 2f * scale) + (Padding * scale) + (ActionSize * scale) + (Padding * scale);
 
-		foreach ((_, bool isCode) in _lines) height += (isCode ? fonts.GetCode() : fonts.GetUi()).GetLineHeight();
+		foreach ((_, bool isCode, _) in _lines) height += (isCode ? fonts.GetCode() : fonts.GetUi()).GetLineHeight();
 
 		if (_lines.Count > 0) height += SectionGap * scale;
 
+		BuildRuns(info, fonts, scale);
 		return height;
 	}
 
 	private void Wrap(ITextFont font, string text, float width, bool isCode) {
 		foreach (string raw in text.ReplaceLineEndings("\n").Split('\n')) {
 			string line = raw.TrimEnd();
+			bool continues = false;
 
 			while (line.Length > 0 && font.Measure(line) > width) {
 				int cut = line.Length;
@@ -107,11 +112,12 @@ public sealed class ExceptionWidget : Panel
 				int space = isCode ? -1 : line.LastIndexOf(' ', cut - 1);
 				int split = space > 0 ? space : cut;
 
-				_lines.Add((line[..split], isCode));
+				_lines.Add((line[..split], isCode, continues));
 				line = line[split..].TrimStart();
+				continues = true;
 			}
 
-			_lines.Add((line, isCode));
+			_lines.Add((line, isCode, continues));
 		}
 	}
 
@@ -124,35 +130,89 @@ public sealed class ExceptionWidget : Panel
 		_copy.SetBounds(Wide - (Padding * scale) - (size * 2f) - (2f * scale), top, size, size);
 	}
 
-	public override void Paint(IPainter painter) {
-		if (_info is not { } info) return;
+	private void BuildRuns(DebugExceptionInfo info, IFontSet fonts, float scale) {
+		_selection.Clear();
 
-		float scale = Scale;
-		float border = BorderThickness * scale;
-		ITextFont ui = painter.GetUi();
-		ITextFont code = painter.GetCode();
-		float left = ScreenX + (Padding * scale);
+		ITextFont ui = fonts.GetUi();
+		ITextFont code = fonts.GetCode();
+		float left = Padding * scale;
+		float titleTop = (BorderThickness + Padding) * scale;
 
-		painter.FillRectangle(ScreenX, ScreenY, Wide, Tall, Background);
-		painter.FillRectangle(ScreenX, ScreenY, Wide, border, Border);
-		painter.FillRectangle(ScreenX, ScreenY + Tall - border, Wide, border, Border);
-
-		float titleTop = ScreenY + border + (Padding * scale);
-		float titleBaseline = titleTop + (((ActionSize * scale) - ui.GetLineHeight()) / 2f) + ui.GetBaseline();
-
-		painter.DrawText(ui, Title(info), left, titleBaseline, Theme.Foreground);
+		_selection.Add(new TextRun(left, titleTop + (((ActionSize * scale) - ui.GetLineHeight()) / 2f), Title(info), ui, Theme.Foreground, false));
 
 		float y = titleTop + (ActionSize * scale) + (SectionGap * scale);
 
-		foreach ((string text, bool isCode) in _lines) {
+		foreach ((string text, bool isCode, bool continues) in _lines) {
 			ITextFont font = isCode ? code : ui;
-
-			painter.DrawText(font, text, left, y + font.GetBaseline(), isCode ? Theme.DescriptionForeground : Theme.Foreground);
+			_selection.Add(new TextRun(left, y, text, font, isCode ? Theme.DescriptionForeground : Theme.Foreground, continues));
 			y += font.GetLineHeight();
 		}
 	}
 
+	public override void Paint(IPainter painter) {
+		if (_info is null) return;
+
+		float border = BorderThickness * Scale;
+
+		painter.FillRectangle(ScreenX, ScreenY, Wide, Tall, Background);
+		painter.FillRectangle(ScreenX, ScreenY, Wide, border, Border);
+		painter.FillRectangle(ScreenX, ScreenY + Tall - border, Wide, border, Border);
+		painter.PushClip(ScreenX, ScreenY, Wide, Tall);
+		_selection.Paint(painter, ScreenX, ScreenY, ScreenY, ScreenY + Tall, HasFocus);
+		painter.PopClip();
+	}
+
+	public override void OnCursorMoved(float x, float y) {
+		if (_selecting) {
+			_selection.Extend(x, y);
+			Repaint();
+			return;
+		}
+
+		Cursor = _selection.OverText(x, y) ? CursorCode.IBeam : CursorCode.Arrow;
+	}
+
+	public override bool OnMousePressed(MouseButton button, float x, float y) {
+		if (button != MouseButton.Left) return false;
+
+		RequestFocus();
+		_selecting = true;
+		_selection.Begin(x, y, (Ui?.GetModifiers() & KeyModifiers.Shift) != 0);
+		Ui?.SetMouseCapture(this);
+		Repaint();
+		return true;
+	}
+
+	public override bool OnMouseDoublePressed(MouseButton button, float x, float y) {
+		if (button != MouseButton.Left) return false;
+
+		_selection.SelectWord(x, y);
+		Repaint();
+		return true;
+	}
+
+	public override bool OnMouseReleased(MouseButton button, float x, float y) {
+		if (!_selecting) return false;
+
+		_selecting = false;
+		Ui?.SetMouseCapture(null);
+		return true;
+	}
+
 	public override bool OnKeyCodePressed(uint key, KeyModifiers modifiers) {
+		if ((modifiers & KeyModifiers.Control) != 0) {
+			switch (key) {
+				case VirtualKey.C when _selection.HasSelection:
+					Clipboard.SetText(_selection.SelectedText());
+					return true;
+
+				case VirtualKey.A:
+					_selection.SelectAll();
+					Repaint();
+					return true;
+			}
+		}
+
 		if (key != VirtualKey.Escape) return false;
 
 		Hide();

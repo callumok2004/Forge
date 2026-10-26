@@ -12,6 +12,21 @@ public sealed class NavigationRequests(RoslynLanguageClient client)
 
 	public Task<IReadOnlyList<ServerLocation>> TypeDefinitionsAsync(string path, int line, int column) => LocationsAsync("textDocument/typeDefinition", path, line, column);
 
+	public async Task<IReadOnlyList<ServerWorkspaceSymbol>> WorkspaceSymbolsAsync(string query) {
+		JsonNode? result = await client.RequestAsync("workspace/symbol", new JsonObject { ["query"] = query }).ConfigureAwait(false);
+		List<ServerWorkspaceSymbol> symbols = [];
+
+		foreach (JsonNode? entry in result as JsonArray ?? []) {
+			if (entry?["name"]?.GetValue<string>() is not { } name || entry["location"] is not { } location) continue;
+
+			if (location["uri"]?.GetValue<string>() is not { } uri || location["range"]?["start"] is not { } start || await client.PathOfAsync(uri).ConfigureAwait(false) is not { } file) continue;
+
+			symbols.Add(new ServerWorkspaceSymbol(name, entry["containerName"]?.GetValue<string>(), entry["kind"]?.GetValue<int>() ?? 0, file, LspJson.Line(start), LspJson.Column(start)));
+		}
+
+		return symbols;
+	}
+
 	private async Task<IReadOnlyList<ServerLocation>> LocationsAsync(string method, string path, int line, int column, JsonObject? context = null) {
 		JsonObject parameters = client.DocumentAt(path, line, column);
 
@@ -68,3 +83,5 @@ public sealed class NavigationRequests(RoslynLanguageClient client)
 		}
 	}
 }
+
+public readonly record struct ServerWorkspaceSymbol(string Name, string? Container, int Kind, string Path, int Line, int Column);

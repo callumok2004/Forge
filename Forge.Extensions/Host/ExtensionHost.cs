@@ -1,5 +1,7 @@
 using Forge.Common.Commands;
+using Forge.Common.Debug;
 using Forge.Common.Extensions;
+using Forge.Common.UI;
 using Forge.Core;
 
 namespace Forge.Extensions.Host;
@@ -7,6 +9,10 @@ namespace Forge.Extensions.Host;
 public sealed class ExtensionHost(Settings settings, IReadOnlyList<IForgeExtension> extensions) : IExtensionHost
 {
 	private readonly Dictionary<string, ExtensionContext> _active = [with(StringComparer.Ordinal)];
+
+	public IWorkbenchViews? Views { get; init; }
+
+	public IDebug? Debug { get; init; }
 
 	public IReadOnlyList<IForgeExtension> All() => extensions;
 
@@ -17,7 +23,11 @@ public sealed class ExtensionHost(Settings settings, IReadOnlyList<IForgeExtensi
 	public int RegisterAll(ICommandRegistry commands) {
 		int before = commands.All().Count;
 
-		foreach (IForgeExtension extension in extensions) extension.Register(commands);
+		foreach (IForgeExtension extension in extensions) {
+			extension.Register(commands);
+
+			if (Views is { } views) extension.RegisterViews(views);
+		}
 
 		ExtensionCommands.Register(commands, this);
 
@@ -88,7 +98,7 @@ public sealed class ExtensionHost(Settings settings, IReadOnlyList<IForgeExtensi
 
 		if (_active.ContainsKey(identifier)) return false;
 
-		ExtensionContext context = new(identifier, host, settings);
+		ExtensionContext context = new(identifier, host, settings) { Views = Views, Debug = Debug };
 		_active[identifier] = context;
 
 		try {

@@ -72,6 +72,28 @@ public sealed class FontSet : IFontSet, IDisposable
 
 	public float GetScale() => Scale;
 
+	private readonly Dictionary<(bool Mono, int Pixels, bool Strong), TextFont> _sized = [];
+
+	public ITextFont GetUi(float size, bool strong = false) => Sized(false, size, strong);
+
+	public ITextFont GetMono(float size, bool strong = false) => Sized(true, size, strong);
+
+	private TextFont Sized(bool mono, float size, bool strong) {
+		int pixels = Math.Max(1, (int)MathF.Round(size * Scale));
+
+		if (_sized.TryGetValue((mono, pixels, strong), out TextFont? font)) return font;
+
+		font = new TextFont(_factory, _bundled.Collection, mono ? _codeFamily : _uiFamily, pixels, strong ? (mono ? TextWeight.Bold : TextWeight.SemiBold) : TextWeight.Regular);
+		_sized[(mono, pixels, strong)] = font;
+		return font;
+	}
+
+	private void ClearSized() {
+		foreach (TextFont font in _sized.Values) font.Dispose();
+
+		_sized.Clear();
+	}
+
 	public float CodeZoom { get; private set; } = 1f;
 
 	public bool SetCodeZoom(float zoom) {
@@ -107,6 +129,7 @@ public sealed class FontSet : IFontSet, IDisposable
 
 		Build(scale);
 		Scale = scale;
+		ClearSized();
 
 		oldCode.Dispose();
 		oldCodeStrong.Dispose();
@@ -149,6 +172,7 @@ public sealed class FontSet : IFontSet, IDisposable
 
 		_disposed = true;
 
+		ClearSized();
 		Code?.Dispose();
 		CodeStrong?.Dispose();
 		CodeSmall?.Dispose();

@@ -89,7 +89,6 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		workbench.TitleBar.Icon = appIcon;
 
 		using VectorIcon? explorerIcon = VectorIcon.Load(device.Factory, Path.Combine(AppContext.BaseDirectory, "Assets", "ui", "folder.svg"));
-		workbench.ActivityBar.ExplorerIcon = explorerIcon;
 		workbench.Auxiliary.IconLoader = path => VectorIcon.Load(device.Factory, path);
 
 		ProcessTree processTree = new();
@@ -138,7 +137,6 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			workbench.TitleBar.RemoteOwner = remote.Owner;
 			workbench.TitleBar.RemoteRepository = remote.Repository;
 		}
-		workbench.Sidebar.Title = Path.GetFileName(rootPath.TrimEnd(Path.DirectorySeparatorChar));
 		workbench.Sidebar.SetTree(new FileTree(rootPath));
 
 		debugger.Attach(rootPath, UserData.BreakpointsPath);
@@ -291,7 +289,11 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		DebugCommands.Register(Registry, debugger);
 
-		ThreadPool.UnsafeQueueUserWorkItem(_ => LoadExtensions(workbench, window.Invalidate, Post), null);
+		WorkbenchViews views = new(workbench, Post) { Refresh = window.Invalidate, SavedLocations = memory.ViewLocations };
+		workbench.Views = views;
+		RegisterBuiltInViews(views, workbench, Path.GetFileName(rootPath.TrimEnd(Path.DirectorySeparatorChar)), explorerIcon);
+
+		ThreadPool.UnsafeQueueUserWorkItem(_ => LoadExtensions(workbench, debugger, window.Invalidate, Post), null);
 
 		IFileIndex index = new FileIndex(rootPath);
 		workbench.QuickOpen.Attach(index);
@@ -359,18 +361,33 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		}
 	}
 
+	private static void RegisterBuiltInViews(WorkbenchViews views, Workbench workbench, string folder, IVectorIcon? explorerIcon) {
+		views.Register(new ViewContainer(Sidebar.ExplorerId, folder.Length > 0 ? folder : "Explorer", Codicon.Files, ViewLocation.Sidebar, 0) { VectorIcon = explorerIcon });
+		views.Register(new ViewContainer(Sidebar.SourceControlId, "Source Control", Codicon.SourceControl, ViewLocation.Sidebar, 20));
+		views.Register(new ViewContainer(Sidebar.RunId, "Run and Debug", Codicon.DebugAlt, ViewLocation.Sidebar, 30));
+
+		views.AddView(new ViewDescriptor("workbench.explorer.fileView", "Folders", Sidebar.ExplorerId, () => workbench.Sidebar.Explorer));
+		views.AddView(new ViewDescriptor("workbench.scm", "Source Control", Sidebar.SourceControlId, () => workbench.Sidebar.SourceControl) { TitleControls = () => [.. workbench.Sidebar.SourceControl.HeaderActions] });
+		views.AddView(new ViewDescriptor("workbench.debug.variablesView", "Run and Debug", Sidebar.RunId, () => workbench.Sidebar.Debug));
+		views.ShowContainer(Sidebar.ExplorerId);
+	}
+
+	private static string ContainerFor(string? saved) => saved switch {
+		null or "" or nameof(ActivityView.Explorer) => Sidebar.ExplorerId,
+		nameof(ActivityView.SourceControl) => Sidebar.SourceControlId,
+		nameof(ActivityView.Run) => Sidebar.RunId,
+		_ => saved,
+	};
+
 	private static void RestoreWorkspace(Workbench workbench, WorkspaceMemory memory) {
 		workbench.ViewStates = memory.ViewStates;
 		workbench.QuickOpen.History = memory.QuickOpenHistory;
 		workbench.Sidebar.RestoreExpanded(memory.ExpandedFolders);
-		workbench.ShowSidebar = memory.ShowSidebar;
-
 		if (memory.SidebarWidth >= Metrics.SidebarMinWidth) workbench.Sidebar.Width = memory.SidebarWidth;
 
-		if (Enum.TryParse(memory.SidebarView, out ActivityView view)) {
-			workbench.Sidebar.View = view;
-			workbench.ActivityBar.Active = view;
-		}
+		if (workbench.Views is { } views && views.LocationOf(ContainerFor(memory.SidebarView)) == ViewLocation.Sidebar) views.ShowContainer(ContainerFor(memory.SidebarView));
+
+		workbench.ShowSidebar = memory.ShowSidebar;
 
 		if (memory.PanelHeight > 0f) workbench.Panel.Height = memory.PanelHeight;
 
@@ -405,7 +422,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		memory.ActiveFile = workbench.ActiveFilePath;
 		memory.ShowSidebar = workbench.ShowSidebar;
 		memory.SidebarWidth = workbench.Sidebar.Width;
-		memory.SidebarView = workbench.Sidebar.View.ToString();
+		memory.SidebarView = workbench.Sidebar.ActiveContainer;
 		memory.PanelOpen = workbench.Panel.IsOpen;
 		memory.PanelView = workbench.Panel.Active.ToString();
 		memory.PanelHeight = workbench.Panel.Height;
@@ -488,24 +505,34 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		notePaint = ui.NotePaint;
 
-		workbench.ActivityBar.ViewSelected = view => {
-			if (workbench.ActivityBar.Active == view) workbench.ShowSidebar = !workbench.ShowSidebar;
-			else {
-				workbench.ActivityBar.Active = view;
-				workbench.ShowSidebar = true;
-			}
+		WorkbenchPanel root = new(workbench);
+		ui.Root.AddChild(root);
 
-			workbench.Sidebar.View = view;
+		if (workbench.Views is { } views) {
+			views.Refresh = Refresh;
+			views.WindowSize = () => (device.Width, device.Height);
+			views.OverlayParent = root;
+			views.ContainerShown = id => {
+				if (id != Sidebar.SourceControlId) return;
 
-			if (view == ActivityView.SourceControl) {
 				workbench.Sidebar.SourceControl.SetRoot(workbench.Repository?.GetRootPath() ?? rootPath);
 				Registry.Execute("git.refresh", new CommandHost(workbench, Refresh));
+			};
+			workbench.ActivityBar.ContainerSelected = views.ToggleContainer;
+		}
+
+		workbench.ActivityBar.ViewSelected = view => {
+			string id = view == ActivityView.Search ? "workbench.view.search" : "workbench.view.extensions";
+
+			if (workbench.ActivityBar.ActiveId == id) workbench.ShowSidebar = !workbench.ShowSidebar;
+			else {
+				workbench.ActivityBar.ActiveId = id;
+				workbench.Sidebar.ShowContainer(Sidebar.ExplorerId);
+				workbench.ShowSidebar = true;
 			}
 
 			Refresh();
 		};
-		WorkbenchPanel root = new(workbench);
-		ui.Root.AddChild(root);
 		ui.CommandHandler = (command, _) => workbench.RunCommand(command, new CommandHost(workbench, Refresh));
 
 
@@ -932,10 +959,10 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		window.Events.KeyDown += key => ui.InternalKeyCodePressed(key, Modifiers());
 	}
 
-	private static void LoadExtensions(Workbench workbench, Action refresh, Action<Action> post) {
+	private static void LoadExtensions(Workbench workbench, IDebug debugger, Action refresh, Action<Action> post) {
 		CommandHost host = new(workbench, refresh);
 
-		ExtensionHost extensions = new(Settings.Current, BuiltInExtensions.All);
+		ExtensionHost extensions = new(Settings.Current, BuiltInExtensions.All) { Views = workbench.Views, Debug = debugger };
 		workbench.ExtensionHost = extensions;
 
 		int built = extensions.RegisterAll(Registry);

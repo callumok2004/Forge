@@ -51,3 +51,25 @@ public readonly record struct CodeActionEntry(int Index, string Title, string Ki
 public readonly record struct RenameTarget(int Line, int StartColumn, int EndColumn, string Placeholder);
 
 public readonly record struct DocumentHighlight(int Line, int StartColumn, int EndLine, int EndColumn, DocumentHighlightKind Kind);
+
+public readonly record struct WorkspaceSymbol(string Name, string? Container, SymbolKind Kind, string Path, int Line, int Column);
+
+public enum SymbolKind
+{
+	Unknown = 0,
+	File = 1,
+	Module = 2,
+	Namespace = 3,
+	Package = 4,
+	Class = 5,
+	Method = 6,
+	Property = 7,
+	Field = 8,
+	Constructor = 9,
+	Enum = 10,
+	Interface = 11,
+	Function = 12,
+	Variable = 13,
+	Constant = 14,
+	Struct = 23,
+}

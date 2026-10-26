@@ -20,6 +20,42 @@ public sealed class PanelTab : Button
 		SetText(title);
 	}
 
+	private DragGesture _gesture;
+
+	public string? DragContainerId { get; init; }
+
+	public override bool OnMousePressed(MouseButton button, float x, float y) {
+		if (button == MouseButton.Left && DragContainerId is not null) {
+			_gesture.Press(x, y);
+			Ui?.SetMouseCapture(this);
+		}
+
+		return base.OnMousePressed(button, x, y);
+	}
+
+	public override void OnCursorMoved(float x, float y) {
+		if (DragContainerId is { } id && _gesture.Move(x, y, Scale)) ViewDrag.Start(id, this, x, y);
+		else if (_gesture.Dragging) ViewDrag.Move(this, x, y);
+
+		base.OnCursorMoved(x, y);
+	}
+
+	public override bool OnMouseReleased(MouseButton button, float x, float y) {
+		if (button != MouseButton.Left || DragContainerId is null) return base.OnMouseReleased(button, x, y);
+
+		bool dragged = _gesture.Release();
+		Ui?.SetMouseCapture(null);
+
+		if (!dragged) return base.OnMouseReleased(button, x, y);
+
+		ViewDrag.End(this, x, y);
+		return true;
+	}
+
+	public override void OnMouseCaptureLost() {
+		if (_gesture.Release()) ViewDrag.End(this, 0f, 0f, cancelled: true);
+	}
+
 	public bool Selected {
 		get;
 		set {

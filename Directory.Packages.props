@@ -20,6 +20,10 @@
 		<PackageVersion Include="StreamJsonRpc" Version="2.26.150" />
 		<PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
 
+		<PackageVersion Include="Microsoft.Diagnostics.NETCore.Client" Version="0.2.661903" />
+		<PackageVersion Include="Microsoft.Diagnostics.Runtime" Version="4.0.732401" />
+		<PackageVersion Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.2.5" />
+
 		<PackageVersion Include="xunit.v3" Version="4.0.2" />
 		<PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
 		<PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />

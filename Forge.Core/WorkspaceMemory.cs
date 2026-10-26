@@ -20,6 +20,8 @@ public sealed class WorkspaceMemory
 
 	public string? SidebarView { get; set; }
 
+	public Dictionary<string, string> ViewLocations { get; set; } = [];
+
 	public bool ShowSidebar { get; set; } = true;
 
 	public float SidebarWidth { get; set; }

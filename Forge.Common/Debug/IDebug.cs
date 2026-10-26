@@ -2,6 +2,10 @@ namespace Forge.Common.Debug;
 
 public interface IDebug
 {
+	event Action<string, string, int>? ProcessStarted;
+
+	event Action<string>? SessionEnded;
+
 	DebugState GetState();
 
 	bool IsActive();

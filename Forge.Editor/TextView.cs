@@ -1460,7 +1460,8 @@ public sealed class TextView : ITextView
 			if (Link is { } link && link.Line == line) DrawLinkedLine(painter, link, textLeft, lineTop, lineHeight, x + width);
 			else DrawLineText(painter, line, textLeft, lineTop);
 
-			DrawInlineValue(painter, line, textLeft, lineTop, lineHeight);
+			float hintLeft = DrawInlineValue(painter, line, textLeft, lineTop, lineHeight);
+			DrawLineHint(painter, line, hintLeft, textLeft, lineTop);
 
 			DrawLightbulb(painter, line, x, textLeft, lineTop, lineHeight);
 		}
@@ -1496,15 +1497,32 @@ public sealed class TextView : ITextView
 		painter.FillRectangle(textLeft + (start * cellWidth), lineTop, (end - start) * cellWidth, lineHeight, Theme.EditorHoverHighlightBackground);
 	}
 
-	private void DrawInlineValue(IPainter painter, int line, float textLeft, float lineTop, float lineHeight) {
-		if (InlineValues is null || !InlineValues.TryGetValue(line, out string? text)) return;
+	private float DrawInlineValue(IPainter painter, int line, float textLeft, float lineTop, float lineHeight) {
+		if (InlineValues is null || !InlineValues.TryGetValue(line, out string? text)) return -1f;
 
 		ITextFont font = painter.GetCode();
 		float cellWidth = font.GetCellWidth();
 		float left = textLeft + ((VisualColumnAt(line, Snapshot.GetLineSpan(line).End) + 1) * cellWidth);
+		float width = font.Measure(text);
 
-		painter.FillRectangle(left, lineTop, font.Measure(text), lineHeight, Theme.EditorInlineValuesBackground);
+		painter.FillRectangle(left, lineTop, width, lineHeight, Theme.EditorInlineValuesBackground);
 		painter.DrawText(font, text, left, lineTop + font.GetBaseline(), Theme.EditorInlineValuesForeground);
+
+		return left + width;
+	}
+
+	public const float LineHintMarginCells = 2.5f;
+
+	public IReadOnlyDictionary<int, LineHint>? LineHints { get; set; }
+
+	private void DrawLineHint(IPainter painter, int line, float after, float textLeft, float lineTop) {
+		if (LineHints is null || !LineHints.TryGetValue(line, out LineHint hint)) return;
+
+		ITextFont font = painter.GetCode();
+		float cellWidth = font.GetCellWidth();
+		float end = after >= 0f ? after : textLeft + (VisualColumnAt(line, Snapshot.GetLineSpan(line).End) * cellWidth);
+
+		painter.DrawText(font, hint.Text, end + (LineHintMarginCells * cellWidth), lineTop + font.GetBaseline(), hint.Color ?? (hint.Warning ? Theme.WarningForeground : Theme.EditorInlayHintForeground));
 	}
 
 	public IReadOnlyList<Decoration>? Decorations { get; set; }

@@ -12,6 +12,9 @@ public interface IFontSet
 	ITextFont GetUiSmall();
 	ITextFont GetUiDescription();
 
+	ITextFont GetUi(float size, bool strong = false);
+	ITextFont GetMono(float size, bool strong = false);
+
 	float GetScale();
 
 	bool Rescale(float scale);

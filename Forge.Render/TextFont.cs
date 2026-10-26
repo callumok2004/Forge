@@ -17,7 +17,11 @@ public sealed class TextFont : ITextFont, IDisposable
 
 	private readonly ushort[] _asciiGlyphs = new ushort[AsciiCount];
 	private readonly float[] _asciiAdvances = new float[AsciiCount];
-	private readonly Dictionary<char, (ushort Glyph, float Advance)> _extended = [];
+	private static readonly string[] FallbackFamilies = ["Segoe UI", "Segoe UI Symbol", "Cambria Math", "Segoe UI Emoji"];
+
+	private readonly Dictionary<char, (int Face, ushort Glyph, float Advance)> _extended = [];
+	private readonly List<(DWrite.IDWriteFontFace Face, float Scale)?> _fallbacks = [];
+	private readonly DWrite.FontWeight _weight;
 
 	private readonly uint[] _codePointScratch = new uint[1];
 	private readonly ushort[] _glyphScratch = new ushort[1];
@@ -38,6 +42,7 @@ public sealed class TextFont : ITextFont, IDisposable
 		};
 
 		SizeInPixels = sizeInPixels;
+		_weight = weight;
 
 		_collection = factory.GetSystemFontCollection(checkForUpdates: false);
 
@@ -153,24 +158,59 @@ public sealed class TextFont : ITextFont, IDisposable
 		return Resolve(character).Advance;
 	}
 
-	private (ushort Glyph, float Advance) Resolve(char character) {
-		if (_extended.TryGetValue(character, out (ushort Glyph, float Advance) cached)) return cached;
+	internal (int Face, ushort Glyph, float Advance) GetGlyph(char character) => character < AsciiCount ? (0, _asciiGlyphs[character], _asciiAdvances[character]) : Resolve(character);
 
-		(ushort Glyph, float Advance) resolved = (0, CellWidth);
+	internal DWrite.IDWriteFontFace FaceAt(int face) => face == 0 ? _fontFace : _fallbacks[face - 1]!.Value.Face;
 
-		try {
-			_codePointScratch[0] = character;
-			_fontFace.GetGlyphIndices(_codePointScratch, _glyphScratch);
+	private (int Face, ushort Glyph, float Advance) Resolve(char character) {
+		if (_extended.TryGetValue(character, out (int Face, ushort Glyph, float Advance) cached)) return cached;
 
-			ushort glyph = _glyphScratch[0];
-			DWrite.GlyphMetrics[] metrics = _fontFace.GetDesignGlyphMetrics([glyph], isSideways: false);
-			resolved = (glyph, metrics[0].AdvanceWidth * _designScale);
-		}
-		catch (Exception) {
+		(int Face, ushort Glyph, float Advance) resolved = (0, 0, CellWidth);
+
+		if (Lookup(_fontFace, _designScale, character) is { } primary) resolved = (0, primary.Glyph, primary.Advance);
+		else if (!char.IsSurrogate(character)) {
+			for (int i = 0; i < FallbackFamilies.Length; i++) {
+				if (Fallback(i) is not { } fallback || Lookup(fallback.Face, fallback.Scale, character) is not { } found) continue;
+
+				resolved = (i + 1, found.Glyph, _isMonospace ? CellWidth * MathF.Max(1f, MathF.Round(found.Advance / CellWidth)) : found.Advance);
+				break;
+			}
 		}
 
 		_extended[character] = resolved;
 		return resolved;
+	}
+
+	private (ushort Glyph, float Advance)? Lookup(DWrite.IDWriteFontFace face, float scale, char character) {
+		try {
+			_codePointScratch[0] = character;
+			face.GetGlyphIndices(_codePointScratch, _glyphScratch);
+
+			ushort glyph = _glyphScratch[0];
+
+			if (glyph == 0) return null;
+
+			DWrite.GlyphMetrics[] metrics = face.GetDesignGlyphMetrics([glyph], isSideways: false);
+			return (glyph, metrics[0].AdvanceWidth * scale);
+		}
+		catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or System.Runtime.InteropServices.COMException or SharpGen.Runtime.SharpGenException) {
+			return null;
+		}
+	}
+
+	private (DWrite.IDWriteFontFace Face, float Scale)? Fallback(int index) {
+		while (_fallbacks.Count <= index) _fallbacks.Add(LoadFallback(FallbackFamilies[_fallbacks.Count]));
+
+		return _fallbacks[index];
+	}
+
+	private (DWrite.IDWriteFontFace Face, float Scale)? LoadFallback(string family) {
+		if (!_collection.FindFamilyName(family, out uint index)) return null;
+
+		using DWrite.IDWriteFontFamily fontFamily = _collection.GetFontFamily(index);
+		using DWrite.IDWriteFont font = fontFamily.GetFirstMatchingFont(_weight, DWrite.FontStretch.Normal, DWrite.FontStyle.Normal);
+		DWrite.IDWriteFontFace face = font.CreateFontFace();
+		return (face, SizeInPixels / face.Metrics.DesignUnitsPerEm);
 	}
 
 	public float Measure(ReadOnlySpan<char> text) {
@@ -186,6 +226,8 @@ public sealed class TextFont : ITextFont, IDisposable
 		if (_disposed) return;
 
 		_disposed = true;
+
+		foreach ((DWrite.IDWriteFontFace Face, float Scale)? fallback in _fallbacks) fallback?.Face.Dispose();
 
 		_fontFace?.Dispose();
 		_font?.Dispose();

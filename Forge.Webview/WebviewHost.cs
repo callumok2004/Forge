@@ -189,7 +189,7 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 		if (view.Controller is { } controller) {
 			Place(view);
 			controller.CoreWebView2.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Normal;
-			controller.IsVisible = true;
+			controller.IsVisible = view.Loaded;
 
 			if (changed) Navigate(id, view);
 
@@ -302,6 +302,9 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 
 		_creating = true;
 
+		Theming.Color background = Theming.Theme.ChromeBackground;
+		Environment.SetEnvironmentVariable("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", $"FF{(int)(background.R * 255f):X2}{(int)(background.G * 255f):X2}{(int)(background.B * 255f):X2}");
+
 		CoreWebView2EnvironmentOptions options = new() {
 			AdditionalBrowserArguments = BrowserArguments,
 			AreBrowserExtensionsEnabled = false,
@@ -339,7 +342,7 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 
 			Place(view);
 			controller.ZoomFactor = _zoom;
-			controller.IsVisible = true;
+			controller.IsVisible = false;
 
 			ReleaseFocus();
 
@@ -387,6 +390,11 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 
 		core.NavigationCompleted += (_, _) => {
 			view.Loaded = true;
+
+			if (view.Wanted && !controller.IsVisible) {
+				Place(view);
+				controller.IsVisible = true;
+			}
 
 			if (Trace) Fail($"loaded [{id}], flushing {view.Queued?.Count ?? 0} queued");
 
