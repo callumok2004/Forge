@@ -425,6 +425,13 @@ public sealed unsafe class AppWindow : IAppWindow, IDisposable
 			case Win32.WmDpiChanged:
 				window.Dpi = (uint)Win32.LowWord(wParam);
 				window.Events.DpiChanged?.Invoke(window.Dpi);
+
+				unsafe {
+					Win32.Rect suggested = *(Win32.Rect*)lParam;
+					Win32.SetWindowPos(hwnd, 0, suggested.Left, suggested.Top, suggested.Right - suggested.Left, suggested.Bottom - suggested.Top, Win32.SwpNoZOrder | Win32.SwpNoActivate);
+				}
+
+				window.Invalidate();
 				return 0;
 
 			case Win32.WmClose:

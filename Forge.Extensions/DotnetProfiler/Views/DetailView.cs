@@ -103,6 +103,8 @@ public sealed class DetailView : Panel
 		_focus = (-1, 0);
 	}
 
+	public override void OnScaleChanged() => _laidOutWidth = -1f;
+
 	public override void OnSizeChanged(float wide, float tall) => _laidOutWidth = -1f;
 
 	#region Layout

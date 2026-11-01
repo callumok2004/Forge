@@ -121,6 +121,8 @@ public sealed class ExceptionWidget : Panel
 		}
 	}
 
+	public override void OnScaleChanged() => _laidOutWidth = -1f;
+
 	public override void PerformLayout() {
 		float scale = Scale;
 		float size = ActionSize * scale;

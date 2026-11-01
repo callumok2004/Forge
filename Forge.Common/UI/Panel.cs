@@ -229,6 +229,15 @@ public class Panel
 		Ui?.InvalidateLayout(this);
 	}
 
+	public void InvalidateLayoutRecursive() {
+		InvalidateLayout();
+		OnScaleChanged();
+
+		foreach (Panel child in _children) child.InvalidateLayoutRecursive();
+	}
+
+	public virtual void OnScaleChanged() { }
+
 	public void Solve() {
 		if (_needsLayout) {
 			_needsLayout = false;

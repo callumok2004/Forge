@@ -441,7 +441,18 @@ public sealed class UiSystem : IUiSystem
 		CommandHandler?.Invoke(command, from);
 	}
 
+	private float _layoutScale;
+
 	public void Layout(float width, float height) {
+		float scale = GetScale();
+
+		if (scale != _layoutScale) {
+			_layoutScale = scale;
+			Root.InvalidateLayoutRecursive();
+
+			foreach ((Panel popup, _) in _popups) popup.InvalidateLayoutRecursive();
+		}
+
 		Root.SetBounds(0f, 0f, width, height);
 		Root.Solve();
 

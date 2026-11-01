@@ -195,6 +195,8 @@ public sealed class FlameGraph : Panel
 		return -1;
 	}
 
+	public override void OnScaleChanged() => _laidOutWidth = -1f;
+
 	public override void OnCursorMoved(float x, float y) {
 		_mouseX = x;
 		_mouseY = y;
