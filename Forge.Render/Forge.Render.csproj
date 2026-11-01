@@ -19,7 +19,8 @@
 		<None Include="Assets\codicon.ttf" CopyToOutputDirectory="PreserveNewest" />
 		<None Include="Assets\geist.ttf" CopyToOutputDirectory="PreserveNewest" />
 		<None Include="Assets\jetbrains-mono.ttf" CopyToOutputDirectory="PreserveNewest" />
-		<None Include="Assets\forge-icon.bgra" CopyToOutputDirectory="PreserveNewest" />
+		<None Include="Assets\forge-icon.bgra" CopyToOutputDirectory="PreserveNewest" Condition="'$(ForgeDev)'!='true'" />
+		<None Include="Assets\forge-dev-icon.bgra" Link="Assets\forge-icon.bgra" CopyToOutputDirectory="PreserveNewest" Condition="'$(ForgeDev)'=='true'" />
 		<None Include="Assets\material-icons.map" CopyToOutputDirectory="PreserveNewest" />
 
 		<None Include="Assets\icons\*.svg" CopyToOutputDirectory="PreserveNewest" />

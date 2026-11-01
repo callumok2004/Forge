@@ -4,7 +4,8 @@
 		<RootNamespace>Forge.App</RootNamespace>
 		<AssemblyName>Forge</AssemblyName>
 		<ApplicationManifest>app.manifest</ApplicationManifest>
-		<ApplicationIcon>Assets\forge.ico</ApplicationIcon>
+		<ApplicationIcon Condition="'$(ForgeDev)'!='true'">Assets\forge.ico</ApplicationIcon>
+		<ApplicationIcon Condition="'$(ForgeDev)'=='true'">Assets\forge-dev.ico</ApplicationIcon>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(PublishAot)'!='true'">

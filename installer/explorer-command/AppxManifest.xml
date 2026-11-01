@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+  xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
+  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  IgnorableNamespaces="uap rescap desktop4 desktop5 desktop6 uap10 com">
+  <Identity Name="@@PackageName@@" Publisher="@@Publisher@@" Version="@@Version@@" ProcessorArchitecture="neutral" />
+  <Properties>
+    <DisplayName>@@DisplayName@@</DisplayName>
+    <PublisherDisplayName>@@DisplayName@@</PublisherDisplayName>
+    <Logo>appx\forge-dev-150.png</Logo>
+    <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
+    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
+    <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
+  </Properties>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
+  </Capabilities>
+  <Applications>
+    <Application Id="ForgeDev" Executable="@@Executable@@" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+      <uap:VisualElements AppListEntry="none" DisplayName="@@DisplayName@@" Description="@@DisplayName@@ shell integration" BackgroundColor="transparent" Square150x150Logo="appx\forge-dev-150.png" Square44x44Logo="appx\forge-dev-44.png" />
+      <Extensions>
+        <desktop4:Extension Category="windows.fileExplorerContextMenus">
+          <desktop4:FileExplorerContextMenus>
+            <desktop5:ItemType Type="Directory">
+              <desktop5:Verb Id="OpenWithForgeDev" Clsid="@@Clsid@@" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type="Directory\Background">
+              <desktop5:Verb Id="OpenWithForgeDev" Clsid="@@Clsid@@" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type="*">
+              <desktop5:Verb Id="OpenWithForgeDev" Clsid="@@Clsid@@" />
+            </desktop5:ItemType>
+          </desktop4:FileExplorerContextMenus>
+        </desktop4:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:SurrogateServer DisplayName="@@DisplayName@@">
+              <com:Class Id="@@Clsid@@" Path="appx\@@Dll@@" ThreadingModel="STA" />
+            </com:SurrogateServer>
+          </com:ComServer>
+        </com:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>
