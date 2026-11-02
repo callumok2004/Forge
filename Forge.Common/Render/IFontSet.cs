@@ -14,6 +14,7 @@ public interface IFontSet
 
 	ITextFont GetUi(float size, bool strong = false);
 	ITextFont GetMono(float size, bool strong = false);
+	ITextFont GetFamily(string[] families, float size);
 
 	float GetScale();
 

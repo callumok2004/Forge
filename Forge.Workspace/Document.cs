@@ -13,6 +13,8 @@ public sealed class Document : IDocument
 
 	public bool IsDirty() => Buffer.State != _savedState;
 
+	public void MarkSaved() => _savedState = Buffer.State;
+
 	private int _savedState;
 
 	private Document(string? path, string name, TextBuffer buffer) {

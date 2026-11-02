@@ -9,7 +9,7 @@ namespace Forge.Workbench;
 
 public sealed class Sidebar : Panel, IViewPart
 {
-	public const string ExplorerId = "workbench.view.explorer";
+	public const string ExplorerId = ViewContainer.ExplorerId;
 	public const string SourceControlId = "workbench.view.scm";
 	public const string RunId = "workbench.view.debug";
 
@@ -80,7 +80,7 @@ public sealed class Sidebar : Panel, IViewPart
 	public void Resize(float width) => Width = Math.Clamp(width, Metrics.SidebarMinWidth, Metrics.SidebarMaxWidth);
 
 	private void Sync() {
-		_title.SetText(_host.Active?.Container.Title.ToUpperInvariant() ?? string.Empty);
+		_title.SetText(_host.Active?.Container.DisplayTitle ?? string.Empty);
 		Repaint();
 	}
 
@@ -95,7 +95,7 @@ public sealed class Sidebar : Panel, IViewPart
 		base.PerformLayout();
 	}
 
-	public override void PaintBackground(IPainter painter) => painter.FillRoundedRectangle(ScreenX, ScreenY, Wide, Tall, Metrics.RadiusLarge * Scale, Theme.ChromeBackground);
+	public override void PaintBackground(IPainter painter) => painter.FillRoundedRectangle(ScreenX, ScreenY, Wide, Tall, Metrics.RadiusLarge * Scale, Theme.SidebarBackground);
 
 	public override void PaintBorder(IPainter painter) => painter.StrokeRoundedRectangle(ScreenX, ScreenY, Wide, Tall, Metrics.RadiusLarge * Scale, Metrics.StrokeThickness * Scale, Theme.PanelBorder);
 }

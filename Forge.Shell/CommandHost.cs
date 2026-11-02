@@ -66,9 +66,11 @@ public sealed class CommandHost(Workbench workbench, Action refresh) : ICommandH
 		Action<string>? lines, Action<int>? finished) =>
 		workbench.Panel.RunTask(name, commandLine, workingDirectory, lines, finished);
 
-	public void ReportProblems(IReadOnlyList<Diagnostic> problems) =>
-		workbench.Panel.SetProblems(problems.Select(static problem =>
-			new Problem(problem.File, problem.Line, problem.Column, problem.Message, problem.IsError)));
+	public void ReportProblems(string owner, bool build, IReadOnlyList<Diagnostic> problems) =>
+		workbench.Panel.SetProblems(owner, build, problems);
+
+	public void SetExplorerGroups(IReadOnlyList<Forge.Common.Workspace.ExplorerGroup>? groups) =>
+		workbench.Post(() => workbench.Sidebar.Explorer.SetGroups(groups));
 
 	public void SetStatusItem(string id, string icon, string text, string? commandId, bool rightAligned, int priority) =>
 		workbench.StatusBar.SetItem(new StatusBar.Item(id,

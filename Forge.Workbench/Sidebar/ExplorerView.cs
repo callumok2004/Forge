@@ -38,12 +38,33 @@ public sealed class ExplorerView : Panel
 		}
 	}
 
+	private IReadOnlyList<ExplorerGroup>? _groups;
+
 	public void SetTree(IFileTree tree) {
 		_tree = tree;
+
+		if (_groups is not null) tree.SetGroups(_groups);
+
 		Rebuild();
 	}
 
 	public void CaptureExpanded(List<string> destination) => _tree?.CaptureExpanded(destination);
+
+	public void SetGroups(IReadOnlyList<ExplorerGroup>? groups) {
+		_groups = groups;
+
+		if (_tree is not { } tree) return;
+
+		tree.SetGroups(groups);
+		Rebuild();
+	}
+
+	public void CollapseAll() {
+		if (_tree is not { } tree) return;
+
+		tree.CollapseAll();
+		Rebuild();
+	}
 
 	public void RestoreExpanded(IReadOnlyList<string> paths) {
 		if (_tree is not { } tree) return;
@@ -96,6 +117,8 @@ public sealed class ExplorerView : Panel
 		FileOpened?.Invoke(node.FullPath);
 	}
 
+	private static readonly Color GroupIconForeground = Color.Parse("#C09553");
+
 	private void PaintRow(IPainter painter, int row, float left, float top, float width, float height, bool selected) {
 		FileNode node = _visible[row];
 		ITextFont font = painter.GetUi();
@@ -105,7 +128,7 @@ public sealed class ExplorerView : Panel
 		float centreY = top + (height / 2f);
 		float iconSize = Metrics.IconSize * scale;
 
-		GitFileStatus status = Repository is { } repository ? node.IsDirectory ? repository.StatusOfDirectory(node.FullPath) : repository.StatusOf(node.FullPath) : GitFileStatus.Unchanged;
+		GitFileStatus status = node.IsGroup ? GitFileStatus.Unchanged : Repository is { } repository ? node.IsDirectory ? repository.StatusOfDirectory(node.FullPath) : repository.StatusOf(node.FullPath) : GitFileStatus.Unchanged;
 		Color color = GitStatusColor.Of(status) ?? (selected ? Theme.TabActiveForeground : node.IsDirectory ? Theme.ChromeForeground : Theme.SidebarFileForeground);
 
 		float twistieCentre = left + indent + (iconSize / 2f);
@@ -114,7 +137,8 @@ public sealed class ExplorerView : Panel
 		if (node.IsDirectory) {
 			painter.DrawIcon(node.IsExpanded ? Codicon.ChevronDown : Codicon.ChevronRight, twistieCentre, centreY, iconSize, Theme.SectionHeaderForeground);
 
-			if (!painter.DrawFolderIcon(node.Name, node.IsExpanded, iconX, centreY, iconSize)) painter.DrawIcon(node.IsExpanded ? Codicon.FolderOpened : Codicon.Folder, iconX, centreY, iconSize, color);
+			if (node.IsGroup) painter.DrawIcon(node.IsExpanded ? Codicon.FolderOpened : Codicon.Folder, iconX, centreY, iconSize, GroupIconForeground);
+			else if (!painter.DrawFolderIcon(node.Name, node.IsExpanded, iconX, centreY, iconSize)) painter.DrawIcon(node.IsExpanded ? Codicon.FolderOpened : Codicon.Folder, iconX, centreY, iconSize, color);
 		}
 		else if (!painter.DrawFileIcon(node.Name, iconX, centreY, iconSize)) painter.DrawIcon(FileIcon(node.Name), iconX, centreY, iconSize, FileTypeColor(node.Name));
 
@@ -123,7 +147,7 @@ public sealed class ExplorerView : Panel
 		float textX = left + indent + (iconSize * 2f) + (Metrics.Space4 * scale);
 
 		painter.PushClip(left, top, Math.Max(0f, width - (Metrics.SpaceSm * scale) - letterWidth), height);
-		painter.DrawText(font, node.Name, textX, baseline, color);
+		painter.DrawText(node.IsGroup ? painter.GetUiStrong() : font, node.Name, textX, baseline, color);
 		painter.PopClip();
 
 		if (letter.Length > 0) painter.DrawText(font, letter, left + width - (Metrics.Space8 * scale) - font.Measure(letter), baseline, color);

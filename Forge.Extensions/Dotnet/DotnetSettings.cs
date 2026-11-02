@@ -36,6 +36,8 @@ public sealed class DotnetSettings
 
 	public bool LayoutFieldOffsets { get; private set; } = true;
 
+	public bool GroupInFileExplorer { get; private set; } = true;
+
 	public string StorageDirectory { get; init; } = UserData.Directory;
 
 	public void Read(Settings settings) {
@@ -54,6 +56,7 @@ public sealed class DotnetSettings
 		FormatOnType = settings.GetBoolean("editor.formatOnType") ?? false;
 		LayoutEnabled = settings.GetBoolean("dotnet.layout.enabled") ?? true;
 		LayoutFieldOffsets = settings.GetBoolean("dotnet.layout.fieldOffsets") ?? true;
+		GroupInFileExplorer = settings.GetBoolean("dotnet.explorer.groupInFileExplorer") ?? true;
 	}
 
 	private static Dictionary<string, string> ReadEnvironment(JsonNode? node) {

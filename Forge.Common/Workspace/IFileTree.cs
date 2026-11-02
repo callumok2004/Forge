@@ -13,4 +13,6 @@ public interface IFileTree
 
 	void CaptureExpanded(List<string> destination);
 	void RestoreExpanded(IReadOnlyList<string> paths);
+	void CollapseAll();
+	void SetGroups(IReadOnlyList<ExplorerGroup>? groups);
 }

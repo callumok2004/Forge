@@ -302,7 +302,7 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 
 		_creating = true;
 
-		Theming.Color background = Theming.Theme.ChromeBackground;
+		Theming.Color background = Theming.Theme.SidebarBackground;
 		Environment.SetEnvironmentVariable("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", $"FF{(int)(background.R * 255f):X2}{(int)(background.G * 255f):X2}{(int)(background.B * 255f):X2}");
 
 		CoreWebView2EnvironmentOptions options = new() {
@@ -364,7 +364,7 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 		settings.IsGeneralAutofillEnabled = false;
 		settings.IsPasswordAutosaveEnabled = false;
 
-		Theming.Color background = Theming.Theme.ChromeBackground;
+		Theming.Color background = Theming.Theme.SidebarBackground;
 		controller.DefaultBackgroundColor = Color.FromArgb(255, (int)(background.R * 255f), (int)(background.G * 255f), (int)(background.B * 255f));
 
 		core.SetVirtualHostNameToFolderMapping(PageHost, PageDirectory(id),

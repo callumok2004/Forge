@@ -1420,6 +1420,8 @@ public sealed class TextView : ITextView
 
 		float gutterWidth = GutterWidth(font);
 		float textLeft = x + gutterWidth + TextPaddingLeft - ScrollX;
+		float textAreaLeft = x + gutterWidth;
+		float textAreaWidth = Math.Max(0f, width - gutterWidth);
 
 		_textAreaWidth = Math.Max(0f, width - gutterWidth - TextPaddingLeft);
 		LastLineHeight = lineHeight;
@@ -1446,15 +1448,14 @@ public sealed class TextView : ITextView
 				painter.FillRectangle(x, lineTop, 2f, lineHeight, Theme.Accent);
 			}
 
+			DrawExecutionLine(painter, line, x, lineTop, width, lineHeight);
+
+			painter.PushClip(textAreaLeft, lineTop, textAreaWidth, lineHeight);
+
 			if (HasSelection) DrawSelection(painter, line, selection, textLeft, lineTop, lineHeight);
 
 			DrawDecorations(painter, line, textLeft, lineTop, lineHeight);
 			DrawIndentGuides(painter, line, textLeft, lineTop, lineHeight, caretLine);
-			DrawChangeMark(painter, line, x, lineTop, lineHeight);
-			DrawExecutionLine(painter, line, x, lineTop, width, lineHeight);
-			DrawLineNumber(painter, line, caretLine, x, lineTop, gutterWidth);
-			DrawGlyphMargin(painter, line, x, lineTop, lineHeight);
-
 			DrawHoverHighlight(painter, line, textLeft, lineTop, lineHeight);
 
 			if (Link is { } link && link.Line == line) DrawLinkedLine(painter, link, textLeft, lineTop, lineHeight, x + width);
@@ -1463,12 +1464,20 @@ public sealed class TextView : ITextView
 			float hintLeft = DrawInlineValue(painter, line, textLeft, lineTop, lineHeight);
 			DrawLineHint(painter, line, hintLeft, textLeft, lineTop);
 
+			painter.PopClip();
+
+			DrawChangeMark(painter, line, x, lineTop, lineHeight);
+			DrawLineNumber(painter, line, caretLine, x, lineTop, gutterWidth);
+			DrawGlyphMargin(painter, line, x, lineTop, lineHeight);
 			DrawLightbulb(painter, line, x, textLeft, lineTop, lineHeight);
 		}
 
+		painter.PushClip(textAreaLeft, y, textAreaWidth, height);
 		DrawCodeLenses(painter, y, textLeft, width, lineHeight);
 
 		if (CaretVisible) DrawCaret(painter, caretLine, firstLine, textLeft, y, lineHeight);
+
+		painter.PopClip();
 
 		painter.PopClip();
 

@@ -36,7 +36,7 @@ public sealed class BuildTasks(SolutionWorkspace workspace, DotnetOutput output)
 		if (command == "build") Started?.Invoke();
 
 		host.RunInTerminal($"dotnet {command}", $"dotnet {arguments}", Path.GetDirectoryName(target), line => {
-			if (matcher.Read(line)) host.ReportProblems(matcher.Diagnostics);
+			if (matcher.Read(line)) host.ReportProblems(MsBuildProblemMatcher.Owner, true, matcher.Diagnostics);
 
 			host.Refresh();
 		}, exitCode => {
@@ -53,7 +53,7 @@ public sealed class BuildTasks(SolutionWorkspace workspace, DotnetOutput output)
 
 				if (exitCode != 0) host.ShowPanel("Problems");
 			}
-			else if (exitCode == 0) host.ReportProblems([]);
+			else if (exitCode == 0) host.ReportProblems(MsBuildProblemMatcher.Owner, true, []);
 
 			host.Refresh();
 		});

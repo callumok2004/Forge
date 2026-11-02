@@ -131,6 +131,9 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			ThreadPool.UnsafeQueueUserWorkItem(_ => repository.Refresh(), null);
 
 			workbench.ActiveDocumentChanged += () => workbench.RefreshDiff(window.Invalidate);
+			workbench.ActiveDocumentChanged += () => {
+				if (workbench.Panel.ProblemsView.Scope != ErrorListScope.EntireSolution) workbench.Panel.ProblemsView.Sync();
+			};
 		}
 
 		if (GitWorkspaceInfo.ReadRemote(rootPath) is { } remote) {
@@ -209,12 +212,15 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			}
 		});
 
-		IOutputChannel debugConsole = workbench.Panel.Channel("Debug Console");
-
-		debugger.OnOutput(value => {
-			debugConsole.Append(value.Text.TrimEnd((char)10, (char)13));
-			workbench.Panel.MarkDirty();
+		DebugConsoleView debugConsole = workbench.Panel.DebugConsole;
+		debugConsole.Post = action => workbench.Post(() => {
+			action();
+			window.Invalidate();
 		});
+		debugConsole.Evaluate = expression => debugger.EvaluateAsync(expression, "repl");
+		debugConsole.LoadChildren = debugger.VariablesAsync;
+
+		debugger.OnOutput(value => debugConsole.Append(value.Category, value.Text));
 
 		bool debugging = false;
 
@@ -366,7 +372,12 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		views.Register(new ViewContainer(Sidebar.SourceControlId, "Source Control", Codicon.SourceControl, ViewLocation.Sidebar, 20));
 		views.Register(new ViewContainer(Sidebar.RunId, "Run and Debug", Codicon.DebugAlt, ViewLocation.Sidebar, 30));
 
-		views.AddView(new ViewDescriptor("workbench.explorer.fileView", "Folders", Sidebar.ExplorerId, () => workbench.Sidebar.Explorer));
+		views.AddView(new ViewDescriptor("workbench.explorer.fileView", "Folders", Sidebar.ExplorerId, () => workbench.Sidebar.Explorer) {
+			Actions = [
+				new ViewAction("workbench.files.action.refreshFilesExplorer", Codicon.Refresh, "Refresh Explorer"),
+				new ViewAction("workbench.files.action.collapseExplorerFolders", Codicon.CollapseAll, "Collapse Folders in Explorer"),
+			],
+		});
 		views.AddView(new ViewDescriptor("workbench.scm", "Source Control", Sidebar.SourceControlId, () => workbench.Sidebar.SourceControl) { TitleControls = () => [.. workbench.Sidebar.SourceControl.HeaderActions] });
 		views.AddView(new ViewDescriptor("workbench.debug.variablesView", "Run and Debug", Sidebar.RunId, () => workbench.Sidebar.Debug));
 		views.ShowContainer(Sidebar.ExplorerId);
@@ -390,6 +401,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		workbench.ShowSidebar = memory.ShowSidebar;
 
 		if (memory.PanelHeight > 0f) workbench.Panel.Height = memory.PanelHeight;
+
+		workbench.Panel.RestoreGroups(memory.PanelGroups);
 
 		if (memory.AuxiliaryWidth >= AuxiliaryBar.MinWidth) workbench.Auxiliary.Width = memory.AuxiliaryWidth;
 
@@ -425,6 +438,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		memory.SidebarView = workbench.Sidebar.ActiveContainer;
 		memory.PanelOpen = workbench.Panel.IsOpen;
 		memory.PanelView = workbench.Panel.Active.ToString();
+		memory.PanelGroups = [.. workbench.Panel.SaveGroups()];
 		memory.PanelHeight = workbench.Panel.Height;
 		memory.AuxiliaryOpen = workbench.Auxiliary.IsOpen;
 		memory.AuxiliaryWidth = workbench.Auxiliary.Width;
@@ -613,6 +627,10 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		workbench.RevealCaret = context.RevealCaret;
 		root.Editor.RequestFocus();
 
+		workbench.Panel.WorkspaceRoot = workbench.RootPath;
+		workbench.Panel.ActiveFile = () => workbench.ActiveDocument?.Path;
+		workbench.Panel.OpenFiles = () => workbench.Documents.Select(static document => document.Path).OfType<string>();
+
 		workbench.Panel.Navigate = (path, line, column) => {
 			workbench.GoTo(path, line, column);
 			Refresh();
@@ -625,6 +643,27 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		workbench.Tabs.Closed = index => {
 			workbench.Close(index);
+			Refresh();
+		};
+
+		workbench.Tabs.ContextMenu = (index, x, y) => {
+			string? path = index < workbench.Documents.Count && workbench.FindPaneAt(index) is null ? workbench.Documents[index].Path : null;
+			Menu menu = new();
+			menu.Add(new MenuItem("Close", "workbench.action.closeActiveEditor", () => workbench.Close(index)));
+			menu.Add(new MenuItem("Close Others", "workbench.action.closeOtherEditors", () => workbench.CloseOthers(index)));
+			menu.Add(new MenuItem("Close to the Right", "workbench.action.closeEditorsToTheRight", index < workbench.Documents.Count - 1 ? () => workbench.CloseToTheRight(index) : null));
+			menu.Add(new MenuItem("Close Saved", "workbench.action.closeUnmodifiedEditors", workbench.CloseSaved));
+			menu.Add(new MenuItem("Close All", "workbench.action.closeAllEditors", workbench.CloseAll));
+			menu.AddSeparator();
+			menu.Add(new MenuItem("Copy Path", "copyFilePath", path is null ? null : () => Clipboard.SetText(path)));
+			menu.Add(new MenuItem("Copy Relative Path", "copyRelativeFilePath", path is null ? null : () => Clipboard.SetText(workbench.RootPath is { } root ? Path.GetRelativePath(root, path) : path)));
+			menu.AddSeparator();
+			menu.Add(new MenuItem("Reveal in File Explorer", "revealFileInOS", path is null ? null : () => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true })));
+			menu.Add(new MenuItem("Reveal in Explorer View", null, path is null ? null : () => {
+				workbench.Views?.ShowContainer(Sidebar.ExplorerId);
+				workbench.Sidebar.SelectedPath = path;
+			}));
+			menu.Open(x, y);
 			Refresh();
 		};
 

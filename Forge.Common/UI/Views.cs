@@ -11,6 +11,10 @@ public enum ViewLocation
 
 public sealed record ViewContainer(string Id, string Title, Codicon Icon, ViewLocation Location, int Order = 100)
 {
+	public const string ExplorerId = "workbench.view.explorer";
+
+	public string DisplayTitle => Id == ExplorerId ? Title : TextCase.Capitalize(Title);
+
 	public IVectorIcon? VectorIcon { get; init; }
 
 	public bool Movable { get; init; } = true;

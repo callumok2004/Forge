@@ -59,6 +59,12 @@ public sealed class TerminalScreen
 		return index >= 0 && index < _lines.Count ? _lines[index] : default;
 	}
 
+	public int LineCount => _lines.Count;
+
+	public int LineIndex(int row) => _lines.Count - Rows - ScrollOffset + row;
+
+	public ReadOnlySpan<TerminalCell> Line(int index) => (uint)index < (uint)_lines.Count ? _lines[index] : default;
+
 	public void ScrollBy(int lines) {
 		ScrollOffset = Math.Clamp(ScrollOffset + lines, 0, ScrollbackCount);
 	}

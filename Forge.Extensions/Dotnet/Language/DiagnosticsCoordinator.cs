@@ -8,6 +8,8 @@ public sealed class DiagnosticsCoordinator
 {
 	private const int DebounceMilliseconds = 300;
 
+	public const string Owner = "dotnet.roslyn";
+
 	private readonly RoslynLanguageClient _server;
 	private readonly Dictionary<string, IReadOnlyList<ServerDiagnostic>> _diagnostics = [with(StringComparer.OrdinalIgnoreCase)];
 	private readonly Dictionary<string, long> _due = [with(StringComparer.OrdinalIgnoreCase)];
@@ -49,7 +51,7 @@ public sealed class DiagnosticsCoordinator
 
 		if (_host is not { } host) return;
 
-		host.ReportProblems(All());
+		host.ReportProblems(Owner, false, All());
 		host.Refresh();
 	}
 
@@ -74,7 +76,7 @@ public sealed class DiagnosticsCoordinator
 
 	private Diagnostic[] All() {
 		lock (_sync) {
-			return [.. _diagnostics.Values.SelectMany(static file => file).OrderByDescending(static diagnostic => diagnostic.IsError).Select(static diagnostic => new Diagnostic(diagnostic.File, diagnostic.Line, diagnostic.Column, diagnostic.Message, diagnostic.IsError))];
+			return [.. _diagnostics.Values.SelectMany(static file => file).Select(static diagnostic => new Diagnostic(diagnostic.File, diagnostic.Line, diagnostic.Column, diagnostic.Message, diagnostic.Severity, diagnostic.Code))];
 		}
 	}
 }

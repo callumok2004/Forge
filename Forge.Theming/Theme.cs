@@ -185,4 +185,8 @@ public static class Theme
 	public static readonly Color ProblemsErrorIcon = Color.Parse("#ff8a8a");
 	public static readonly Color ProblemsWarningIcon = Color.Parse("#e3b341");
 	public static readonly Color ProblemsInfoIcon = Color.Parse("#5aa8ff");
+
+	public static readonly Color InputOptionActiveBackground = Color.Parse("#1f5bff33");
+	public static readonly Color InputOptionActiveBorder = Color.Parse("#1f5bff");
+	public static readonly Color TextLinkForeground = Color.Parse("#5aa8ff");
 }

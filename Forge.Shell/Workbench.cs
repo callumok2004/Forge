@@ -87,6 +87,8 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	public Codicon? PaneIcon(int index) => _panes[index]?.Icon;
 
+	public EditorPane? FindPaneAt(int index) => (uint)index < (uint)_panes.Count ? _panes[index] : null;
+
 	public EditorPane? FindPane(string id) {
 		foreach (EditorPane? pane in _panes) {
 			if (pane is not null && pane.Id == id) return pane;
@@ -584,6 +586,13 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 		EditorPane? closedPane = _panes[index];
 
+		if (closedPane is null && _documents[index].Path is { } recent) {
+			_recentlyClosed.Remove(recent);
+			_recentlyClosed.Add(recent);
+
+			if (_recentlyClosed.Count > MaxRecentlyClosed) _recentlyClosed.RemoveAt(0);
+		}
+
 		_documents.RemoveAt(index);
 		_views.RemoveAt(index);
 		_panes.RemoveAt(index);
@@ -607,6 +616,92 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	}
 
 	public void CloseActive() => Close(ActiveIndex);
+
+	private const int MaxRecentlyClosed = 20;
+
+	private readonly List<string> _recentlyClosed = [];
+
+	public void CloseAll() {
+		for (int i = _documents.Count - 1; i >= 0; i--) Close(i);
+	}
+
+	public void CloseOthers(int keep) {
+		if (keep < 0 || keep >= _documents.Count) return;
+
+		for (int i = _documents.Count - 1; i > keep; i--) Close(i);
+
+		for (int i = keep - 1; i >= 0; i--) Close(i);
+
+		Activate(0);
+	}
+
+	public void CloseToTheRight(int index) {
+		for (int i = _documents.Count - 1; i > index; i--) Close(i);
+
+		Activate(Math.Min(index, _documents.Count - 1));
+	}
+
+	public void CloseToTheLeft(int index) {
+		if (index <= 0 || index >= _documents.Count) return;
+
+		for (int i = index - 1; i >= 0; i--) Close(i);
+
+		Activate(0);
+	}
+
+	public void CloseSaved() {
+		int active = ActiveIndex;
+		Document? keep = active >= 0 ? _documents[active] : null;
+
+		for (int i = _documents.Count - 1; i >= 0; i--) {
+			if (_panes[i] is null && !_documents[i].IsDirty()) Close(i);
+		}
+
+		if (keep is not null && _documents.IndexOf(keep) is >= 0 and int found) Activate(found);
+	}
+
+	public void ReopenClosed() {
+		while (_recentlyClosed.Count > 0) {
+			string path = _recentlyClosed[^1];
+			_recentlyClosed.RemoveAt(_recentlyClosed.Count - 1);
+
+			if (!File.Exists(path)) continue;
+
+			OpenFile(path);
+			return;
+		}
+	}
+
+	public void ActivateRelative(int delta) {
+		if (_documents.Count == 0) return;
+
+		Activate(((ActiveIndex + delta) % _documents.Count + _documents.Count) % _documents.Count);
+	}
+
+	public void SaveAll() {
+		int active = ActiveIndex;
+
+		for (int i = 0; i < _documents.Count; i++) {
+			if (_panes[i] is not null || !_documents[i].IsDirty()) continue;
+
+			ActiveIndex = i;
+			SaveActive();
+		}
+
+		if (active >= 0 && active < _documents.Count) ActiveIndex = active;
+
+		ActiveDocumentChanged?.Invoke();
+	}
+
+	public void RevertActive() {
+		if (ActiveDocument is not { Path: { } path } document || !File.Exists(path)) return;
+
+		document.Buffer.BeginEdit();
+		document.Buffer.Replace(0, document.Buffer.Length, File.ReadAllText(path));
+		document.Buffer.EndEdit();
+		document.MarkSaved();
+		ActiveDocumentChanged?.Invoke();
+	}
 
 	public Func<string, string?>? WillSave { get; set; }
 
@@ -649,16 +744,8 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		IntelliSense?.Tick();
 		History.Observe();
 
-		int errors = 0;
-		int warnings = 0;
-
-		foreach (Problem problem in Panel.Problems) {
-			if (problem.IsError) errors++;
-			else warnings++;
-		}
-
-		StatusBar.Errors = errors;
-		StatusBar.Warnings = warnings;
+		StatusBar.Errors = Panel.ErrorCount;
+		StatusBar.Warnings = Panel.WarningCount;
 		StatusBar.Sync(ActiveView, BranchName);
 		Sidebar.SourceControl.SyncIfStale();
 

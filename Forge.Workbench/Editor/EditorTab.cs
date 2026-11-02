@@ -13,7 +13,9 @@ public sealed class EditorTab : Button
 	private const float CloseSlot = 24f;
 	private const float CloseSize = 18f;
 
+	private readonly TabStrip _strip;
 	private readonly TabCloseButton _close;
+	private bool _middlePressed;
 	private IDocument? _document;
 	private Codicon? _icon;
 
@@ -23,6 +25,7 @@ public sealed class EditorTab : Button
 		Dock = DockType.Left;
 		Padding = new Thickness(Metrics.Space8 + Metrics.IconSize + Metrics.Space6, 0f, CloseSlot, 0f);
 		Action = () => strip.Activated?.Invoke(Index);
+		_strip = strip;
 
 		_close = new TabCloseButton(this) { Action = () => strip.Closed?.Invoke(Index) };
 		AddChild(_close);
@@ -61,6 +64,30 @@ public sealed class EditorTab : Button
 
 		float width = MeasureContents(FontFor(Ui.GetFonts()), scale) + ((Padding.Left + Padding.Right) * scale);
 		return Math.Clamp(width, MinWidth * scale, MaxWidth * scale);
+	}
+
+	public override bool OnMousePressed(MouseButton button, float x, float y) {
+		if (button == MouseButton.Right) {
+			_strip.ContextMenu?.Invoke(Index, ScreenX + x, ScreenY + y);
+			return true;
+		}
+
+		if (button != MouseButton.Middle) return base.OnMousePressed(button, x, y);
+
+		_middlePressed = true;
+		Ui?.SetMouseCapture(this);
+		return true;
+	}
+
+	public override bool OnMouseReleased(MouseButton button, float x, float y) {
+		if (button != MouseButton.Middle || !_middlePressed) return base.OnMouseReleased(button, x, y);
+
+		_middlePressed = false;
+		Ui?.SetMouseCapture(null);
+
+		if (x >= 0f && x < Wide && y >= 0f && y < Tall) _strip.Closed?.Invoke(Index);
+
+		return true;
 	}
 
 	public override void OnCursorEntered() {

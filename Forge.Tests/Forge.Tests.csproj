@@ -18,5 +18,6 @@
 	<ItemGroup>
 		<ProjectReference Include="..\Forge.Render\Forge.Render.csproj" />
 		<ProjectReference Include="..\Forge.Workbench\Forge.Workbench.csproj" />
+		<ProjectReference Include="..\Forge.UI\Forge.UI.csproj" />
 	</ItemGroup>
 </Project>

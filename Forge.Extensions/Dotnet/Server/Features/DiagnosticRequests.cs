@@ -1,5 +1,7 @@
 using System.Text.Json.Nodes;
 
+using Forge.Common.Commands;
+
 namespace Forge.Extensions.Dotnet.Server.Features;
 
 public sealed class DiagnosticRequests(RoslynLanguageClient client)
@@ -59,12 +61,12 @@ public sealed class DiagnosticRequests(RoslynLanguageClient client)
 
 			int severity = entry["severity"]?.GetValue<int>() ?? 1;
 
-			if (severity > 2) continue;
+			if (severity > 3) continue;
 
 			string message = entry["message"]?.GetValue<string>() ?? string.Empty;
 			string? code = entry["code"]?.ToString();
 
-			results.Add(new ServerDiagnostic(path, LspJson.Line(start), LspJson.Column(start), code is { Length: > 0 } ? $"{code}: {message}" : message, severity == 1));
+			results.Add(new ServerDiagnostic(path, LspJson.Line(start), LspJson.Column(start), message, severity switch { 1 => DiagnosticSeverity.Error, 2 => DiagnosticSeverity.Warning, _ => DiagnosticSeverity.Info }, code is { Length: > 0 } ? code : null));
 		}
 
 		return results;

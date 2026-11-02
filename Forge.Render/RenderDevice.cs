@@ -105,6 +105,13 @@ public sealed class RenderDevice : IRenderDevice, ICompositionHost, IDisposable
 	}
 
 	public bool BeginPass(int left, int top, int right, int bottom) {
+		left = Math.Max(left, 0);
+		top = Math.Max(top, 0);
+		right = Math.Min(right, Width);
+		bottom = Math.Min(bottom, Height);
+
+		if (right <= left || bottom <= top) return false;
+
 		try {
 			using IDXGISurface surface = _surface.BeginDraw<IDXGISurface>(new Vortice.RawRect(left, top, right, bottom), out Vortice.Mathematics.Int2 offset);
 			_target = Context.CreateBitmapFromDxgiSurface(surface, TargetProperties);
@@ -114,7 +121,7 @@ public sealed class RenderDevice : IRenderDevice, ICompositionHost, IDisposable
 			return true;
 		}
 		catch (SharpGen.Runtime.SharpGenException exception) {
-			LastFailure = exception.Message;
+			LastFailure = exception.Message.ReplaceLineEndings(string.Empty);
 			return false;
 		}
 	}

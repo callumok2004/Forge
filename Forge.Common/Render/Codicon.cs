@@ -3,6 +3,11 @@ namespace Forge.Common.Render;
 public enum Codicon : ushort
 {
 	Add = 0xEA60,
+	SplitHorizontal = 0xEB56,
+	CollapseAll = 0xEAC5,
+	Output = 0xEB9D,
+	DebugConsole = 0xEB9B,
+	References = 0xEB36,
 	Repo = 0xEA62,
 	RepoSelected = 0xEC69,
 	GoToFile = 0xEA94,

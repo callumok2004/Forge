@@ -21,8 +21,6 @@ public enum TextAlignment : byte
 
 public class Label : Panel
 {
-	private const float IconSize = 14f;
-	private const float IconGap = 4f;
 
 	private static readonly Dictionary<string, Codicon> IconNames = BuildIconNames();
 
@@ -72,6 +70,10 @@ public class Label : Panel
 	}
 
 	public float FontSize { get; init; }
+
+	public float IconSize { get; init; } = 14f;
+
+	public float IconGap { get; init; } = 4f;
 
 	protected ITextFont FontFor(IFontSet fonts) => FontSize > 0f ? fonts.GetUi(FontSize, Font == FontRole.UiStrong) : Font switch {
 		FontRole.UiStrong => fonts.GetUiStrong(),

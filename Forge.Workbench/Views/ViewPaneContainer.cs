@@ -162,7 +162,7 @@ public sealed class ViewPaneContainer : Panel
 		public PaneHeader(ViewPaneContainer owner, Pane pane) {
 			_owner = owner;
 			_pane = pane;
-			_title = pane.Descriptor.Name.ToUpperInvariant();
+			_title = pane.Descriptor.ContainerId == ViewContainer.ExplorerId ? pane.Descriptor.Name : TextCase.Capitalize(pane.Descriptor.Name);
 			Name = pane.Descriptor.Id + ".header";
 		}
 

@@ -36,11 +36,50 @@ public static class WorkbenchCommands
 		}, "Ctrl+Shift+S");
 
 		Add("workbench.action.closeActiveEditor", "Close Editor", "View", workbench.CloseActive, "Ctrl+W");
+		Add("workbench.action.closeAllEditors", "Close All Editors", "View", workbench.CloseAll, "Ctrl+K Ctrl+W");
+		Add("workbench.action.closeOtherEditors", "Close Other Editors in Group", "View", () => workbench.CloseOthers(workbench.ActiveIndex));
+		Add("workbench.action.closeEditorsToTheRight", "Close Editors to the Right in Group", "View", () => workbench.CloseToTheRight(workbench.ActiveIndex));
+		Add("workbench.action.closeEditorsToTheLeft", "Close Editors to the Left in Group", "View", () => workbench.CloseToTheLeft(workbench.ActiveIndex));
+		Add("workbench.action.closeUnmodifiedEditors", "Close Saved Editors in Group", "View", workbench.CloseSaved, "Ctrl+K U");
+		Add("workbench.action.reopenClosedEditor", "Reopen Closed Editor", "View", workbench.ReopenClosed, "Ctrl+Shift+T");
+		Add("workbench.action.nextEditor", "Open Next Editor", "View", () => workbench.ActivateRelative(1), "Ctrl+PageDown");
+		Add("workbench.action.previousEditor", "Open Previous Editor", "View", () => workbench.ActivateRelative(-1), "Ctrl+PageUp");
+
+		for (int i = 1; i <= 9; i++) {
+			int index = i - 1;
+			Add($"workbench.action.openEditorAtIndex{i}", $"Open Editor at Index {i}", "View", () => workbench.Activate(index), $"Alt+{i}");
+		}
+
+		Add("workbench.action.lastEditorInGroup", "Open Last Editor in Group", "View", () => workbench.Activate(workbench.Documents.Count - 1), "Alt+0");
+		Add("workbench.action.files.saveAll", "Save All", "File", workbench.SaveAll, "Ctrl+K S");
+		Add("workbench.action.files.revert", "Revert File", "File", workbench.RevertActive);
+		Add("workbench.files.action.collapseExplorerFolders", "Collapse Folders in Explorer", "File", workbench.Sidebar.Explorer.CollapseAll);
+		Add("workbench.files.action.refreshFilesExplorer", "Refresh Explorer", "File", () => {
+			if (workbench.RootPath is { } root) workbench.Sidebar.Explorer.Reload([root]);
+		});
+
+		Add("copyFilePath", "Copy Path of Active File", "File", () => {
+			if (workbench.ActiveDocument?.Path is { } path) Clipboard.SetText(path);
+		}, "Shift+Alt+C");
+
+		Add("copyRelativeFilePath", "Copy Relative Path of Active File", "File", () => {
+			if (workbench.ActiveDocument?.Path is { } path) Clipboard.SetText(workbench.RootPath is { } root ? Path.GetRelativePath(root, path) : path);
+		}, "Ctrl+K Ctrl+Shift+Alt+C");
+
+		Add("revealFileInOS", "Reveal in File Explorer", "File", () => {
+			if (workbench.ActiveDocument?.Path is { } path) Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
+		}, "Shift+Alt+R");
+
+		Add("workbench.view.explorer", "Show Explorer", "View", () => workbench.Views?.ShowContainer(Sidebar.ExplorerId), "Ctrl+Shift+E");
+		Add("workbench.view.scm", "Show Source Control", "View", () => workbench.Views?.ShowContainer(Sidebar.SourceControlId), "Ctrl+Shift+G");
+		Add("workbench.view.debug", "Show Run and Debug", "View", () => workbench.Views?.ShowContainer(Sidebar.RunId), "Ctrl+Shift+D");
 		Add("workbench.action.openSettings", "Open Settings", "Preferences", () => workbench.OpenFile(UserData.SettingsPath), "Ctrl+,");
 		Add("workbench.action.quit", "Quit", "File", context.Window.CloseWindow);
 
 		Add("workbench.action.showCommands", "Show All Commands", "View", () => workbench.QuickInput.Show(workbench.Palette), "Ctrl+Shift+P");
 		Add("workbench.action.quickOpen", "Go to File...", "Go", () => workbench.QuickInput.Show(workbench.QuickOpen), "Ctrl+P");
+		GoToLineProvider goToLine = new(workbench);
+		Add("workbench.action.gotoLine", "Go to Line/Column...", "Go", () => workbench.QuickInput.Show(goToLine), "Ctrl+G");
 		Add("workbench.action.navigateBack", "Go Back", "Go", workbench.History.GoBack, "Alt+Left", () => workbench.History.CanGoBack);
 		Add("workbench.action.navigateForward", "Go Forward", "Go", workbench.History.GoForward, "Alt+Right", () => workbench.History.CanGoForward);
 

@@ -13,6 +13,7 @@ public interface IOutputChannel
 	int CopyTo(string[] destination, int skip);
 	string ReadAll();
 	string ReadRange(int first, int last);
+	string ReadRange(int firstLine, int firstColumn, int lastLine, int lastColumn);
 }
 
 public interface IOutputChannels

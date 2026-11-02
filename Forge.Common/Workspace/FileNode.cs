@@ -8,7 +8,9 @@ public sealed class FileNode(string fullPath, string name, bool isDirectory, int
 
 	public bool IsDirectory { get; } = isDirectory;
 
-	public int Depth { get; } = depth;
+	public int Depth { get; set; } = depth;
+
+	public bool IsGroup { get; init; }
 
 	public bool IsExpanded { get; set; }
 

@@ -21,6 +21,8 @@ public sealed class TabStrip : Panel
 
 	public Action<int>? Closed { get; set; }
 
+	public Action<int, float, float>? ContextMenu { get; set; }
+
 	public void Sync(IReadOnlyList<IDocument> documents, int activeIndex, Func<int, Codicon?>? iconOf = null) {
 		while (_tabs.Count < documents.Count) {
 			EditorTab tab = new(this);

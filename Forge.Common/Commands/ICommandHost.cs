@@ -25,7 +25,9 @@ public interface ICommandHost
 	string? GetDocumentText(string path);
 	Task<bool> ApplyWorkspaceEditAsync(WorkspaceEdit edit);
 	void SetSemanticTokens(string path, IReadOnlyList<SemanticToken> tokens);
-	void ReportProblems(IReadOnlyList<Diagnostic> problems);
+	void ReportProblems(string owner, bool build, IReadOnlyList<Diagnostic> problems);
+
+	void SetExplorerGroups(IReadOnlyList<Forge.Common.Workspace.ExplorerGroup>? groups);
 
 	void ShowPanel(string view);
 	void ShowCommandPalette();

@@ -197,7 +197,7 @@ public sealed class AuxiliaryBar : Panel, IViewPart
 
 	public Action? Activated { get; set; }
 
-	private void SyncTitle() => _title.SetText((_host.Active?.Container.Title ?? Active?.Title)?.ToUpperInvariant());
+	private void SyncTitle() => _title.SetText(_host.Active?.Container.DisplayTitle ?? Active?.Title);
 
 	public override void PerformLayout() {
 		float scale = Scale;
@@ -222,8 +222,8 @@ public sealed class AuxiliaryBar : Panel, IViewPart
 
 	public override void PaintBackground(IPainter painter) {
 		float radius = Metrics.RadiusLarge * Scale;
-		painter.FillRoundedRectangle(ScreenX, ScreenY, Wide, Tall, radius, Theme.ChromeBackground);
-		painter.FillRectangle(ScreenX, ScreenY + Tall - radius, Wide, radius, Theme.ChromeBackground);
+		painter.FillRoundedRectangle(ScreenX, ScreenY, Wide, Tall, radius, Theme.SidebarBackground);
+		painter.FillRectangle(ScreenX, ScreenY + Tall - radius, Wide, radius, Theme.SidebarBackground);
 	}
 
 	public override void PaintBorder(IPainter painter) => painter.StrokeRoundedRectangle(ScreenX, ScreenY, Wide, Tall, Metrics.RadiusLarge * Scale, Metrics.StrokeThickness * Scale, Theme.PanelBorder);

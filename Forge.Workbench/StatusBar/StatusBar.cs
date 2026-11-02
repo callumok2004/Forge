@@ -10,9 +10,11 @@ namespace Forge.Workbench;
 
 public sealed class StatusBar : Panel
 {
-	private const float ItemPadding = 6f;
-	private const float ItemMargin = 1f;
+	private const float ItemPadding = 5f;
 	private const float EdgePadding = 6f;
+	private const float TopPadding = 3f;
+	private const float BottomPadding = 5f;
+	private const float ItemIconSize = 16f;
 
 	public sealed record Item(string Id, Codicon Icon, string Text, string? CommandId, bool RightAligned = false, int Priority = 0);
 
@@ -81,7 +83,9 @@ public sealed class StatusBar : Panel
 		HoverBackground = Theme.StatusBarHoverBackground,
 		IconColor = IconColor,
 		Padding = new Thickness(ItemPadding, 0f, ItemPadding, 0f),
-		DockMargin = new Thickness(ItemMargin, 0f, ItemMargin, 0f),
+		FontSize = Metrics.FontSizeLabel,
+		IconSize = ItemIconSize,
+		IconGap = 0f,
 		SizeToContents = true,
 	};
 
@@ -170,13 +174,10 @@ public sealed class StatusBar : Panel
 
 	public override void PerformLayout() {
 		float scale = Scale;
-		DockPadding = new Thickness(EdgePadding * scale, 0f, EdgePadding * scale, 0f);
+		DockPadding = new Thickness(EdgePadding * scale, TopPadding * scale, EdgePadding * scale, BottomPadding * scale);
 
 		foreach (Panel child in Children) {
-			if (child is not Button button) continue;
-
-			button.DockMargin = new Thickness(ItemMargin * scale, 2f * scale, ItemMargin * scale, 2f * scale);
-			button.FitContents();
+			if (child is Button button) button.FitContents();
 		}
 
 		base.PerformLayout();

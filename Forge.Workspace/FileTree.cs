@@ -12,8 +12,14 @@ public sealed class FileTree : IFileTree
 		"BenchmarkDotNet.Artifacts", ".vscode-test", "dist", "target",
 	];
 
+	private const string GroupPrefix = "\u0000group/";
+
 	private readonly string _rootPath;
 	private readonly FileNode _root;
+
+	private IReadOnlyList<ExplorerGroup>? _groups;
+	private List<FileNode>? _groupNodes;
+	private HashSet<FileNode>? _claimed;
 
 	public FileTree(string rootPath) {
 		_rootPath = Path.GetFullPath(rootPath);
@@ -53,6 +59,20 @@ public sealed class FileTree : IFileTree
 		}
 	}
 
+	public void CollapseAll() {
+		if (_root.Children is not null) Collapse(_root.Children);
+	}
+
+	private static void Collapse(List<FileNode> nodes) {
+		foreach (FileNode node in nodes) {
+			if (!node.IsDirectory) continue;
+
+			node.IsExpanded = false;
+
+			if (node.Children is not null) Collapse(node.Children);
+		}
+	}
+
 	public void RestoreExpanded(IReadOnlyList<string> paths) {
 		HashSet<string> wanted = new(paths, StringComparer.OrdinalIgnoreCase);
 
@@ -75,7 +95,116 @@ public sealed class FileTree : IFileTree
 
 		if (_root.Children is null) return;
 
-		Append(_root.Children, destination);
+		if (_groupNodes is null || _claimed is null) {
+			Append(_root.Children, destination);
+			return;
+		}
+
+		Append(_groupNodes, destination);
+
+		foreach (FileNode child in _root.Children) {
+			if (_claimed.Contains(child)) continue;
+
+			destination.Add(child);
+
+			if (child.IsDirectory && child.IsExpanded) {
+				Load(child);
+
+				if (child.Children is { Count: > 0 }) Append(child.Children, destination);
+			}
+		}
+	}
+
+	public void SetGroups(IReadOnlyList<ExplorerGroup>? groups) {
+		_groups = groups is { Count: > 0 } ? groups : null;
+		BuildGroups();
+	}
+
+	private void BuildGroups() {
+		HashSet<string> expanded = new(StringComparer.Ordinal);
+
+		if (_groupNodes is not null) CaptureGroupExpanded(_groupNodes, expanded);
+
+		if (_claimed is not null) {
+			foreach (FileNode node in _claimed) SetDepth(node, 0);
+		}
+
+		_groupNodes = null;
+		_claimed = null;
+
+		if (_groups is null || _root.Children is null) return;
+
+		Dictionary<string, FileNode> children = new(_root.Children.Count, StringComparer.OrdinalIgnoreCase);
+
+		foreach (FileNode child in _root.Children) children[child.FullPath] = child;
+
+		HashSet<FileNode> claimed = [];
+		List<FileNode> nodes = new(_groups.Count);
+
+		for (int i = 0; i < _groups.Count; i++) nodes.Add(BuildGroup(_groups[i], i.ToString(System.Globalization.CultureInfo.InvariantCulture), 0, children, claimed, expanded));
+
+		_groupNodes = nodes;
+		_claimed = claimed;
+	}
+
+	private FileNode BuildGroup(ExplorerGroup group, string key, int depth, Dictionary<string, FileNode> children, HashSet<FileNode> claimed, HashSet<string> expanded) {
+		string path = GroupPrefix + key;
+		FileNode node = new(path, group.Label, isDirectory: true, depth) {
+			IsGroup = true,
+			IsExpanded = expanded.Contains(path),
+			Children = [],
+		};
+
+		for (int i = 0; i < group.Children.Count; i++) node.Children.Add(BuildGroup(group.Children[i], $"{key}.{i}", depth + 1, children, claimed, expanded));
+
+		foreach (string resource in group.Resources) {
+			if (ResolveResource(Path.GetFullPath(resource).TrimEnd(Path.DirectorySeparatorChar), children, claimed) is not { } resolved) continue;
+
+			SetDepth(resolved, depth + 1);
+			node.Children.Add(resolved);
+		}
+
+		return node;
+	}
+
+	private FileNode? ResolveResource(string path, Dictionary<string, FileNode> children, HashSet<FileNode> claimed) {
+		if (children.TryGetValue(path, out FileNode? direct)) {
+			claimed.Add(direct);
+			return direct;
+		}
+
+		foreach (FileNode child in _root.Children!) {
+			string prefix = child.FullPath.TrimEnd(Path.DirectorySeparatorChar);
+
+			if (path.Length > prefix.Length && path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && path[prefix.Length] == Path.DirectorySeparatorChar) {
+				claimed.Add(child);
+				break;
+			}
+		}
+
+		bool directory = Directory.Exists(path);
+
+		if (!directory && !File.Exists(path)) return null;
+
+		return new FileNode(path, Path.GetFileName(path), directory, 0);
+	}
+
+	private static void CaptureGroupExpanded(List<FileNode> nodes, HashSet<string> destination) {
+		foreach (FileNode node in nodes) {
+			if (!node.IsGroup) continue;
+
+			if (node.IsExpanded) destination.Add(node.FullPath);
+
+			if (node.Children is not null) CaptureGroupExpanded(node.Children, destination);
+		}
+	}
+
+	private static void SetDepth(FileNode node, int depth) {
+		node.Depth = depth;
+
+		if (node.Children is null) return;
+
+		foreach (FileNode child in node.Children) SetDepth(child, depth + 1);
 	}
 
 	public bool Refresh(string directoryPath) {
@@ -92,6 +221,8 @@ public sealed class FileTree : IFileTree
 
 		for (int i = 0; i < reloaded.Count; i++)
 			if (previous.TryGetValue(reloaded[i].FullPath, out FileNode? kept) && kept.IsDirectory == reloaded[i].IsDirectory) reloaded[i] = kept;
+
+		if (ReferenceEquals(node, _root) && _groups is not null) BuildGroups();
 
 		return true;
 	}
@@ -121,7 +252,7 @@ public sealed class FileTree : IFileTree
 	}
 
 	private static void Load(FileNode node) {
-		if (!node.IsDirectory || node.Children is not null) return;
+		if (!node.IsDirectory || node.IsGroup || node.Children is not null) return;
 
 		List<FileNode> children = [];
 

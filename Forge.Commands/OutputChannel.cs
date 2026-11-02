@@ -75,6 +75,30 @@ public sealed class OutputChannel(string name) : IOutputChannel
 			return string.Join(Environment.NewLine, taken);
 		}
 	}
+
+	public string ReadRange(int firstLine, int firstColumn, int lastLine, int lastColumn) {
+		lock (_sync) {
+			System.Text.StringBuilder builder = new();
+			int index = 0;
+
+			foreach (string line in _lines) {
+				if (index > lastLine) break;
+
+				if (index >= firstLine) {
+					int from = index == firstLine ? Math.Min(firstColumn, line.Length) : 0;
+					int to = index == lastLine ? Math.Min(lastColumn, line.Length) : line.Length;
+
+					if (index > firstLine) builder.Append(Environment.NewLine);
+
+					if (to > from) builder.Append(line.AsSpan(from, to - from));
+				}
+
+				index++;
+			}
+
+			return builder.ToString();
+		}
+	}
 }
 
 public sealed class OutputChannels : IOutputChannels

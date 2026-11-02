@@ -1,3 +1,5 @@
+using Forge.Common.Commands;
+
 namespace Forge.Extensions.Dotnet.Server;
 
 public readonly record struct ServerLocation(string Path, int Line, int Column, int EndLine, int EndColumn, string Preview);
@@ -40,7 +42,7 @@ public sealed record ServerSignatures(IReadOnlyList<ServerSignature> Overloads, 
 	public int ParameterIndex => Active.ActiveParameter >= 0 ? Active.ActiveParameter : ActiveParameter;
 }
 
-public readonly record struct ServerDiagnostic(string File, int Line, int Column, string Message, bool IsError);
+public readonly record struct ServerDiagnostic(string File, int Line, int Column, string Message, DiagnosticSeverity Severity, string? Code);
 
 public enum LanguageServerState
 {

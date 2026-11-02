@@ -21,6 +21,7 @@ public sealed class DotnetExtension : ForgeExtension
 	private readonly EditorCommands _editor;
 	private readonly WorkspaceCommands _workspaceCommands;
 	private readonly BuildTasks _build;
+	private readonly SolutionGrouping _grouping;
 
 	public DotnetExtension() {
 		DiagnosticsCoordinator diagnostics = new(_server);
@@ -29,6 +30,7 @@ public sealed class DotnetExtension : ForgeExtension
 		_workspaceCommands = new WorkspaceCommands(_server, diagnostics, _output);
 		_lifecycle = new ServerLifecycle(_server, _workspace, diagnostics, _contexts, _workspaceCommands, new CodeActionRunner(_server, _output), _output, _settings);
 		_editor = new EditorCommands(_server, _output, _settings);
+		_grouping = new SolutionGrouping(_workspace, _output);
 		_build = new BuildTasks(_workspace, _output) { Started = () => _server.Workspace.RefreshSourceGenerators(force: false), Finished = () => _server.Workspace.RefreshSourceGenerators(force: false) };
 	}
 
@@ -74,6 +76,10 @@ public sealed class DotnetExtension : ForgeExtension
 
 		ThreadPool.UnsafeQueueUserWorkItem(_ => {
 			_workspace.Reload(host.GetWorkspacePath(), _settings.SolutionPath);
+			_grouping.Apply(host, _settings.GroupInFileExplorer);
+			host.ObserveDocuments((kind, path, _) => {
+				if (kind == DocumentEvent.Saved && SolutionGrouping.IsSolutionFile(path)) Reload(host);
+			});
 			_contexts.Update(host);
 			_lifecycle.Start(host);
 			host.Refresh();
@@ -99,7 +105,8 @@ public sealed class DotnetExtension : ForgeExtension
 	}
 
 	private void Reload(ICommandHost host) {
-		_workspace.Reload(host.GetWorkspacePath());
+		_workspace.Reload(host.GetWorkspacePath(), _settings.SolutionPath);
+		_grouping.Apply(host, _settings.GroupInFileExplorer);
 
 		if (_workspace.Solution is { } solution) _output.Log(host, $"loaded solution {solution}");
 		else if (_workspace.Projects.Length > 0) _output.Log(host, $"no solution found; loading {_workspace.Projects.Length} project(s)");

@@ -7,6 +7,8 @@ namespace Forge.Extensions.Dotnet.Build;
 
 public sealed class MsBuildProblemMatcher
 {
+	public const string Owner = "dotnet.build";
+
 	private readonly List<Diagnostic> _diagnostics = [];
 	private readonly HashSet<string> _seen = [with(StringComparer.Ordinal)];
 
@@ -32,8 +34,8 @@ public sealed class MsBuildProblemMatcher
 
 		_diagnostics.Add(diagnostic);
 
-		if (diagnostic.IsError) ErrorCount++;
-		else WarningCount++;
+		if (diagnostic.Severity == DiagnosticSeverity.Error) ErrorCount++;
+		else if (diagnostic.Severity == DiagnosticSeverity.Warning) WarningCount++;
 
 		return true;
 	}
@@ -48,18 +50,18 @@ public sealed class MsBuildProblemMatcher
 		ReadOnlySpan<char> location = text[..close];
 		ReadOnlySpan<char> rest = text[(close + 3)..].TrimStart();
 
-		bool isError;
+		DiagnosticSeverity severity;
 
 		if (rest.StartsWith("error ".AsSpan())) {
-			isError = true;
+			severity = DiagnosticSeverity.Error;
 			rest = rest[6..];
 		}
 		else if (rest.StartsWith("warning ".AsSpan())) {
-			isError = false;
+			severity = DiagnosticSeverity.Warning;
 			rest = rest[8..];
 		}
 		else if (rest.StartsWith("info ".AsSpan())) {
-			isError = false;
+			severity = DiagnosticSeverity.Info;
 			rest = rest[5..];
 		}
 		else return null;
@@ -81,7 +83,7 @@ public sealed class MsBuildProblemMatcher
 
 		if (!ParseLocation(location, out string file, out int lineNumber, out int column)) return null;
 
-		return new Diagnostic(file, lineNumber, column, $"{code}: {message}", isError);
+		return new Diagnostic(file, lineNumber, column, message.ToString(), severity, code.ToString());
 	}
 
 	private static bool IsDiagnosticCode(ReadOnlySpan<char> code) {

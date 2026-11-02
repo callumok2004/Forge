@@ -78,6 +78,18 @@ public sealed class FontSet : IFontSet, IDisposable
 
 	public ITextFont GetMono(float size, bool strong = false) => Sized(true, size, strong);
 
+	private readonly Dictionary<(string[] Families, int Pixels), TextFont> _families = [];
+
+	public ITextFont GetFamily(string[] families, float size) {
+		int pixels = Math.Max(1, (int)MathF.Round(size * Scale));
+
+		if (_families.TryGetValue((families, pixels), out TextFont? font)) return font;
+
+		font = new TextFont(_factory, _bundled.Collection, families, pixels);
+		_families[(families, pixels)] = font;
+		return font;
+	}
+
 	private TextFont Sized(bool mono, float size, bool strong) {
 		int pixels = Math.Max(1, (int)MathF.Round(size * Scale));
 

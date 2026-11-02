@@ -150,7 +150,10 @@ internal sealed class RecordingHost : ICommandHost
 	public void SetSemanticTokens(string path, IReadOnlyList<SemanticToken> tokens) {
 	}
 
-	public void ReportProblems(IReadOnlyList<Diagnostic> problems) {
+	public void ReportProblems(string owner, bool build, IReadOnlyList<Diagnostic> problems) {
+	}
+
+	public void SetExplorerGroups(IReadOnlyList<Forge.Common.Workspace.ExplorerGroup>? groups) {
 	}
 
 	public void ShowPanel(string view) {

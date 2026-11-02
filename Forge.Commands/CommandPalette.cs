@@ -28,13 +28,22 @@ public sealed class CommandPalette(ICommandRegistry registry, Action<ICommand> r
 		foreach (ICommand command in registry.All()) {
 			if (!command.IsEnabled()) continue;
 
-			if (!query.IsEmpty && !FuzzyMatcher.TryMatch(query, command.GetLabel(), out _) && !FuzzyMatcher.TryMatch(query, command.GetId(), out _)) continue;
+			if (!query.IsEmpty && !WordFilter.Matches(query, command.GetLabel()) && !query.SequenceEqual(command.GetId())) continue;
 
 			int recency = History.IndexOf(command.GetId());
 			_matches.Add((command, recency < 0 ? int.MaxValue : recency));
 		}
 
-		_matches.Sort(static (left, right) => left.Recency != right.Recency ? left.Recency.CompareTo(right.Recency) : string.Compare(left.Command.GetLabel(), right.Command.GetLabel(), StringComparison.CurrentCulture));
+		_matches.Sort(static (left, right) => {
+			if (left.Recency != right.Recency) return left.Recency.CompareTo(right.Recency);
+
+			bool leftDeveloper = left.Command.GetCategory() == "Developer";
+			bool rightDeveloper = right.Command.GetCategory() == "Developer";
+
+			if (leftDeveloper != rightDeveloper) return leftDeveloper ? 1 : -1;
+
+			return string.Compare(left.Command.GetLabel(), right.Command.GetLabel(), StringComparison.CurrentCultureIgnoreCase);
+		});
 		_firstOther = _matches.FindIndex(static match => match.Recency == int.MaxValue);
 	}
 

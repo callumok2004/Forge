@@ -40,4 +40,14 @@ public enum MessageSeverity
 	Error,
 }
 
-public readonly record struct Diagnostic(string File, int Line, int Column, string Message, bool IsError);
+public enum DiagnosticSeverity : byte
+{
+	Error,
+	Warning,
+	Info,
+}
+
+public readonly record struct Diagnostic(string File, int Line, int Column, string Message, DiagnosticSeverity Severity, string? Code = null)
+{
+	public bool IsError => Severity == DiagnosticSeverity.Error;
+}

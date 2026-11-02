@@ -38,7 +38,7 @@ public static class WebviewTheme
 		Append(builder, "widget-shadow", Color.Parse("#00000066"));
 		Append(builder, "sash-hoverBorder", Theme.Accent);
 
-		Append(builder, "editor-background", Theme.ChromeBackground);
+		Append(builder, "editor-background", Theme.EditorBackground);
 		Append(builder, "sideBar-dropBackground", Css(Theme.ListHoverBackground));
 		Append(builder, "editor-foreground", Theme.EditorForeground);
 		Append(builder, "editor-selectionBackground", Theme.SelectionBackground);
@@ -81,15 +81,15 @@ public static class WebviewTheme
 		Append(builder, "list-inactiveSelectionBackground", Theme.ListHoverBackground);
 		Append(builder, "list-highlightForeground", Theme.SuggestHighlightForeground);
 
-		Append(builder, "sideBar-background", Theme.ChromeBackground);
+		Append(builder, "sideBar-background", Theme.SidebarBackground);
 		Append(builder, "sideBar-foreground", Theme.ChromeForeground);
 		Append(builder, "sideBar-border", Theme.PanelBorder);
 		Append(builder, "sideBarTitle-foreground", Theme.SidebarTitleForeground);
-		Append(builder, "sideBarSectionHeader-background", Theme.ChromeBackground);
+		Append(builder, "sideBarSectionHeader-background", Theme.SectionHeaderBackground);
 		Append(builder, "sideBarSectionHeader-foreground", Theme.SectionHeaderForeground);
 		Append(builder, "sideBarSectionHeader-border", Theme.PanelBorder);
 
-		Append(builder, "panel-background", Theme.ChromeBackground);
+		Append(builder, "panel-background", Theme.PanelBackground);
 		Append(builder, "panel-border", Theme.PanelBorder);
 		Append(builder, "panelTitle-activeForeground", Theme.TabActiveForeground);
 		Append(builder, "panelTitle-inactiveForeground", Theme.TabInactiveForeground);

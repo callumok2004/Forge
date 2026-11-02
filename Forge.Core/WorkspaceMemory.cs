@@ -30,6 +30,8 @@ public sealed class WorkspaceMemory
 
 	public string? PanelView { get; set; }
 
+	public List<string> PanelGroups { get; set; } = [];
+
 	public float PanelHeight { get; set; }
 
 	public bool AuxiliaryOpen { get; set; }
