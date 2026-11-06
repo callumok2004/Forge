@@ -122,7 +122,7 @@ public sealed class StatusBar : Panel
 
 		_resources.Visible = Resources is not null;
 
-		if (Resources is { } resources) _resources.SetText(buffer[..FormatResources(buffer, resources)]);
+		if (Resources is { } resources) _resources.SetText(buffer[..FormatResources(buffer, "$(pulse) ", resources)]);
 	}
 
 	private void Rebuild() {
@@ -219,8 +219,8 @@ public sealed class StatusBar : Panel
 		return written + Write(buffer[written..], " selected)");
 	}
 
-	private static int FormatResources(Span<char> buffer, ResourceUsage resources) {
-		int written = Write(buffer, "$(pulse) ");
+	private static int FormatResources(Span<char> buffer, ReadOnlySpan<char> icon, ResourceUsage resources) {
+		int written = Write(buffer, icon);
 		resources.CpuPercent.TryFormat(buffer[written..], out int digits, "F1");
 		written += digits;
 		written += Write(buffer[written..], "%  $(server) ");

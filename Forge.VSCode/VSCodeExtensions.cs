@@ -2,7 +2,9 @@ using System.Text.Json;
 
 namespace Forge.VSCode;
 
-public sealed record VSCodeCommand(string Id, string Title, string? Category);
+public sealed record VSCodeCommand(string Id, string Title, string? Category, string? Icon = null);
+
+public sealed record VSCodeMenuItem(string Command, string? When, string? Group);
 
 public sealed record WebviewViewEntry(string ViewId, string Title, string Directory, string ExtensionId, string? When, string Location, string? IconPath = null);
 
@@ -18,7 +20,8 @@ public sealed record VSCodeExtension(
 	string[] ActivationEvents,
 	bool HasWebview,
 	VSCodeCommand[] Commands,
-	VSCodeViewContainer[] Containers);
+	VSCodeViewContainer[] Containers,
+	VSCodeMenuItem[] EditorTitle);
 
 public static class VSCodeExtensions
 {
@@ -71,7 +74,8 @@ public static class VSCodeExtensions
 				Strings(root, "activationEvents"),
 				HasWebviewView(root),
 				ReadCommands(root),
-				ReadContainers(root));
+				ReadContainers(root),
+				ReadMenu(root, "editor/title"));
 		}
 		catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException) {
 			return null;
@@ -88,7 +92,19 @@ public static class VSCodeExtensions
 		foreach (JsonElement command in commands.EnumerateArray()) {
 			if (Text(command, "command") is not { } id) continue;
 
-			results.Add(new VSCodeCommand(id, Text(command, "title") ?? id, Text(command, "category")));
+			results.Add(new VSCodeCommand(id, Text(command, "title") ?? id, Text(command, "category"), Text(command, "icon")));
+		}
+
+		return [.. results];
+	}
+
+	private static VSCodeMenuItem[] ReadMenu(in JsonElement root, string name) {
+		if (!root.TryGetProperty("contributes", out JsonElement contributes) || !contributes.TryGetProperty("menus", out JsonElement menus) || !menus.TryGetProperty(name, out JsonElement items) || items.ValueKind != JsonValueKind.Array) return [];
+
+		List<VSCodeMenuItem> results = [];
+
+		foreach (JsonElement item in items.EnumerateArray()) {
+			if (Text(item, "command") is { } command) results.Add(new VSCodeMenuItem(command, Text(item, "when"), Text(item, "group")));
 		}
 
 		return [.. results];

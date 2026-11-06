@@ -151,6 +151,20 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	public VSCodeBridge? VSCode { get; set; }
 
+	public ExtensionHostSync? ExtensionSync { get; set; }
+
+	public void SyncEditorActions() {
+		if (VSCode is not { } bridge) return;
+
+		List<(string Command, string Title, Codicon Icon)> actions = [];
+
+		foreach (VSCodeBridge.EditorAction action in bridge.EditorTitleActions) {
+			actions.Add((action.Command, action.Title, action.Icon is { } icon && Forge.UI.Controls.Label.TryParseIcon(icon, out Codicon parsed) ? parsed : Codicon.Run));
+		}
+
+		Tabs.SetActions(actions);
+	}
+
 	public Action<string>? CommandInvoked;
 
 	public bool RunCommand(string id, ICommandHost host) {
@@ -446,14 +460,92 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	public void Open(Document document) {
 		TextView view = new(document.Buffer, document.Path) { Diff = Diff };
 
+		if (document.Path is null && document.VirtualUri is { } virtualUri) view.Highlighter.SetLanguage(Forge.Syntax.Languages.ForPath(VirtualFileName(virtualUri)));
+
 		if (document.Path is { } path && ViewStates.TryGetValue(path, out EditorViewState? state)) view.RestoreViewState(state.Anchor, state.Caret, state.ScrollTop);
 
 		_documents.Add(document);
 		_views.Add(view);
 		_panes.Add(null);
 		ActiveIndex = _documents.Count - 1;
+		DocumentAdded?.Invoke(document);
 		TouchHistory();
 		SyncBreadcrumbs();
+	}
+
+	public void ReloadExternalChanges(IReadOnlyCollection<string> directories) {
+		bool changed = false;
+
+		foreach (Document document in _documents) {
+			if (document.Path is not { } path || Path.GetDirectoryName(path) is not { } directory) continue;
+
+			bool watched = false;
+
+			foreach (string candidate in directories) {
+				if (string.Equals(candidate.TrimEnd(Path.DirectorySeparatorChar), directory, StringComparison.OrdinalIgnoreCase)) {
+					watched = true;
+					break;
+				}
+			}
+
+			if (watched) changed |= document.ReloadIfChangedOnDisk();
+		}
+
+		if (changed) ActiveDocumentChanged?.Invoke();
+	}
+
+	private static string VirtualFileName(string uri) {
+		ReadOnlySpan<char> path = uri.AsSpan();
+		int query = path.IndexOfAny('?', '#');
+
+		if (query >= 0) path = path[..query];
+
+		return Uri.UnescapeDataString(path[(path.LastIndexOf('/') + 1)..].ToString());
+	}
+
+	public event Action<Document>? DocumentAdded;
+
+	public event Action<Document>? DocumentRemoved;
+
+	public event Action<Document>? DocumentSaving;
+
+	public event Action<Document>? DocumentSaved;
+
+	public bool IsPaneAt(int index) => (uint)index < (uint)_panes.Count && _panes[index] is not null;
+
+	public int IndexOf(Document document) => _documents.IndexOf(document);
+
+	public Document? FindVirtual(string uri) {
+		foreach (Document document in _documents) {
+			if (string.Equals(document.VirtualUri, uri, StringComparison.Ordinal)) return document;
+		}
+
+		return null;
+	}
+
+	public void OpenVirtual(Document document) {
+		int existing = _documents.IndexOf(document);
+
+		if (existing >= 0) {
+			Activate(existing);
+			return;
+		}
+
+		Open(document);
+	}
+
+	public bool Save(Document document) {
+		int index = _documents.IndexOf(document);
+
+		if (index < 0) return document.Save();
+
+		int active = ActiveIndex;
+		ActiveIndex = index;
+		bool saved = SaveActive();
+
+		if (active >= 0 && active < _documents.Count) ActiveIndex = active;
+
+		return saved;
 	}
 
 	public void CaptureViewStates() {
@@ -478,6 +570,70 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 				return;
 			}
 		}
+
+		if (FindPane(path) is not null) {
+			OpenPane(FindPane(path)!);
+			return;
+		}
+
+		if (ImageLoader is { } loader && IsPreviewableImage(path)) {
+			OpenPane(new ImagePreviewPane(path, loader));
+			Sidebar.SelectedPath = path;
+			return;
+		}
+
+		if (IsBinary(path)) {
+			OpenPane(new BinaryFilePane(path, OpenAsText));
+			Sidebar.SelectedPath = path;
+			return;
+		}
+
+		OpenAsText(path);
+	}
+
+	public Func<string, IImage?>? ImageLoader { get; set; }
+
+	private static readonly string[] PreviewImageExtensions = [".jpg", ".jpe", ".jpeg", ".jfif", ".png", ".bmp", ".dib", ".gif", ".ico", ".cur", ".webp", ".avif", ".svg", ".tif", ".tiff", ".dds", ".jxr", ".wdp", ".hdp", ".heic", ".heif", ".jxl"];
+
+	private static bool IsPreviewableImage(ReadOnlySpan<char> path) {
+		ReadOnlySpan<char> extension = Path.GetExtension(path);
+
+		foreach (string candidate in PreviewImageExtensions) {
+			if (extension.Equals(candidate, StringComparison.OrdinalIgnoreCase)) return true;
+		}
+
+		return false;
+	}
+
+	private const int BinaryDetectionBytes = 512;
+
+	private static bool IsBinary(string path) {
+		Span<byte> buffer = stackalloc byte[BinaryDetectionBytes];
+		int read;
+
+		try {
+			using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.None);
+			read = stream.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
+			return false;
+		}
+
+		Span<byte> head = buffer[..read];
+
+		if (head is [0xFF, 0xFE, ..] or [0xFE, 0xFF, ..]) return false;
+
+		return head.Contains((byte)0);
+	}
+
+	private void OpenAsText(string path) {
+		int existing = -1;
+
+		for (int i = 0; i < _panes.Count; i++) {
+			if (_panes[i] is BinaryFilePane pane && string.Equals(pane.Id, path, StringComparison.OrdinalIgnoreCase)) existing = i;
+		}
+
+		if (existing >= 0) Close(existing);
 
 		try {
 			Open(Document.Open(path));
@@ -558,9 +714,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 		if (transform(current) is not { } replacement || replacement == current) return false;
 
-		document.Buffer.BeginEdit();
-		document.Buffer.Replace(0, document.Buffer.Length, replacement);
-		document.Buffer.EndEdit();
+		document.Buffer.ReplaceChanged(current, replacement);
 
 		ActiveDocumentChanged?.Invoke();
 		return true;
@@ -585,6 +739,8 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		if (_panes[index] is null && _documents[index].Path is { } closedPath && _publishedVersions.Remove(closedPath)) PublishDocument(DocumentEvent.Closed, closedPath, null);
 
 		EditorPane? closedPane = _panes[index];
+
+		if (closedPane is null) DocumentRemoved?.Invoke(_documents[index]);
 
 		if (closedPane is null && _documents[index].Path is { } recent) {
 			_recentlyClosed.Remove(recent);
@@ -706,9 +862,13 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	public Func<string, string?>? WillSave { get; set; }
 
 	public bool SaveActive() {
-		if (WillSave is { } willSave) EditActiveDocument(willSave);
+		if (WillSave is { } willSave && ActiveDocument?.Path is not null) EditActiveDocument(willSave);
+
+		if (ActiveDocument is { } saving) DocumentSaving?.Invoke(saving);
 
 		if (ActiveDocument is not { } document || !document.Save()) return false;
+
+		DocumentSaved?.Invoke(document);
 
 		if (document.Path is { } savedPath && _documentObservers.Length > 0) PublishDocument(DocumentEvent.Saved, savedPath, document.Buffer.GetText());
 
@@ -782,6 +942,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		view.Lightbulb = IntelliSense?.Actions.Current is { } bulb ? new TextView.LightbulbMark(bulb.Line, bulb.Column, bulb.InGutter, bulb.AutoFix) : null;
 		view.BreakpointProvider = BreakpointMarkFor;
 		view.ExecutionLine = ExecutionLineFor?.Invoke(ActiveFilePath ?? string.Empty) ?? -1;
+		view.Scale = _scale;
 		view.Render(painter, left, top, textWidth, height);
 
 		if (ShowMinimap && painter.NeedsPaint(left + textWidth, top, Minimap.Width(_scale), height)) _minimap.Render(painter, view, view.Highlighter, left + textWidth, top, Minimap.Width(_scale), height, _scale);

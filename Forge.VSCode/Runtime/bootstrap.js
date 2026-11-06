@@ -28,13 +28,21 @@ function subscriptionsFor(id) {
 	return entry ? entry.subscriptions : [];
 }
 
+for (const [method, handler] of Object.entries(forge.documentHandlers)) rpc.on(method, handler);
+
 rpc.on("host/initialize", params => {
-	Object.assign(forge.state, params?.state ?? {});
+	forge.applyState(params?.state ?? {});
 	return { version: process.versions.bun ? `bun ${process.versions.bun}` : process.version };
 });
 
 rpc.on("host/state", params => {
-	Object.assign(forge.state, params ?? {});
+	forge.applyState(params ?? {});
+	return null;
+});
+
+rpc.on("host/openUri", async params => {
+	const uri = forge.Uri.parse(params.uri);
+	for (const handler of forge.uriHandlers) await handler.handleUri(uri);
 	return null;
 });
 
@@ -75,11 +83,16 @@ rpc.on("extension/activate", async params => {
 		extension: { id, packageJSON: manifest },
 	};
 
+	const registered = forge.registerExtension(id, directory, manifest);
+	context.extension = registered;
+
 	const module = require(entryPoint);
 
 	loaded.set(id, { module, subscriptions, manifest, directory });
 
-	if (typeof module.activate === "function") await module.activate(context);
+	if (typeof module.activate === "function") registered.exports = await module.activate(context);
+
+	registered.isActive = true;
 
 	return { id, commands: [...forge.commandHandlers.keys()], webviewProviders: [...forge.webviewProviders.keys()] };
 });

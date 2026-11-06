@@ -188,6 +188,19 @@ public sealed class TextBuffer
 		AfterEdit(change);
 	}
 
+	public void ReplaceChanged(ReadOnlySpan<char> current, ReadOnlySpan<char> replacement) {
+		int prefix = current.CommonPrefixLength(replacement);
+		ReadOnlySpan<char> left = current[prefix..];
+		ReadOnlySpan<char> right = replacement[prefix..];
+		int suffix = 0;
+
+		while (suffix < left.Length && suffix < right.Length && left[^(suffix + 1)] == right[^(suffix + 1)]) suffix++;
+
+		BeginEdit();
+		Replace(prefix, current.Length - prefix - suffix, replacement[prefix..^suffix]);
+		EndEdit();
+	}
+
 	public void InsertNewLine(int offset) => Insert(offset, LineEnding.ToSpan());
 
 	private void AfterEdit(TextChange change) {
@@ -266,6 +279,11 @@ public sealed class TextBuffer
 		_changes.RemoveRange(earliest.Start, _changes.Count - earliest.Start);
 		_arenaLength = earliest.ArenaStart;
 		_redo.Clear();
+
+		if (_groupDepth == 0) return;
+
+		_groupStart = _changes.Count;
+		_groupArenaStart = _arenaLength;
 	}
 
 	public ReadOnlySpan<char> RemovedText(in TextChange change) =>

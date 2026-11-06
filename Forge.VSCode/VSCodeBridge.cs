@@ -12,6 +12,44 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 
 	private readonly List<WebviewViewEntry> _views = [];
 	private readonly Dictionary<string, string> _context = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, VSCodeCommand> _commandInfo = new(StringComparer.Ordinal);
+	private readonly List<VSCodeMenuItem> _editorTitle = [];
+
+	public sealed record EditorAction(string Command, string Title, string? Icon);
+
+	public IReadOnlyList<EditorAction> EditorTitleActions {
+		get {
+			List<EditorAction> actions = [];
+
+			foreach (VSCodeMenuItem item in _editorTitle) {
+				if (item.Group is { } group && !group.StartsWith("navigation", StringComparison.Ordinal)) continue;
+
+				if (!WhenExpression.Evaluate(item.When, _context)) continue;
+
+				_commandInfo.TryGetValue(item.Command, out VSCodeCommand? info);
+				actions.Add(new EditorAction(item.Command, info?.Title ?? item.Command, info?.Icon));
+			}
+
+			return actions;
+		}
+	}
+
+	public Action? ContextChanged { get; set; }
+
+	public Func<string, JsonNode?, Task<JsonNode?>?>? WorkbenchRequest { get; set; }
+
+	public Action<string, JsonNode?>? WorkbenchNotification { get; set; }
+
+	public Task<JsonNode?> RequestAsync(string method, JsonNode? parameters) => _process?.RequestAsync(method, parameters) ?? Task.FromResult<JsonNode?>(null);
+
+	public void Notify(string method, JsonNode? parameters) => _process?.NotifyHost(method, parameters);
+
+	public void SetHostContext(string key, string value) {
+		if (_context.TryGetValue(key, out string? existing) && string.Equals(existing, value, StringComparison.Ordinal)) return;
+
+		_context[key] = value;
+		ContextChanged?.Invoke();
+	}
 
 	private NodeExtensionHost? _process;
 
@@ -132,7 +170,12 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 	}
 
 	private void Register(VSCodeExtension extension) {
-		foreach (VSCodeCommand command in extension.Commands) RegisterCommand(extension, command);
+		foreach (VSCodeCommand command in extension.Commands) {
+			_commandInfo.TryAdd(command.Id, command);
+			RegisterCommand(extension, command);
+		}
+
+		_editorTitle.AddRange(extension.EditorTitle);
 	}
 
 	private void RegisterCommand(VSCodeExtension extension, VSCodeCommand command) {
@@ -158,8 +201,6 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 	private JsonNode? OnRequest(string method, JsonNode? parameters) => method switch {
 		"commands/execute" => Execute(parameters),
 		"webview/postMessage" => WebviewSend(parameters),
-		"workspace/openTextDocument" => OpenTextDocument(parameters),
-		"window/showTextDocument" => ShowTextDocument(parameters),
 		"commands/list" => CommandList(),
 		_ => Unhandled(method, parameters),
 	};
@@ -167,7 +208,7 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 	private Task<JsonNode?>? OnDeferredRequest(string method, JsonNode? parameters) => method switch {
 		"window/showMessage" => ShowMessageAsync(parameters),
 		"window/showQuickPick" => ShowQuickPickAsync(parameters),
-		_ => null,
+		_ => WorkbenchRequest?.Invoke(method, parameters),
 	};
 
 	private Task<JsonNode?> ShowMessageAsync(JsonNode? parameters) {
@@ -264,48 +305,7 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 
 		_context[key] = value;
 		ViewsChanged?.Invoke();
-	}
-
-	private JsonNode? OpenTextDocument(JsonNode? parameters) {
-		if (parameters?["target"]?.GetValue<string>() is { Length: > 0 } path && File.Exists(path)) {
-			host.OpenFile(path);
-			return HostEditor.UriFor(path);
-		}
-
-		if (parameters?["content"]?.GetValue<string>() is not { } content) return null;
-
-		string name = parameters["fileName"]?.GetValue<string>() is { Length: > 0 } given
-			? Path.GetFileName(given)
-			: "Untitled";
-
-		string scratch = Path.Combine(Path.GetTempPath(), "Forge", "untitled");
-
-		try {
-			Directory.CreateDirectory(scratch);
-
-			string file = Path.Combine(scratch, $"{Path.GetFileNameWithoutExtension(name)}-{Environment.TickCount}{Path.GetExtension(name)}");
-
-			File.WriteAllText(file, content);
-			host.OpenFile(file);
-
-			return HostEditor.UriFor(file);
-		}
-		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
-			Log($"Could not open the document: {exception.Message}");
-			return null;
-		}
-	}
-
-	private JsonNode? ShowTextDocument(JsonNode? parameters) {
-		if (parameters?["uri"]?.GetValue<string>() is not { Length: > 0 } uri) return null;
-
-		string path = uri.StartsWith("file:", StringComparison.OrdinalIgnoreCase)
-			? new Uri(uri).LocalPath
-			: uri;
-
-		if (File.Exists(path)) host.OpenFile(path);
-
-		return null;
+		ContextChanged?.Invoke();
 	}
 
 	private JsonNode? CommandList() {
@@ -339,6 +339,11 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 				break;
 
 			default:
+				if (WorkbenchNotification is { } workbench) {
+					workbench(method, parameters);
+					break;
+				}
+
 				if (method is not ("webview/registerProvider" or "webview/unregisterProvider"
 					or "commands/unregister" or "webview/show" or "host/ready")) {
 					Log($"Unhandled API notification: {method} {Summarise(parameters)}");
@@ -368,7 +373,7 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 	private static bool IsClaudeIdentifier(string? value) =>
 		value is not null && value.Contains("claude", StringComparison.OrdinalIgnoreCase);
 
-	private void Log(string line) => host.Channel("Extensions").Append(line);
+	public void Log(string line) => host.Channel("Extensions").Append(line);
 
 	private static string Humanise(string id) {
 		int dot = id.LastIndexOf('.');

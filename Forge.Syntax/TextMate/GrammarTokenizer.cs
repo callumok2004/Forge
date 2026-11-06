@@ -55,7 +55,9 @@ public sealed partial class GrammarTokenizer(Grammar grammar)
 	private readonly Stack<Dictionary<TieredRegex, CachedMatch>> _cachePool = [];
 	private readonly Stack<HashSet<(GrammarRule, int)>> _exhaustedPool = [];
 
-	private static Match? Search(TieredRegex regex, string line, int position, Dictionary<TieredRegex, CachedMatch> cache) {
+	private static Match? Search(TieredRegex regex, string line, int position, int anchor, Dictionary<TieredRegex, CachedMatch> cache) {
+		if (regex.AnchorsAtStart && position != anchor) regex = regex.Unanchored;
+
 		if (cache.TryGetValue(regex, out CachedMatch cached) && cached.From <= position && (cached.Result is null || cached.Result.Index >= position)) return cached.Result;
 
 		Match match = regex.Use().Match(line, position);
@@ -95,11 +97,12 @@ public sealed partial class GrammarTokenizer(Grammar grammar)
 
 		int position = from;
 		int steps = 0;
+		int anchor = -1;
 
 		while (position <= line.Length && steps++ < MaxStepsPerLine) {
-			Match? endMatch = state.EndPattern is { } pattern && TieredRegex.For(pattern) is { } endRegex ? Search(endRegex, line, position, cache) : null;
+			Match? endMatch = state.EndPattern is { } pattern && TieredRegex.For(pattern) is { } endRegex ? Search(endRegex, line, position, anchor, cache) : null;
 
-			(GrammarRule? rule, Match? match) = Best(line, position, state, exhausted, cache);
+			(GrammarRule? rule, Match? match) = Best(line, position, anchor, state, exhausted, cache);
 
 			bool ending = endMatch is not null && (match is null || endMatch.Index <= match.Index);
 
@@ -126,6 +129,7 @@ public sealed partial class GrammarTokenizer(Grammar grammar)
 
 				GrammarState popped = state;
 				state = state.Pop();
+				anchor = -1;
 
 				if (advanced) {
 					position = after;
@@ -176,7 +180,7 @@ public sealed partial class GrammarTokenizer(Grammar grammar)
 			state = state.Push(rule, With(opened, rule.ContentName, match),
 				Substitute(rule.End, match), Substitute(rule.While, match), position);
 
-			position = match.Index + match.Length;
+			position = anchor = match.Index + match.Length;
 		}
 
 		if (position < line.Length) Paint(map, position, line.Length - position, state.Scopes);
@@ -199,7 +203,7 @@ public sealed partial class GrammarTokenizer(Grammar grammar)
 		return TieredRegex.For(pattern) is not { } regex || !regex.Use().IsMatch(line) ? state.Pop() : null;
 	}
 
-	private (GrammarRule?, Match?) Best(string line, int position, GrammarState state,
+	private (GrammarRule?, Match?) Best(string line, int position, int anchor, GrammarState state,
 		HashSet<(GrammarRule, int)> exhausted, Dictionary<TieredRegex, CachedMatch> cache) {
 		GrammarRule? bestRule = null;
 		Match? best = null;
@@ -211,7 +215,7 @@ public sealed partial class GrammarTokenizer(Grammar grammar)
 
 			if (regex is null) continue;
 
-			if (Search(regex, line, position, cache) is not { } match || (best is not null && match.Index >= best.Index)) continue;
+			if (Search(regex, line, position, anchor, cache) is not { } match || (best is not null && match.Index >= best.Index)) continue;
 
 			if (match.Length == 0 && candidate.Begin is not null &&
 				exhausted.Contains((candidate, match.Index))) continue;

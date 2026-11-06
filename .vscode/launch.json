@@ -6,7 +6,7 @@
 			"type": "coreclr",
 			"request": "launch",
 			"preLaunchTask": "build",
-			"program": "${workspaceFolder}/artifacts/bin/Forge.App/x64/Debug/net10.0/Forge.exe",
+			"program": "${workspaceFolder}/artifacts/bin/Forge.App/x64/Debug/net11.0/Forge.exe",
 			"args": [],
 			"cwd": "${workspaceFolder}",
 			"console": "externalTerminal",
@@ -17,7 +17,7 @@
 			"type": "coreclr",
 			"request": "launch",
 			"preLaunchTask": "build (release)",
-			"program": "${workspaceFolder}/artifacts/bin/Forge.App/x64/Release/net10.0/Forge.exe",
+			"program": "${workspaceFolder}/artifacts/bin/Forge.App/x64/Release/net11.0/Forge.exe",
 			"args": [],
 			"cwd": "${workspaceFolder}",
 			"console": "externalTerminal",
@@ -28,7 +28,7 @@
 			"type": "coreclr",
 			"request": "launch",
 			"preLaunchTask": "build",
-			"program": "${workspaceFolder}/artifacts/bin/Forge.App/x64/Debug/net10.0/Forge.exe",
+			"program": "${workspaceFolder}/artifacts/bin/Forge.App/x64/Debug/net11.0/Forge.exe",
 			"args": [
 				"${input:openFolder}"
 			],

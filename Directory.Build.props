@@ -1,6 +1,7 @@
 <Project>
 	<PropertyGroup>
-		<TargetFramework>net10.0</TargetFramework>
+		<ForgeTargetFramework Condition="'$(ForgeTargetFramework)'==''">net11.0</ForgeTargetFramework>
+		<TargetFramework>$(ForgeTargetFramework)</TargetFramework>
 		<LangVersion>preview</LangVersion>
 		<Version>0.1.0</Version>
 		<ForgeDev Condition="'$(ForgeDev)'==''">true</ForgeDev>
@@ -49,7 +50,8 @@
 	</PropertyGroup>
 
 	<PropertyGroup>
-		<BaseOutputPath>$(MSBuildThisFileDirectory)artifacts\bin\$(MSBuildProjectName)\</BaseOutputPath>
-		<BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)artifacts\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+		<ForgeArtifacts Condition="'$(ForgeArtifacts)'==''">artifacts</ForgeArtifacts>
+		<BaseOutputPath>$(MSBuildThisFileDirectory)$(ForgeArtifacts)\bin\$(MSBuildProjectName)\</BaseOutputPath>
+		<BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)$(ForgeArtifacts)\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
 	</PropertyGroup>
 </Project>

@@ -11,8 +11,8 @@ public sealed class PanelTab : Button
 	private const float IndicatorInset = 2f;
 	private const float IndicatorHeight = 24f;
 	private const float IconBox = 16f;
-	private const float IconSize = 14f;
-	private const float IconGap = 5f;
+	private const float TabIconSize = 14f;
+	private const float TabIconGap = 5f;
 	private const float LabelSize = 13f;
 	private const float InactiveIconOpacity = 0.8f;
 
@@ -41,7 +41,7 @@ public sealed class PanelTab : Button
 			if (Ui is null) return 0f;
 
 			float scale = Scale;
-			return ((ItemPadding * 2f) + IconBox + IconGap) * scale + Ui.GetFonts().GetUi(LabelSize, false).Measure(_title);
+			return ((ItemPadding * 2f) + IconBox + TabIconGap) * scale + Ui.GetFonts().GetUi(LabelSize, false).Measure(_title);
 		}
 	}
 
@@ -115,8 +115,8 @@ public sealed class PanelTab : Button
 		ITextFont font = Ui.GetFonts().GetUi(LabelSize, false);
 
 		painter.PushClip(ScreenX, ScreenY, Wide, Tall);
-		painter.DrawIcon(_icon, left + (IconBox * scale / 2f), centreY, IconSize * scale, icon);
-		painter.DrawText(font, _title, left + ((IconBox + IconGap) * scale), centreY - (font.GetLineHeight() / 2f) + font.GetBaseline(), Foreground);
+		painter.DrawIcon(_icon, left + (IconBox * scale / 2f), centreY, TabIconSize * scale, icon);
+		painter.DrawText(font, _title, left + ((IconBox + TabIconGap) * scale), centreY - (font.GetLineHeight() / 2f) + font.GetBaseline(), Foreground);
 		painter.PopClip();
 	}
 }

@@ -85,8 +85,6 @@ public sealed class Highlighter(LanguageDefinition language)
 		EnsureGrammarStates(snapshot, tokenizer, line);
 
 		TextSpan span = snapshot.GetLineSpan(line);
-		EnsureScratch(span.Length);
-		snapshot.CopyTo(span.Start, span.Length, _scratch);
 
 		TextMate.GrammarState start = line < _grammarValidUpTo && line < _grammarStates.Length
 			? _grammarStates[line] ?? TextMate.GrammarState.Root
@@ -94,17 +92,27 @@ public sealed class Highlighter(LanguageDefinition language)
 
 		_scoped.Clear();
 
-		tokenizer.Tokenize(new string(_scratch, 0, span.Length), start, _scoped);
+		tokenizer.Tokenize(GrammarLine(snapshot, span), start, _scoped);
 
 		entry.Tokens.Clear();
 
 		foreach (TextMate.ScopedToken token in _scoped) {
-			entry.Tokens.Add(new ColoredToken(token.Start, token.Length,
-				TextMate.Grammars.ColorFor(token.Scopes)));
+			int length = Math.Min(token.Length, span.Length - token.Start);
+
+			if (length <= 0) continue;
+
+			entry.Tokens.Add(new ColoredToken(token.Start, length, TextMate.Grammars.ColorFor(token.Scopes)));
 		}
 
 		entry.Line = line;
 		return entry.Tokens;
+	}
+
+	private string GrammarLine(TextSnapshot snapshot, TextSpan span) {
+		EnsureScratch(span.Length + 1);
+		snapshot.CopyTo(span.Start, span.Length, _scratch);
+		_scratch[span.Length] = '\n';
+		return new string(_scratch, 0, span.Length + 1);
 	}
 
 	private void EnsureGrammarStates(TextSnapshot snapshot, TextMate.GrammarTokenizer tokenizer,
@@ -124,14 +132,9 @@ public sealed class Highlighter(LanguageDefinition language)
 		List<TextMate.ScopedToken> discard = _scoped;
 
 		for (int line = _grammarValidUpTo; line < limit && line < snapshot.LineCount; line++) {
-			TextSpan span = snapshot.GetLineSpan(line);
-			EnsureScratch(span.Length);
-			snapshot.CopyTo(span.Start, span.Length, _scratch);
-
 			discard.Clear();
 
-			TextMate.GrammarState end = tokenizer.Tokenize(new string(_scratch, 0, span.Length),
-				_grammarStates[line] ?? TextMate.GrammarState.Root, discard);
+			TextMate.GrammarState end = tokenizer.Tokenize(GrammarLine(snapshot, snapshot.GetLineSpan(line)), _grammarStates[line] ?? TextMate.GrammarState.Root, discard);
 
 			if (line + 1 < _grammarStates.Length) _grammarStates[line + 1] = end;
 		}

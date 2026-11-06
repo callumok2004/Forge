@@ -19,6 +19,8 @@ public sealed class Image : IImage, IDisposable
 
 		Width = side;
 		Height = side;
+		SourceWidth = side;
+		SourceHeight = side;
 
 		D2D.BitmapProperties1 properties = new(
 			new Vortice.DCommon.PixelFormat(
@@ -36,6 +38,51 @@ public sealed class Image : IImage, IDisposable
 		}
 	}
 
+	private Image(D2D.ID2D1Bitmap bitmap, int width, int height, int sourceWidth, int sourceHeight) {
+		_bitmap = bitmap;
+		Width = width;
+		Height = height;
+		SourceWidth = sourceWidth;
+		SourceHeight = sourceHeight;
+	}
+
+	public int SourceWidth { get; }
+
+	public int SourceHeight { get; }
+
+	public static Image? Decode(RenderDevice device, string filePath) {
+		try {
+			using Vortice.WIC.IWICImagingFactory factory = new();
+			using Vortice.WIC.IWICBitmapDecoder decoder = factory.CreateDecoderFromFileName(filePath, FileAccess.Read, Vortice.WIC.DecodeOptions.CacheOnDemand);
+			using Vortice.WIC.IWICBitmapFrameDecode frame = decoder.GetFrame(0);
+			using Vortice.WIC.IWICFormatConverter converter = factory.CreateFormatConverter();
+
+			converter.Initialize(frame, Vortice.WIC.PixelFormat.Format32bppPBGRA, Vortice.WIC.BitmapDitherType.None, null, 0d, Vortice.WIC.BitmapPaletteType.Custom);
+
+			frame.GetSize(out uint sourceWidth, out uint sourceHeight);
+
+			uint limit = device.Context.MaximumBitmapSize;
+			double shrink = Math.Min(1d, Math.Min((double)limit / Math.Max(1u, sourceWidth), (double)limit / Math.Max(1u, sourceHeight)));
+
+			if (shrink >= 1d) {
+				D2D.ID2D1Bitmap bitmap = device.Context.CreateBitmapFromWicBitmap(converter, null);
+				return new Image(bitmap, (int)sourceWidth, (int)sourceHeight, (int)sourceWidth, (int)sourceHeight);
+			}
+
+			uint width = Math.Max(1u, (uint)(sourceWidth * shrink));
+			uint height = Math.Max(1u, (uint)(sourceHeight * shrink));
+
+			using Vortice.WIC.IWICBitmapScaler scaler = factory.CreateBitmapScaler();
+			scaler.Initialize(converter, width, height, Vortice.WIC.BitmapInterpolationMode.Fant);
+
+			D2D.ID2D1Bitmap scaled = device.Context.CreateBitmapFromWicBitmap(scaler, null);
+			return new Image(scaled, (int)width, (int)height, (int)sourceWidth, (int)sourceHeight);
+		}
+		catch (Exception exception) when (exception is SharpGen.Runtime.SharpGenException or IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException) {
+			return null;
+		}
+	}
+
 	public int Width { get; }
 
 	public int Height { get; }
@@ -43,6 +90,10 @@ public sealed class Image : IImage, IDisposable
 	public int GetWidth() => Width;
 
 	public int GetHeight() => Height;
+
+	public int GetSourceWidth() => SourceWidth;
+
+	public int GetSourceHeight() => SourceHeight;
 
 	internal D2D.ID2D1Bitmap Bitmap => _bitmap;
 

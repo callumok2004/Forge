@@ -113,6 +113,10 @@ public sealed class NodeExtensionHost : IDisposable
 
 	public void PublishState(HostState state) => Notify("host/state", state.ToJson());
 
+	public Task<JsonNode?> RequestAsync(string method, JsonNode? parameters) => SendAsync(method, parameters);
+
+	public void NotifyHost(string method, JsonNode? parameters) => Notify(method, parameters);
+
 	public void RaiseEvent(string name, JsonNode? value) =>
 		Notify("host/event", new JsonObject { ["name"] = name, ["value"] = value?.DeepClone() });
 

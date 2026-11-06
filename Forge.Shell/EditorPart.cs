@@ -102,5 +102,10 @@ public sealed class EditorPart : Panel
 
 	public override void PostChildPaint(IPainter painter) => painter.PopRoundedClip();
 
-	public override void PaintBorder(IPainter painter) => painter.StrokeRoundedRectangle(ScreenX, ScreenY, Wide, Tall, Metrics.RadiusLarge * Scale, Metrics.StrokeThickness * Scale, Theme.PanelBorder);
+	public override void PaintBorder(IPainter painter) {
+		float stroke = Metrics.StrokeThickness * Scale;
+		painter.StrokeRoundedRectangle(ScreenX + (stroke / 2f), ScreenY + (stroke / 2f), Wide - stroke, Tall - stroke, (Metrics.RadiusLarge * Scale) - (stroke / 2f), stroke, Theme.PanelBorder);
+
+		if (_workbench.ActiveView?.CaretMarker is { } marker && marker.Bottom > marker.Top) painter.FillRectangle(ScreenX, marker.Top, stroke, marker.Bottom - marker.Top, Theme.Accent);
+	}
 }

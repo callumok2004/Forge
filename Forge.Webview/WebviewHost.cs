@@ -213,7 +213,7 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 	public void ReleaseFocus() => Win32.SetFocus(window);
 
 	public void SetBounds(string id, PixelRect bounds) {
-		if (!_views.TryGetValue(id, out View? view)) return;
+		if (!_views.TryGetValue(id, out View? view) || view.Bounds.Equals(bounds)) return;
 
 		view.Bounds = bounds;
 

@@ -19,7 +19,7 @@ public class ActionButton : Button
 
 	public IVectorIcon? VectorIcon { get; set; }
 
-	public float IconSize { get; set; } = Metrics.IconSize;
+	public new float IconSize { get; set; } = Metrics.IconSize;
 
 	public bool Checked {
 		get;

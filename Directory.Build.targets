@@ -1,0 +1,16 @@
+<Project>
+	<Target Name="DropWebView2UiFrameworks" AfterTargets="ResolvePackageAssets">
+		<ItemGroup>
+			<ResolvedCompileFileDefinitions Remove="@(ResolvedCompileFileDefinitions)"
+				Condition="'%(Filename)' == 'Microsoft.Web.WebView2.Wpf' Or '%(Filename)' == 'Microsoft.Web.WebView2.WinForms'" />
+			<RuntimeCopyLocalItems Remove="@(RuntimeCopyLocalItems)"
+				Condition="'%(Filename)' == 'Microsoft.Web.WebView2.Wpf' Or '%(Filename)' == 'Microsoft.Web.WebView2.WinForms'" />
+		</ItemGroup>
+	</Target>
+
+	<Target Name="DropWebView2UiReferences" BeforeTargets="ResolveAssemblyReferences">
+		<ItemGroup>
+			<Reference Remove="@(Reference)" Condition="'%(Filename)' == 'Microsoft.Web.WebView2.Wpf' Or '%(Filename)' == 'Microsoft.Web.WebView2.WinForms'" />
+		</ItemGroup>
+	</Target>
+</Project>

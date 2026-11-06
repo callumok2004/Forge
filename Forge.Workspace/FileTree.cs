@@ -61,6 +61,8 @@ public sealed class FileTree : IFileTree
 
 	public void CollapseAll() {
 		if (_root.Children is not null) Collapse(_root.Children);
+
+		if (_groupNodes is not null) Collapse(_groupNodes);
 	}
 
 	private static void Collapse(List<FileNode> nodes) {

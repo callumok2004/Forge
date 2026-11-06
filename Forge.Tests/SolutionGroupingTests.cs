@@ -60,7 +60,7 @@ public class SolutionGroupingTests
 	[InlineData("zoom", "View: Zoom In", true)]
 	[InlineData("dbn", ".NET: Build", false)]
 	[InlineData("vtt", "View: Toggle Terminal", true)]
-	public void WordFilterMatchesLikeVsCode(string query, string label, bool expected) => Assert.Equal(expected, WordFilter.Matches(query, label));
+	public void WordFilterMatches(string query, string label, bool expected) => Assert.Equal(expected, WordFilter.Matches(query, label));
 
 	[Fact]
 	public void GroupsClaimProjectFoldersAndKeepTheRest() {

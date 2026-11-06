@@ -166,6 +166,12 @@ public class Label : Panel
 		return true;
 	}
 
+	public static bool TryParseIcon(ReadOnlySpan<char> reference, out Codicon icon) {
+		if (reference.StartsWith("$(") && reference.EndsWith(")")) reference = reference[2..^1];
+
+		return IconNames.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(reference, out icon);
+	}
+
 	private static Dictionary<string, Codicon> BuildIconNames() {
 		Dictionary<string, Codicon> names = new(StringComparer.OrdinalIgnoreCase);
 

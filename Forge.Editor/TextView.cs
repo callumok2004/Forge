@@ -57,6 +57,16 @@ public sealed class TextView : ITextView
 		return total;
 	}
 
+	public float Scale { get; set; } = 1f;
+
+	public (float Top, float Bottom)? CaretMarker { get; private set; }
+
+	public bool ScrollBeyondLastLine { get; set; } = true;
+
+	public int ScrollBeyondLastColumn { get; set; } = 4;
+
+	public float ScrollHeight(float lineHeight, float viewportHeight) => ContentHeight(lineHeight) + (ScrollBeyondLastLine ? Math.Max(0f, viewportHeight - lineHeight) : 0f);
+
 	public readonly record struct LensSegment(string Text, bool IsCommand, int Index);
 
 	public readonly record struct LensLine(int Line, LensSegment[] Segments);
@@ -206,6 +216,107 @@ public sealed class TextView : ITextView
 
 	private const string LensSeparator = " | ";
 
+	#region Inline diff
+
+	private string? _diffBase;
+	private string[] _diffBaseLines = [];
+	private int _diffVersion = -1;
+	private float _diffLineHeight;
+	private readonly List<LineHunk> _diffHunks = [];
+	private readonly List<(int Zone, int Hunk)> _diffZones = [];
+
+	public string? DiffBase {
+		get => _diffBase;
+		set {
+			_diffBase = value;
+			_diffBaseLines = value is null ? [] : value.Replace("\r\n", "\n").Split('\n');
+			_diffVersion = -1;
+
+			if (value is null) ClearDiffZones();
+		}
+	}
+
+	public IReadOnlyList<LineHunk> DiffHunks => _diffHunks;
+
+	public int FirstVisibleLine => LastLineHeight > 0f ? LineAtY(ScrollY, LastLineHeight) : 0;
+
+	public int LastVisibleLine => LastLineHeight > 0f ? LineAtY(ScrollY + LastViewportHeight, LastLineHeight) : 0;
+
+	private void ClearDiffZones() {
+		foreach ((int zone, _) in _diffZones) RemoveZone(zone);
+
+		_diffZones.Clear();
+		_diffHunks.Clear();
+	}
+
+	private void SyncDiff(float lineHeight) {
+		if (_diffBase is null || (_diffVersion == Buffer.Version && _diffLineHeight == lineHeight)) return;
+
+		_diffVersion = Buffer.Version;
+		_diffLineHeight = lineHeight;
+		ClearDiffZones();
+		_diffHunks.AddRange(LineDiff.Compute(_diffBase, Buffer.GetText()));
+
+		for (int i = 0; i < _diffHunks.Count; i++) {
+			LineHunk hunk = _diffHunks[i];
+
+			if (hunk.OriginalCount > 0) _diffZones.Add((AddZone(hunk.ModifiedStart - 1, hunk.OriginalCount * lineHeight), i));
+		}
+	}
+
+	private bool IsDiffInserted(int line) {
+		if (_diffHunks.Count == 0) return false;
+
+		int low = 0;
+		int high = _diffHunks.Count - 1;
+
+		while (low <= high) {
+			int middle = (low + high) >> 1;
+			LineHunk hunk = _diffHunks[middle];
+
+			if (line < hunk.ModifiedStart) high = middle - 1;
+			else if (line >= hunk.ModifiedStart + hunk.ModifiedCount) low = middle + 1;
+			else return true;
+		}
+
+		return false;
+	}
+
+	private void DrawDiffZones(IPainter painter, float x, float y, float width, float height, float textLeft, float lineHeight) {
+		if (_diffZones.Count == 0) return;
+
+		ITextFont font = painter.GetCode();
+		float baseline = font.GetBaseline();
+		float cell = font.GetCellWidth();
+		string tab = new(' ', TabWidth);
+
+		foreach ((int zoneId, int hunkIndex) in _diffZones) {
+			float top = y + ZoneTop(zoneId, lineHeight) - ScrollY;
+			LineHunk hunk = _diffHunks[hunkIndex];
+			float zoneHeight = hunk.OriginalCount * lineHeight;
+
+			if (top + zoneHeight < y || top > y + height || !painter.NeedsPaint(x, top, width, zoneHeight)) continue;
+
+			painter.FillRectangle(x, top, width, zoneHeight, Theme.DiffRemovedLineBackground);
+
+			for (int i = 0; i < hunk.OriginalCount; i++) {
+				int source = hunk.OriginalStart + i;
+				float lineTop = top + (i * lineHeight);
+
+				if (source >= _diffBaseLines.Length || lineTop > y + height) break;
+
+				if (lineTop + lineHeight < y) continue;
+
+				painter.DrawText(font, "-", x + cell, lineTop + baseline, Theme.GitDeletedForeground);
+				painter.PushClip(x + GutterWidth(font), lineTop, Math.Max(0f, width - GutterWidth(font)), lineHeight);
+				painter.DrawText(font, _diffBaseLines[source].Replace("\t", tab), textLeft, lineTop + baseline, Theme.EditorForeground.WithAlpha(0.75f));
+				painter.PopClip();
+			}
+		}
+	}
+
+	#endregion
+
 	private void DrawCodeLenses(IPainter painter, float y, float textLeft, float width, float lineHeight) {
 		_lensHits.Clear();
 		_lensZones.Clear();
@@ -301,6 +412,9 @@ public sealed class TextView : ITextView
 	}
 
 	private void OnBufferChanged(TextBuffer buffer, TextChange change) {
+		CaretOffset = MapThrough(CaretOffset, change);
+		SelectionAnchor = MapThrough(SelectionAnchor, change);
+
 		if (_zones.Count == 0) return;
 
 		int removed = buffer.RemovedText(change).Count('\n');
@@ -315,6 +429,14 @@ public sealed class TextView : ITextView
 
 			_zones[i] = _zones[i] with { AfterLine = Math.Max(line, _zones[i].AfterLine - removed + inserted) };
 		}
+	}
+
+	private static int MapThrough(int offset, in TextChange change) {
+		if (offset <= change.Offset) return offset;
+
+		int removedEnd = change.Offset + change.RemovedLength;
+
+		return offset >= removedEnd ? offset - change.RemovedLength + change.InsertedLength : change.Offset + change.InsertedLength;
 	}
 
 	private TextBuffer.Selection CurrentSelection() => new(SelectionAnchor, CaretOffset);
@@ -340,7 +462,7 @@ public sealed class TextView : ITextView
 	(float X, float Y) ITextView.PointForOffset(ITextFont font, int offset, float viewportX, float viewportY) =>
 		PointForOffset((ITextFont)font, offset, viewportX, viewportY);
 
-	private const float ChangeMarkWidth = 2f;
+	private const float ChangeMarkWidth = 3f;
 
 	public const float GlyphMarginWidth = 20f;
 
@@ -576,14 +698,14 @@ public sealed class TextView : ITextView
 
 	#region Editing
 
-	public void InsertText(ReadOnlySpan<char> text) {
+	public void InsertText(ReadOnlySpan<char> text) => InsertText(text, text.Length == 1 && !HasSelection ? Buffer.TypingKindFor(text[0]) : TextBuffer.EditKind.Other);
+
+	private void InsertText(ReadOnlySpan<char> text, TextBuffer.EditKind kind) {
 		if (text.IsEmpty) return;
 
 		_autoClosed.Clear();
 
-		Buffer.SetEditKind(text.Length == 1 && !HasSelection
-			? Buffer.TypingKindFor(text[0])
-			: TextBuffer.EditKind.Other);
+		Buffer.SetEditKind(kind);
 
 		Buffer.BeginEdit();
 		int at = DeleteSelectionCore();
@@ -595,6 +717,8 @@ public sealed class TextView : ITextView
 	}
 
 	public void InsertNewLine() {
+		Buffer.PushStackElement();
+
 		if (HasSelection) DeleteSelection();
 
 		TextSpan span = Snapshot.GetLineSpan(CaretLine);
@@ -607,14 +731,14 @@ public sealed class TextView : ITextView
 		string trimmed = before.TrimEnd();
 
 		if (trimmed.TrimStart().StartsWith("///", StringComparison.Ordinal)) {
-			InsertText(newline + indent + "/// ");
+			InsertText(newline + indent + "/// ", TextBuffer.EditKind.TypingOther);
 			return;
 		}
 
 		if ((trimmed.TrimStart().StartsWith("//", StringComparison.Ordinal) ||
 				trimmed.Contains(" // ", StringComparison.Ordinal)) &&
 			after.Trim().Length > 0) {
-			InsertText(newline + indent + "// ");
+			InsertText(newline + indent + "// ", TextBuffer.EditKind.TypingOther);
 			return;
 		}
 
@@ -624,12 +748,12 @@ public sealed class TextView : ITextView
 		if (opens && closesNext) {
 			string inner = indent + IndentUnit(indent);
 
-			InsertText(newline + inner + newline + indent);
+			InsertText(newline + inner + newline + indent, TextBuffer.EditKind.TypingOther);
 			MoveTo(CaretOffset - newline.Length - indent.Length, extend: false);
 			return;
 		}
 
-		InsertText(newline + indent + (opens ? IndentUnit(indent) : string.Empty));
+		InsertText(newline + indent + (opens ? IndentUnit(indent) : string.Empty), TextBuffer.EditKind.TypingOther);
 	}
 
 	private string IndentUnit(string indent) =>
@@ -703,7 +827,8 @@ public sealed class TextView : ITextView
 
 		int at = CaretOffset;
 
-		Buffer.SetEditKind(TextBuffer.EditKind.Other);
+		Buffer.PushStackElement();
+		Buffer.SetEditKind(TextBuffer.EditKind.TypingOther);
 		Buffer.BeginEdit();
 		Buffer.Insert(at, [character, close]);
 		Buffer.EndEdit();
@@ -1202,7 +1327,7 @@ public sealed class TextView : ITextView
 	}
 
 	private void ClampScroll(float lineHeight, float viewportHeight) {
-		float maxScroll = Math.Max(0f, ContentHeight(lineHeight) - viewportHeight);
+		float maxScroll = Math.Max(0f, ScrollHeight(lineHeight, viewportHeight) - viewportHeight);
 		ScrollY = Math.Clamp(ScrollY, 0f, maxScroll);
 	}
 
@@ -1359,15 +1484,16 @@ public sealed class TextView : ITextView
 
 	private PixelRect RowSpanRect(ITextFont font, int firstLine, int lastLine, float viewportX,
 		float viewportY, float viewportWidth) {
-		float top = viewportY + (firstLine * font.GetLineHeight()) - ScrollY;
-		float bottom = viewportY + ((lastLine + 1) * font.GetLineHeight()) - ScrollY;
+		float lineHeight = font.GetLineHeight();
+		float top = viewportY + TopOf(firstLine, lineHeight) - ScrollY;
+		float bottom = viewportY + TopOf(lastLine, lineHeight) + lineHeight - ScrollY;
 
 		return PixelRect.Around(viewportX, top, viewportWidth, bottom - top);
 	}
 
 	private PixelRect RowsFrom(ITextFont font, int line, float viewportX, float viewportY,
 		float viewportHeight) {
-		float top = viewportY + (line * font.GetLineHeight()) - ScrollY;
+		float top = viewportY + TopOf(line, font.GetLineHeight()) - ScrollY;
 
 		return PixelRect.Around(viewportX, top, _renderedWidth,
 			(viewportY + viewportHeight) - top);
@@ -1426,6 +1552,7 @@ public sealed class TextView : ITextView
 		_textAreaWidth = Math.Max(0f, width - gutterWidth - TextPaddingLeft);
 		LastLineHeight = lineHeight;
 		LastViewportHeight = height;
+		SyncDiff(lineHeight);
 		ClampScrollX();
 
 		int firstLine = LineAtY(ScrollY, lineHeight);
@@ -1435,17 +1562,22 @@ public sealed class TextView : ITextView
 		TextSpan selection = Selection;
 
 		painter.PushClip(x, y, width, height);
+		CaretMarker = null;
 
 		for (int line = firstLine; line <= lastLine; line++) {
 			float lineTop = y + TopOf(line, lineHeight) - ScrollY;
 
 			if (!painter.NeedsPaint(x, lineTop, width, lineHeight)) continue;
 
+			bool inserted = IsDiffInserted(line);
+
+			if (inserted) painter.FillRectangle(x, lineTop, width, lineHeight, Theme.DiffInsertedLineBackground);
+
 			if (line == caretLine && !HasSelection) {
 				painter.FillRectangle(x + gutterWidth, lineTop, width - gutterWidth, lineHeight,
-					Theme.CurrentLineBackground);
+					inserted ? Theme.DiffInsertedTextBackground.Over(Theme.DiffInsertedLineBackground) : Theme.CurrentLineBackground);
 
-				painter.FillRectangle(x, lineTop, 2f, lineHeight, Theme.Accent);
+				CaretMarker = (Math.Max(y, lineTop), Math.Min(y + height, lineTop + lineHeight));
 			}
 
 			DrawExecutionLine(painter, line, x, lineTop, width, lineHeight);
@@ -1466,11 +1598,13 @@ public sealed class TextView : ITextView
 
 			painter.PopClip();
 
-			DrawChangeMark(painter, line, x, lineTop, lineHeight);
+			DrawChangeMark(painter, line, x + gutterWidth, lineTop, lineHeight);
 			DrawLineNumber(painter, line, caretLine, x, lineTop, gutterWidth);
 			DrawGlyphMargin(painter, line, x, lineTop, lineHeight);
 			DrawLightbulb(painter, line, x, textLeft, lineTop, lineHeight);
 		}
+
+		DrawDiffZones(painter, x, y, width, height, textLeft, lineHeight);
 
 		painter.PushClip(textAreaLeft, y, textAreaWidth, height);
 		DrawCodeLenses(painter, y, textLeft, width, lineHeight);
@@ -1733,7 +1867,7 @@ public sealed class TextView : ITextView
 	}
 
 	private void DrawScrollbar(IPainter painter, float x, float y, float width, float height, float lineHeight) {
-		float contentHeight = ContentHeight(lineHeight);
+		float contentHeight = ScrollHeight(lineHeight, height);
 		if (contentHeight <= height) return;
 
 		float trackWidth = ScrollbarWidth;
@@ -1810,26 +1944,31 @@ public sealed class TextView : ITextView
 		painter.FillRectangle(MathF.Round(caretX), caretTop, CaretWidth, lineHeight, Theme.CursorForeground);
 	}
 
-	private void DrawChangeMark(IPainter painter, int line, float x, float lineTop, float lineHeight) {
+	private void DrawChangeMark(IPainter painter, int line, float divider, float lineTop, float lineHeight) {
 		if (Diff is not { } diff || diff.GetPath() != Path || diff.At(line) is not { } change) return;
 
-		float width = ChangeMarkWidth;
+		float scale = Scale;
+		float width = ChangeMarkWidth * scale;
+		float laneX = MathF.Round(divider - GutterPaddingRight + ((GutterPaddingRight - width) / 2f));
 
-		switch (change.Kind) {
-			case GitChangeKind.Added:
-				painter.FillRectangle(x, lineTop, width, lineHeight, Theme.GitAddedForeground);
-				break;
-
-			case GitChangeKind.Modified:
-				painter.FillRectangle(x, lineTop, width, lineHeight, Theme.GitModifiedForeground);
-				break;
-
-			case GitChangeKind.Deleted:
-				float size = lineHeight / 3f;
-				painter.FillTriangle(x, lineTop - size, x, lineTop + size, x + size, lineTop,
-					Theme.GitDeletedForeground);
-				break;
+		if (change.Kind == GitChangeKind.Deleted) {
+			float size = MathF.Round(lineHeight / 4f);
+			painter.FillTriangle(laneX, lineTop - size, laneX, lineTop + size, laneX + size + width, lineTop, Theme.GitDeletedForeground);
+			return;
 		}
+
+		float gap = scale;
+		bool first = line == change.Line;
+		bool last = line == change.Line + Math.Max(1, change.Count) - 1;
+		float top = first ? lineTop + gap : lineTop;
+		float bottom = last ? lineTop + lineHeight - gap : lineTop + lineHeight;
+		Color color = change.Kind == GitChangeKind.Added ? Theme.GitAddedForeground : Theme.GitModifiedForeground;
+
+		if (first || last) painter.FillRoundedRectangle(laneX, top, width, bottom - top, width / 2f, color);
+		else painter.FillRectangle(laneX, top, width, bottom - top, color);
+
+		if (first && !last) painter.FillRectangle(laneX, top + (width / 2f), width, bottom - top - (width / 2f), color);
+		else if (last && !first) painter.FillRectangle(laneX, top, width, bottom - top - (width / 2f), color);
 	}
 
 	private void DrawLineNumber(IPainter painter, int line, int caretLine, float x, float lineTop, float gutterWidth) {
@@ -1854,7 +1993,7 @@ public sealed class TextView : ITextView
 		int length = ExpandTabs(span.Length);
 		float baseline = lineTop + painter.GetCode().GetBaseline();
 
-		float lineWidth = length * painter.GetCode().GetCellWidth();
+		float lineWidth = (length + ScrollBeyondLastColumn) * painter.GetCode().GetCellWidth();
 		if (lineWidth > _contentWidth) _contentWidth = lineWidth;
 
 		if (!Highlighter.IsEnabled) {

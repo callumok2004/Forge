@@ -102,6 +102,23 @@ public sealed class Painter : IPainter, IDisposable
 	void IPainter.DrawImage(IImage image, float centreX, float centreY, float size) =>
 		DrawImage((Image)image, centreX, centreY, size);
 
+	void IPainter.DrawImage(IImage image, float x, float y, float width, float height, bool pixelated) {
+		if (image is SvgImage svg) {
+			svg.Draw(_context, x, y, width, height);
+			return;
+		}
+
+		D2D.ID2D1Bitmap? bitmap = image switch {
+			Image raster => raster.Bitmap,
+			AnimatedImage animated => animated.Bitmap,
+			_ => null,
+		};
+
+		if (bitmap is null) return;
+
+		_context.DrawBitmap(bitmap, new Vortice.Mathematics.Rect(x, y, width, height), 1f, pixelated ? D2D.BitmapInterpolationMode.NearestNeighbor : D2D.BitmapInterpolationMode.Linear, new Vortice.Mathematics.Rect(0f, 0f, image.GetWidth(), image.GetHeight()));
+	}
+
 	void IPainter.DrawText(ITextFont font, ReadOnlySpan<char> text, float x, float baselineY, Color color) =>
 		DrawText((TextFont)font, text, x, baselineY, color);
 

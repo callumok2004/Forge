@@ -106,7 +106,7 @@ public sealed class PanelPart : Panel, IDisposable, IViewPart
 		_newTerminal.Action = () => NewTerminal(TerminalProfiles.Default(Profiles, DefaultProfile));
 		_clearOutput = TitleAction(Codicon.ClearAll, "Clear Output");
 		_clearOutput.Action = () => {
-			if (Active == PanelView.DebugConsole) {
+			if (ReferenceEquals(_clearOutput.Parent, _title) && Active == PanelView.DebugConsole) {
 				DebugConsole.Clear();
 				return;
 			}
@@ -251,6 +251,8 @@ public sealed class PanelPart : Panel, IDisposable, IViewPart
 
 	public string? WorkspaceRoot { get; set; }
 
+	public event Action? ProblemsChanged;
+
 	public void SetProblems(string owner, bool build, IReadOnlyList<Diagnostic> diagnostics) {
 		if (diagnostics.Count == 0) _problemsByOwner.Remove(owner);
 		else {
@@ -288,6 +290,7 @@ public sealed class PanelPart : Panel, IDisposable, IViewPart
 		WarningCount = warnings;
 		InfoCount = infos;
 		ProblemsView.Sync();
+		ProblemsChanged?.Invoke();
 	}
 
 	public void SetReferences(string title, IReadOnlyList<HostLocation> locations) {
@@ -539,11 +542,15 @@ public sealed class PanelPart : Panel, IDisposable, IViewPart
 			action.Dock = ReferenceEquals(terminalHost, _title) ? DockType.Right : DockType.None;
 			action.Visible = terminalHost is not null;
 		}
-		_channel.Visible = builtIn && Active == PanelView.Output;
+		bool outputMerged = merged && activeGroup.Contains(PanelView.Output);
+		Panel? channelHost = builtIn && !merged && Active == PanelView.Output ? _title : outputMerged ? _headers[(int)PanelView.Output] : null;
+		Panel? clearHost = outputMerged ? _headers[(int)PanelView.Output] : builtIn && !merged && Active is PanelView.Output or PanelView.DebugConsole ? _title : null;
+
+		MoveAction(_channel, channelHost);
+		MoveAction(_clearOutput, clearHost);
 
 		bool consoleMerged = merged && activeGroup.Contains(PanelView.DebugConsole);
 		bool consoleAlone = builtIn && !merged && Active == PanelView.DebugConsole;
-		_clearOutput.Visible = builtIn && !merged && Active is PanelView.Output or PanelView.DebugConsole;
 
 		if (consoleAlone) PlaceFilter(_title);
 		else if (!consoleMerged) PlaceFilter(null);
@@ -551,6 +558,16 @@ public sealed class PanelPart : Panel, IDisposable, IViewPart
 		_channel.SetText($"{ActiveChannel.GetName()} $(chevron-down)");
 		InvalidateLayout();
 		Repaint();
+	}
+
+	private void MoveAction(Panel action, Panel? host) {
+		if (!ReferenceEquals(action.Parent, host)) {
+			action.Parent?.RemoveChild(action);
+			host?.AddChild(action);
+		}
+
+		action.Dock = ReferenceEquals(host, _title) ? DockType.Right : DockType.None;
+		action.Visible = host is not null;
 	}
 
 	#region Output channels
@@ -645,6 +662,41 @@ public sealed class PanelPart : Panel, IDisposable, IViewPart
 		TerminalView.Sync();
 		Repaint();
 	}
+
+	public TerminalSession? CreateTerminal(TerminalProfile profile, string? workingDirectory, Action<int>? exited, bool show) {
+		TerminalSession session = new() { History = History, ExitObserver = exited };
+		session.Changed += MarkDirty;
+
+		if (!session.Start(profile, workingDirectory ?? WorkingDirectory, 120, 30)) {
+			session.Dispose();
+			return null;
+		}
+
+		_terminals.Add(session);
+		_terminalGroups.Add(_nextTerminalGroup++);
+
+		if (show) {
+			_activeTerminal = _terminals.Count - 1;
+			Show(PanelView.Terminal);
+		}
+
+		TerminalView.Sync();
+		return session;
+	}
+
+	public void ShowTerminal(TerminalSession session, bool focus) {
+		int index = _terminals.IndexOf(session);
+
+		if (index < 0) return;
+
+		_activeTerminal = index;
+		Show(PanelView.Terminal);
+		TerminalView.Sync();
+
+		if (focus) FocusActive();
+	}
+
+	public void CloseTerminal(TerminalSession session) => CloseTerminal(_terminals.IndexOf(session));
 
 	public void NewTerminal(TerminalProfile profile, bool split = false) {
 		TerminalSession session = new() { History = History };
@@ -843,6 +895,7 @@ public sealed class PanelPart : Panel, IDisposable, IViewPart
 			if (i < group.Count - 1) _sashes[i].SetBounds(right - (sashWidth / 2f), top, sashWidth, height);
 
 			if (group[i] == PanelView.DebugConsole) LayoutConsoleHeader(_headers[view], scale);
+			else if (group[i] == PanelView.Output) LayoutOutputHeader(_headers[view], scale);
 			else if (group[i] == PanelView.Terminal) LayoutHeaderActions(_headers[view], scale, _killTerminal, _splitTerminal, _profiles, _newTerminal);
 
 			left = right;
@@ -873,6 +926,19 @@ public sealed class PanelPart : Panel, IDisposable, IViewPart
 			action.SetBounds(right - size, middle, size, size);
 			right -= size + gap;
 		}
+	}
+
+	private void LayoutOutputHeader(PanelPaneHeader header, float scale) {
+		float action = HeaderActionSize * scale;
+		float gap = Metrics.Space4 * scale;
+		float right = header.Wide - gap;
+		float select = ChannelSelectHeight * scale;
+
+		_clearOutput.SetBounds(right - action, (header.Tall - action) / 2f, action, action);
+		right -= action + gap;
+
+		float width = Math.Min(ChannelSelectWidth * scale, Math.Max(0f, right - (header.Wide * 0.4f)));
+		_channel.SetBounds(right - width, (header.Tall - select) / 2f, width, select);
 	}
 
 	private void LayoutConsoleHeader(PanelPaneHeader header, float scale) {

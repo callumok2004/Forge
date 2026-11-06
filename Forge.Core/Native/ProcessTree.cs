@@ -30,7 +30,12 @@ public sealed partial class ProcessTree
 	}
 
 	private readonly Lock _sampling = new();
+	private readonly HashSet<uint> _target = [];
 	private ResourceUsage _last;
+
+	public uint TargetId { get; set; }
+
+	public ResourceUsage? Target { get; private set; }
 
 	public ResourceUsage Sample() {
 		if (!_sampling.TryEnter()) return _last;
@@ -53,9 +58,13 @@ public sealed partial class ProcessTree
 		_cpuTicks.Clear();
 
 		CollectDescendants();
+		CollectTarget();
 
 		long busyTicks = 0;
 		long memory = 0;
+		long targetBusy = 0;
+		long targetMemory = 0;
+		bool targetAlive = false;
 
 		lock (_sync) {
 			_rows.Clear();
@@ -64,6 +73,8 @@ public sealed partial class ProcessTree
 				nint process = OpenProcess(QueryLimitedInformation | VmRead, false, id);
 
 				if (process == 0) continue;
+
+				bool inTarget = _target.Contains(id);
 
 				long busy = 0;
 				long working = 0;
@@ -84,13 +95,45 @@ public sealed partial class ProcessTree
 					_ = CloseHandle(process);
 				}
 
-				busyTicks += busy;
-				memory += working;
+				if (inTarget) {
+					targetAlive = true;
+					targetBusy += busy;
+					targetMemory += working;
+				}
+				else {
+					busyTicks += busy;
+					memory += working;
+				}
+
 				_rows.Add(new ProcessUsage(id, parent, depth, _names.GetValueOrDefault(id, "?"), Math.Clamp(busy * scale, 0, 100), working));
 			}
 		}
 
+		Target = targetAlive ? new ResourceUsage(Math.Clamp(targetBusy * scale, 0, 100), targetMemory) : null;
 		return new ResourceUsage(Math.Clamp(busyTicks * scale, 0, 100), memory);
+	}
+
+	private void CollectTarget() {
+		_target.Clear();
+
+		if (TargetId == 0) return;
+
+		_target.Add(TargetId);
+
+		if (!Contains(TargetId)) _found.Add((TargetId, 0, 0));
+
+		for (int i = 0; i < _found.Count; i++) {
+			(uint id, uint parent, _) = _found[i];
+
+			if (_target.Contains(parent) && id != parent) _target.Add(id);
+		}
+
+		foreach ((uint id, uint parent) in _all) {
+			if (!_target.Contains(parent) || _target.Contains(id)) continue;
+
+			_target.Add(id);
+			_found.Add((id, parent, 1));
+		}
 	}
 
 	private unsafe void CollectDescendants() {

@@ -12,6 +12,10 @@ public static class Theme
 	public static readonly Color EditorBackground = Color.Parse("#0d1118");
 	public static readonly Color EditorForeground = Color.Parse("#c9d1dc");
 	public static readonly Color CurrentLineBackground = Color.Parse("#121b2d");
+	public static readonly Color DiffInsertedLineBackground = Color.Parse("#11261d");
+	public static readonly Color DiffRemovedLineBackground = Color.Parse("#2a1518");
+	public static readonly Color DiffInsertedTextBackground = Color.Parse("#3fd8a022");
+	public static readonly Color DiffRemovedTextBackground = Color.Parse("#ff8a8a22");
 	public static readonly Color SelectionBackground = Color.Parse("#1f5bff40");
 	public static readonly Color EditorLinkActiveForeground = Color.Parse("#4e94ce");
 	public static readonly Color EditorCodeLensForeground = Color.Parse("#4a5568");
@@ -106,8 +110,9 @@ public static class Theme
 	public static readonly Color TabActiveBackground = Color.Parse("#0d1118");
 	public static readonly Color TabActiveForeground = Color.Parse("#ffffff");
 	public static readonly Color TabInactiveForeground = Color.Parse("#7d8aa0");
+	public static readonly Color TabHoverForeground = Color.Parse("#e6ebf2");
+	public static readonly Color TabHoverFill = Color.Parse("#15181d");
 	public static readonly Color TabHoverBackground = Color.Parse("#121a28");
-	public static readonly Color TabHoverForeground = Color.Parse("#c9d1dc");
 	public static readonly Color TabSelectedBackground = Color.Parse("#172034");
 	public static readonly Color TabActiveBorderTop = Color.Transparent;
 	public static readonly Color TabModifiedBorder = Color.Parse("#e3b341");
@@ -116,6 +121,7 @@ public static class Theme
 	public static readonly Color ListHoverBackground = Color.Parse("#121a28");
 	public static readonly Color ListHoverForeground = Color.Parse("#e6ebf2");
 	public static readonly Color ListActiveSelectionBackground = Color.Parse("#17305e");
+	public static readonly Color ListActiveSelectionForeground = Color.Parse("#ffffff");
 	public static readonly Color ListInactiveSelectionBackground = Color.Parse("#16203a");
 	public static readonly Color ListHighlightForeground = Color.Parse("#6fb0ff");
 	public static readonly Color TreeIndentGuide = Color.Parse("#1a2232");

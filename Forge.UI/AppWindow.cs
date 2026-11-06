@@ -407,11 +407,9 @@ public sealed unsafe class AppWindow : IAppWindow, IDisposable
 				return 1;
 
 			case Win32.WmKeyDown:
-				window.Events.KeyDown?.Invoke((uint)wParam);
-				return 0;
-
 			case Win32.WmSysKeyDown:
-				window.Events.KeyDown?.Invoke((uint)wParam);
+				for (int repeat = Math.Max(1, (int)((long)lParam & 0xFFFF)); repeat > 0; repeat--) window.Events.KeyDown?.Invoke((uint)wParam);
+
 				return 0;
 
 			case Win32.WmChar:

@@ -27,22 +27,31 @@ public sealed class ListPanel : Panel
 
 	public int Count => _count;
 
+	public int PaddingRows { get; init; }
+
 	public int VisibleRows => Math.Max(1, (int)(Tall / (RowHeight * Scale)));
+
+	private int PaintedRows => Math.Max(1, (int)MathF.Ceiling(Tall / (RowHeight * Scale)));
+
+	private int MaxFirst => Math.Max(0, _count + PaddingRows - VisibleRows);
 
 	public void SetCount(int count) {
 		_count = count;
 		_selected = _selected < 0 ? -1 : Math.Clamp(_selected, 0, Math.Max(0, count - 1));
-		_first = Math.Clamp(_first, 0, Math.Max(0, count - VisibleRows));
+		_first = Math.Clamp(_first, 0, MaxFirst);
 		_hover = -1;
 		Repaint();
 	}
 
-	public void Select(int index) {
+	public void Select(int index, bool reveal = true) {
 		if (_count == 0) return;
 
 		_selected = Math.Clamp(index, 0, _count - 1);
 
-		if (Tall <= 0f) return;
+		if (!reveal || Tall <= 0f) {
+			Repaint();
+			return;
+		}
 
 		if (_selected < _first) _first = _selected;
 		else if (_selected >= _first + VisibleRows) _first = _selected - VisibleRows + 1;
@@ -52,7 +61,8 @@ public sealed class ListPanel : Panel
 
 	public override void OnSizeChanged(float wide, float tall) {
 		if (_selected >= 0 && _count > 0) Select(_selected);
-		else _first = Math.Clamp(_first, 0, Math.Max(0, _count - VisibleRows));
+
+		_first = Math.Clamp(_first, 0, MaxFirst);
 	}
 
 	public void ClearSelection() {
@@ -129,7 +139,7 @@ public sealed class ListPanel : Panel
 
 	public override bool OnMouseWheeled(int delta, float x, float y) {
 		int previous = _first;
-		_first = Math.Clamp(_first - (delta / 120 * 3), 0, Math.Max(0, _count - VisibleRows));
+		_first = Math.Clamp(_first - (delta / 120 * 3), 0, MaxFirst);
 
 		if (_first != previous) Repaint();
 
@@ -137,7 +147,7 @@ public sealed class ListPanel : Panel
 	}
 
 	private void RepaintRow(int row) {
-		if (row < _first || row >= _first + VisibleRows) return;
+		if (row < _first || row >= _first + PaintedRows) return;
 
 		float height = RowHeight * Scale;
 		Repaint(0f, (row - _first) * height, Wide, height);
@@ -149,7 +159,9 @@ public sealed class ListPanel : Panel
 		float scale = Scale;
 		float height = RowHeight * scale;
 		float inset = Metrics.Space4 * scale;
-		int last = Math.Min(_count, _first + VisibleRows);
+		int last = Math.Min(_count, _first + PaintedRows);
+
+		painter.PushClip(ScreenX, ScreenY, Wide, Tall);
 
 		for (int row = _first; row < last; row++) {
 			float top = ScreenY + ((row - _first) * height);
@@ -163,5 +175,7 @@ public sealed class ListPanel : Panel
 
 			paintRow(painter, row, ScreenX, top, Wide, height, selected);
 		}
+
+		painter.PopClip();
 	}
 }

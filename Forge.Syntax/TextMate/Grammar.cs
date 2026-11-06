@@ -156,10 +156,10 @@ public sealed class Grammar
 			Include = Text(entry, "include"),
 			Captures = captures,
 			CaptureRules = captureRules,
-			BeginCaptures = beginCaptures,
-			BeginCaptureRules = beginCaptureRules,
-			EndCaptures = endCaptures,
-			EndCaptureRules = endCaptureRules,
+			BeginCaptures = beginCaptures ?? (beginCaptureRules is null ? captures : null),
+			BeginCaptureRules = beginCaptureRules ?? (beginCaptures is null ? captureRules : null),
+			EndCaptures = endCaptures ?? (endCaptureRules is null ? captures : null),
+			EndCaptureRules = endCaptureRules ?? (endCaptures is null ? captureRules : null),
 			Patterns = ReadPatterns(entry, "patterns"),
 		};
 	}

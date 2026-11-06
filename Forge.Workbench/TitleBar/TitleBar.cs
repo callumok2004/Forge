@@ -170,6 +170,11 @@ public sealed class TitleBar : Panel
 		}
 	}
 
+	public Forge.Core.Native.ResourceUsage? DebugUsage {
+		get => _runConfiguration.Usage;
+		set => _runConfiguration.Usage = value;
+	}
+
 	public bool IsMaximized {
 		get => _maximize.Maximized;
 		set => _maximize.Maximized = value;

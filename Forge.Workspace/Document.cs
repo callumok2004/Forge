@@ -32,15 +32,65 @@ public sealed class Document : IDocument
 
 	public static Document Open(string path) {
 		TextBuffer buffer = TextLoader.Load(path);
-		return new Document(path, System.IO.Path.GetFileName(path), buffer);
+		return new Document(path, System.IO.Path.GetFileName(path), buffer) { DiskStamp = Stamp(path) };
 	}
 
 	public static Document Untitled(string name, string text) => new(null, name, new TextBuffer(text));
 
-	public bool Save() {
-		if (Path is null) return false;
+	public static Document Virtual(string uri, string name, string text) => new(null, name, new TextBuffer(text)) { VirtualUri = uri };
 
-		return SaveAs(Path);
+	public string? VirtualUri { get; private init; }
+
+	public DateTime DiskStamp { get; private set; }
+
+	private static DateTime Stamp(string path) {
+		try {
+			return File.GetLastWriteTimeUtc(path);
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
+			return default;
+		}
+	}
+
+	public bool ReloadIfChangedOnDisk() {
+		if (Path is not { } path || IsDirty()) return false;
+
+		DateTime stamp = Stamp(path);
+
+		if (stamp == default || stamp == DiskStamp) return false;
+
+		string text;
+
+		try {
+			text = TextLoader.Load(path).GetText();
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
+			return false;
+		}
+
+		DiskStamp = stamp;
+		string current = Buffer.GetText();
+
+		if (string.Equals(current, text, StringComparison.Ordinal)) return false;
+
+		Buffer.ReplaceChanged(current, text);
+		_savedState = Buffer.State;
+		return true;
+	}
+
+	public string? DiffOriginalUri { get; set; }
+
+	public string? DiffOriginalText { get; set; }
+
+	public Func<string, bool>? SaveHandler { get; set; }
+
+	public bool Save() {
+		if (Path is not null) return SaveAs(Path);
+
+		if (SaveHandler is not { } handler || !handler(Buffer.GetText())) return false;
+
+		_savedState = Buffer.State;
+		return true;
 	}
 
 	public bool SaveAs(string path) {
@@ -65,6 +115,7 @@ public sealed class Document : IDocument
 		Path = path;
 		Name = System.IO.Path.GetFileName(path);
 		_savedState = Buffer.State;
+		DiskStamp = Stamp(path);
 		return true;
 	}
 

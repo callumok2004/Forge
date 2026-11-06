@@ -110,7 +110,12 @@ public sealed class AuxiliaryBar : Panel, IViewPart
 		}
 	}
 
-	public PixelRect ContentBounds { get; private set; }
+	public PixelRect ContentBounds {
+		get {
+			(float x, float y) = _surface.GetAbsPos();
+			return new PixelRect((int)MathF.Ceiling(x), (int)MathF.Ceiling(y), (int)MathF.Floor(x + _surface.Wide), (int)MathF.Floor(y + _surface.Tall));
+		}
+	}
 
 	public IReadOnlyList<WebviewViewEntry> Views => _views;
 
@@ -215,9 +220,6 @@ public sealed class AuxiliaryBar : Panel, IViewPart
 		_surface.DockMargin = new Thickness(stroke, 0f, stroke, stroke);
 
 		base.PerformLayout();
-
-		(float x, float y) = _surface.GetAbsPos();
-		ContentBounds = new PixelRect((int)MathF.Ceiling(x), (int)MathF.Ceiling(y), (int)MathF.Floor(x + _surface.Wide), (int)MathF.Floor(y + _surface.Tall));
 	}
 
 	public override void PaintBackground(IPainter painter) {

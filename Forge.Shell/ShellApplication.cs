@@ -90,12 +90,26 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		using VectorIcon? explorerIcon = VectorIcon.Load(device.Factory, Path.Combine(AppContext.BaseDirectory, "Assets", "ui", "folder.svg"));
 		workbench.Auxiliary.IconLoader = path => VectorIcon.Load(device.Factory, path);
+		workbench.ImageLoader = path => Path.GetExtension(path.AsSpan()) switch {
+			var extension when extension.Equals(".svg", StringComparison.OrdinalIgnoreCase) => SvgImage.Load(device, path),
+			var extension when extension.Equals(".gif", StringComparison.OrdinalIgnoreCase) || extension.Equals(".webp", StringComparison.OrdinalIgnoreCase) || extension.Equals(".png", StringComparison.OrdinalIgnoreCase) => AnimatedImage.Decode(device, path),
+			_ => Image.Decode(device, path),
+		};
 
 		ProcessTree processTree = new();
 		workbench.ProcessExplorer = new ProcessExplorer(processTree);
 
+		debugger.ProcessStarted += (_, _, pid) => processTree.TargetId = (uint)pid;
+		debugger.SessionEnded += _ => {
+			processTree.TargetId = 0;
+			uiWork.Enqueue(() => workbench.TitleBar.DebugUsage = null);
+		};
+
 		using Timer resourceTimer = new(_ => {
 			workbench.StatusBar.Resources = processTree.Sample();
+
+			ResourceUsage? target = processTree.Target;
+			uiWork.Enqueue(() => workbench.TitleBar.DebugUsage = target);
 			window.Invalidate(workbench.StatusBarRect(device.Width, device.Height));
 
 			if (!workbench.ProcessExplorer.IsOpen) return;
@@ -319,7 +333,10 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		using WorkspaceWatcher watcher = new(rootPath, (directories, git) => {
 			if (git && workbench.Repository is { } watched) watched.Refresh();
 
-			if (directories.Count > 0) Post(() => workbench.Sidebar.Explorer.Reload(directories));
+			if (directories.Count > 0) Post(() => {
+				workbench.Sidebar.Explorer.Reload(directories);
+				workbench.ReloadExternalChanges(directories);
+			});
 		});
 
 		RestoreWorkspace(workbench, memory);
@@ -588,6 +605,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			SetCodeZoom = fonts.SetCodeZoom,
 		};
 
+		workbench.Panel.ProblemsChanged += () => workbench.Sidebar.Explorer.SetProblems(workbench.Panel.Problems, workbench.RootPath);
 		workbench.Sidebar.Explorer.FileOpened = path => {
 			workbench.OpenFile(path);
 			Refresh();
@@ -756,6 +774,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			ui.RunFrame(delta);
 
 			SyncWebviews();
+			workbench.ExtensionSync?.Tick();
 
 			while (uiWork.TryDequeue(out Action? work)) {
 				try {
@@ -1015,7 +1034,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			if (!trailing.TrimOnSave) return null;
 
 			List<TrailingRange> ranges =
-				TrailingSpacesExtension.Find(text, skipLine: null, includeEmptyLines: true);
+				TrailingSpacesExtension.Find(text, skipLine: workbench.ActiveView?.CaretLine, includeEmptyLines: true);
 
 			return ranges.Count == 0 ? null : TrailingSpacesExtension.Apply(text, ranges);
 		};
@@ -1039,10 +1058,10 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 				$"{registry.RequiringHost().Count()} needing an extension host");
 		}
 
-		StartVSCodeBridge(workbench, host, post);
+		StartVSCodeBridge(workbench, host, post, refresh);
 	}
 
-	private static void StartVSCodeBridge(Workbench workbench, CommandHost host, Action<Action> post) {
+	private static void StartVSCodeBridge(Workbench workbench, CommandHost host, Action<Action> post, Action refresh) {
 		VSCodeBridge bridge = new(Registry, host);
 		workbench.VSCode = bridge;
 
@@ -1063,10 +1082,18 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			ActiveEditor = EditorStateFor(workbench),
 		};
 
+		ExtensionHostSync sync = new(workbench, bridge, post, refresh);
+		bridge.ContextChanged = () => post(() => workbench.SyncEditorActions());
+
 		bridge.Start(
 			Path.Combine(UserData.Directory, "vscode-storage"),
 			state,
 			VSCodeExtensions.DefaultDirectory);
+
+		post(() => {
+			workbench.ExtensionSync = sync;
+			sync.Start();
+		});
 	}
 
 	private static HostEditor? EditorStateFor(Workbench workbench) {

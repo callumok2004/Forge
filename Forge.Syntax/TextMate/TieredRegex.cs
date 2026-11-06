@@ -24,6 +24,20 @@ public sealed class TieredRegex
 
 	public bool AnchorsAtStart { get; }
 
+	private TieredRegex? _unanchored;
+
+	public TieredRegex Unanchored {
+		get {
+			if (!AnchorsAtStart) return this;
+
+			if (_unanchored is { } existing) return existing;
+
+			TieredRegex created = Create(_current.ToString().Replace("\\G", "(?!)", StringComparison.Ordinal)) ?? this;
+			_unanchored = created;
+			return created;
+		}
+	}
+
 	public bool IsBundled => _uses == PromoteAfter && _current.GetType() != typeof(Regex);
 
 	public Regex Use() {

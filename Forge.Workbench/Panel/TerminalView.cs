@@ -3,6 +3,7 @@ using Forge.Common.UI;
 using Forge.Core.Native;
 using Forge.Terminal;
 using Forge.Theming;
+using Forge.UI.Controls;
 
 namespace Forge.Workbench;
 
@@ -14,6 +15,10 @@ public sealed class TerminalView : Panel
 	private readonly TerminalList _list;
 	private readonly List<TerminalScreenPanel> _screens = [];
 	private readonly List<TerminalSession> _group = [];
+	private readonly List<Splitter> _sashes = [];
+	private readonly Dictionary<TerminalSession, float> _weights = [];
+
+	private const float MinimumScreenWidth = 80f;
 
 	public TerminalView(PanelPart part) {
 		_part = part;
@@ -50,6 +55,20 @@ public sealed class TerminalView : Panel
 			_screens[i].Repaint();
 		}
 
+		while (_sashes.Count < _group.Count - 1) {
+			int boundary = _sashes.Count;
+			Splitter sash = new(vertical: true) { Name = "TerminalSash" };
+			sash.Dragged = (x, _) => Resize(boundary, x);
+			_sashes.Add(sash);
+			AddChild(sash);
+		}
+
+		for (int i = 0; i < _sashes.Count; i++) _sashes[i].Visible = i < _group.Count - 1;
+
+		foreach (TerminalSession session in _weights.Keys) {
+			if (!_part.Terminals.Contains(session)) _weights.Remove(session);
+		}
+
 		_list.Visible = _part.Terminals.Count > 1;
 		_list.Repaint();
 		InvalidateLayout();
@@ -63,12 +82,38 @@ public sealed class TerminalView : Panel
 		float width = _list.Visible ? Wide - _list.Wide : Wide;
 		int count = Math.Max(1, _group.Count);
 		float left = 0f;
+		float total = 0f;
+		float sashWidth = Metrics.SplitterHitWidth * scale;
+
+		for (int i = 0; i < count; i++) total += Weight(i);
 
 		for (int i = 0; i < count; i++) {
-			float right = i == count - 1 ? width : MathF.Round(width * (i + 1) / count);
+			float right = i == count - 1 ? width : MathF.Round(left + (width * Weight(i) / total));
 			_screens[i].SetBounds(left, 0f, Math.Max(0f, right - left - (i < count - 1 ? scale : 0f)), Tall);
+
+			if (i < count - 1) _sashes[i].SetBounds(right - (sashWidth / 2f), 0f, sashWidth, Tall);
+
 			left = right;
 		}
+	}
+
+	private float Weight(int index) => index < _group.Count && _weights.TryGetValue(_group[index], out float weight) ? weight : 1f;
+
+	private void Resize(int boundary, float screenX) {
+		if (boundary + 1 >= _group.Count) return;
+
+		TerminalScreenPanel leftScreen = _screens[boundary];
+		TerminalScreenPanel rightScreen = _screens[boundary + 1];
+		float start = leftScreen.GetAbsPos().X;
+		float pair = rightScreen.GetAbsPos().X + rightScreen.Wide - start;
+		float minimum = Math.Min(MinimumScreenWidth * Scale, pair / 2f);
+		float leftWidth = Math.Clamp(screenX - start, minimum, pair - minimum);
+		float weights = Weight(boundary) + Weight(boundary + 1);
+
+		_weights[_group[boundary]] = weights * leftWidth / pair;
+		_weights[_group[boundary + 1]] = weights * (pair - leftWidth) / pair;
+		InvalidateLayout();
+		Repaint();
 	}
 
 	public override void PaintBackground(IPainter painter) {

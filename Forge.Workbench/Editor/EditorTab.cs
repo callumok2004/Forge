@@ -8,27 +8,30 @@ namespace Forge.Workbench;
 
 public sealed class EditorTab : Button
 {
-	private const float MinWidth = 110f;
-	private const float MaxWidth = 240f;
-	private const float CloseSlot = 24f;
-	private const float CloseSize = 18f;
+	private const float PaddingLeft = 6f;
+	private const float PaddingRight = 8f;
+	private const float DirtyPaddingRight = 28f;
+	private const float DirtyActionSize = 20f;
+	private const float LabelGap = 6f;
+	private const float FillInset = 2f;
+	private const float CapRadius = 4f;
+	private const float ShoulderRadius = 7f;
+	private const float LabelSize = 13f;
 
 	private readonly TabStrip _strip;
-	private readonly TabCloseButton _close;
 	private bool _middlePressed;
+	private bool _dirty;
 	private IDocument? _document;
 	private Codicon? _icon;
 
 	public EditorTab(TabStrip strip) {
-		Font = FontRole.UiStrong;
+		FontSize = LabelSize;
 		Radius = Metrics.RadiusSmall;
 		Dock = DockType.Left;
-		Padding = new Thickness(Metrics.Space8 + Metrics.IconSize + Metrics.Space6, 0f, CloseSlot, 0f);
+		Padding = new Thickness(PaddingLeft + Metrics.IconSize + LabelGap, 0f, PaddingRight, 0f);
+		Foreground = Theme.TabInactiveForeground;
 		Action = () => strip.Activated?.Invoke(Index);
 		_strip = strip;
-
-		_close = new TabCloseButton(this) { Action = () => strip.Closed?.Invoke(Index) };
-		AddChild(_close);
 	}
 
 	public int Index { get; private set; }
@@ -39,18 +42,22 @@ public sealed class EditorTab : Button
 			if (field == value) return;
 
 			field = value;
-			Foreground = value ? Theme.TabActiveForeground : Theme.TabInactiveForeground;
 			Repaint();
 		}
 	}
-
-	public bool Hovered => IsCursorOver || _close.IsCursorOver;
 
 	public void Bind(IDocument document, int index, bool selected, Codicon? icon = null) {
 		Index = index;
 		Selected = selected;
 		_icon = icon;
-		_close.Dirty = document.IsDirty();
+		bool dirty = document.IsDirty();
+
+		if (dirty != _dirty) {
+			_dirty = dirty;
+			Padding = new Thickness(PaddingLeft + Metrics.IconSize + LabelGap, 0f, dirty ? DirtyPaddingRight : PaddingRight, 0f);
+			Parent?.InvalidateLayout();
+			Repaint();
+		}
 
 		if (ReferenceEquals(_document, document) && Text.SequenceEqual(document.GetName())) return;
 
@@ -60,10 +67,9 @@ public sealed class EditorTab : Button
 	}
 
 	public float PreferredWidth(float scale) {
-		if (Ui is null) return MinWidth * scale;
+		if (Ui is null) return 0f;
 
-		float width = MeasureContents(FontFor(Ui.GetFonts()), scale) + ((Padding.Left + Padding.Right) * scale);
-		return Math.Clamp(width, MinWidth * scale, MaxWidth * scale);
+		return MathF.Ceiling(MeasureContents(FontFor(Ui.GetFonts()), scale) + ((Padding.Left + Padding.Right) * scale));
 	}
 
 	public override bool OnMousePressed(MouseButton button, float x, float y) {
@@ -92,23 +98,59 @@ public sealed class EditorTab : Button
 
 	public override void OnCursorEntered() {
 		base.OnCursorEntered();
-		_close.Repaint();
+		Repaint();
 	}
 
 	public override void OnCursorExited() {
 		base.OnCursorExited();
-		_close.Repaint();
+		Repaint();
 	}
 
-	public override void PerformLayout() {
-		float scale = Scale;
-		float size = CloseSize * scale;
-		_close.SetBounds(Wide - (CloseSlot * scale) + ((8f - (CloseSize / 2f)) * scale), (Tall - size) / 2f, size, size);
-	}
+	private Color LabelColor => Selected ? Theme.TabActiveForeground : IsCursorOver ? Theme.TabHoverForeground : Theme.TabInactiveForeground;
 
 	public override void PaintBackground(IPainter painter) {
-		float tint = Selected ? 0.18f : Hovered ? 0.08f : 0.05f;
-		painter.FillRoundedRectangle(ScreenX, ScreenY, Wide, Tall, Radius * Scale, Theme.EditorForeground.WithAlpha(tint));
+		float scale = Scale;
+		float stroke = scale;
+
+		if (!Selected) {
+			if (!IsCursorOver) return;
+
+			float inset = FillInset * scale;
+			painter.FillRoundedRectangle(ScreenX + inset, ScreenY + inset, Wide - (inset * 2f), Tall - (inset * 2f), Radius * scale, Theme.TabHoverFill);
+			return;
+		}
+
+		float top = ScreenY;
+		float bottom = ScreenY + Tall + stroke;
+		float cap = CapRadius * scale;
+		float shoulder = ShoulderRadius * scale;
+		float left = ScreenX;
+		float right = ScreenX + Wide;
+
+		painter.PushClip(left - shoulder, top, Wide + (shoulder * 2f), bottom - top);
+
+		if (Index > 0) PaintShoulder(painter, left - shoulder, bottom - shoulder, shoulder, stroke, leftSide: true);
+
+		PaintShoulder(painter, right, bottom - shoulder, shoulder, stroke, leftSide: false);
+		painter.PopClip();
+
+		painter.PushClip(left, top, Wide, bottom - top);
+		painter.FillRoundedRectangle(left, top, Wide, (bottom - top) + cap, cap, Theme.EditorBackground);
+		painter.PopClip();
+
+		painter.PushClip(left, top, Wide, bottom - shoulder - top);
+		painter.StrokeRoundedRectangle(left + (stroke / 2f), top + (stroke / 2f), Wide - stroke, (bottom - top) + cap, cap, stroke, Theme.TabsBorder);
+		painter.PopClip();
+	}
+
+	private static void PaintShoulder(IPainter painter, float x, float y, float size, float stroke, bool leftSide) {
+		painter.PushClip(x, y, size, size);
+		painter.FillRectangle(x, y, size, size, Theme.EditorBackground);
+
+		float circleX = leftSide ? x - size : x;
+		painter.FillRoundedRectangle(circleX, y - size, size * 2f, size * 2f, size, Theme.TabsBackground);
+		painter.StrokeRoundedRectangle(circleX + (stroke / 2f), y - size + (stroke / 2f), (size * 2f) - stroke, (size * 2f) - stroke, size - (stroke / 2f), stroke, Theme.TabsBorder);
+		painter.PopClip();
 	}
 
 	public override void Paint(IPainter painter) {
@@ -116,15 +158,18 @@ public sealed class EditorTab : Button
 
 		float scale = Scale;
 		float iconSize = Metrics.IconSize * scale;
-		float iconCentre = ScreenX + (Metrics.Space8 * scale) + (iconSize / 2f);
+		float iconCentre = ScreenX + (PaddingLeft * scale) + (iconSize / 2f);
 		float centreY = ScreenY + (Tall / 2f);
+		Color color = LabelColor;
 
 		string name = document.GetName();
 
-		if (_icon is { } icon) painter.DrawIcon(icon, iconCentre, centreY, iconSize, Selected ? Theme.TabActiveForeground : Theme.TabInactiveForeground);
+		if (_icon is { } icon) painter.DrawIcon(icon, iconCentre, centreY, iconSize, color);
 		else if (!painter.DrawFileIcon(name, iconCentre, centreY, iconSize)) painter.DrawIcon(FileIcon(name), iconCentre, centreY, iconSize, FileTypeChip(name, Selected));
 
-		PaintContents(painter, Foreground);
+		PaintContents(painter, color);
+
+		if (_dirty) painter.DrawIcon(Codicon.CircleFilled, ScreenX + Wide - ((PaddingRight + (DirtyActionSize / 2f)) * scale), centreY, iconSize, color);
 	}
 
 	private static Codicon FileIcon(ReadOnlySpan<char> name) {

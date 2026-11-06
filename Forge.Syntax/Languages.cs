@@ -154,7 +154,7 @@ public static class Languages
 	private static Dictionary<string, LanguageDefinition> Build() {
 		Dictionary<string, LanguageDefinition> map = [with(StringComparer.OrdinalIgnoreCase)];
 
-		foreach (LanguageDefinition language in (LanguageDefinition[])[CSharp, JavaScript, Json, Xml, Shell, Ini]) {
+		foreach (LanguageDefinition language in (LanguageDefinition[])[CSharp]) {
 			foreach (string extension in language.Extensions) map[extension] = language;
 		}
 

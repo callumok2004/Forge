@@ -10,7 +10,7 @@ public class Button : Label
 
 	public Button() {
 		MouseInputEnabled = true;
-		Cursor = CursorCode.Arrow;
+		Cursor = CursorCode.Hand;
 	}
 
 	public string? Command { get; set; }
@@ -67,8 +67,14 @@ public class Button : Label
 		else if (Command is { } command) PostCommand(command);
 	}
 
+	public Color? Background { get; set; }
+
 	public override void PaintBackground(IPainter painter) {
-		if (!(IsCursorOver || Active) || !Enabled) return;
+		if (!(IsCursorOver || Active) || !Enabled) {
+			if (Background is { } background) painter.FillRoundedRectangle(ScreenX, ScreenY, Wide, Tall, Radius * Scale, background);
+
+			return;
+		}
 
 		painter.FillRoundedRectangle(ScreenX, ScreenY, Wide, Tall, Radius * Scale, _pressed ? Theme.PressedOverlay.Over(HoverBackground) : HoverBackground);
 	}

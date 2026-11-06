@@ -81,7 +81,10 @@ public sealed class DebugConsoleView : Panel
 		}
 	}
 
-	private float FilterBand => FilterInBody ? FilterHeight * Scale : 0f;
+	private const float BodyFilterMarginBlock = 10f;
+	private const float BodyFilterMarginInline = 20f;
+
+	private float FilterBand => FilterInBody ? (FilterHeight + (BodyFilterMarginBlock * 2f)) * Scale : 0f;
 
 	public Func<string, Task<DebugVariable?>>? Evaluate { get; set; }
 
@@ -484,7 +487,7 @@ public sealed class DebugConsoleView : Panel
 		_input.SetSize(Wide, _input.PreferredHeight);
 		base.PerformLayout();
 
-		if (FilterInBody && ReferenceEquals(Filter.Parent, this)) Filter.SetBounds(0f, 0f, Wide, FilterHeight * Scale);
+		if (FilterInBody && ReferenceEquals(Filter.Parent, this)) Filter.SetBounds(BodyFilterMarginInline * Scale, BodyFilterMarginBlock * Scale, Math.Max(0f, Wide - (BodyFilterMarginInline * 2f * Scale)), FilterHeight * Scale);
 	}
 
 	public override void OnScaleChanged() => _wrappedWidth = -1f;

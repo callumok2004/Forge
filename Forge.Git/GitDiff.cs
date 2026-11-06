@@ -18,7 +18,7 @@ public sealed class GitDiff : IFileDiff
 		_path = fullPath;
 
 		string? output = GitProcess.Run(repository.GetRootPath(),
-			"diff", "--no-color", "--no-ext-diff", "-U0", "HEAD", "--", fullPath);
+			"diff", "--no-color", "--no-ext-diff", "-U0", "--", fullPath);
 
 		if (output is null) {
 			_changes = None;
