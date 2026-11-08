@@ -52,10 +52,17 @@ public static class GitCommands
 		Add("git.commitAndPush", "Commit & Push", () => Commit(workbench, context, all: false, then: ["push"]));
 		Add("git.commitAndSync", "Commit & Sync", () => Commit(workbench, context, all: false, then: ["pull", "--tags", "--rebase"]));
 		Add("git.publish", "Publish Branch", () => Run(workbench, context, root => GitProcess.Run(root, "push", "--set-upstream", "origin", workbench.Repository?.GetBranch() ?? "HEAD") is not null));
-		Add("git.showOutput", "Show Git Output", () => context.Run("workbench.action.output.toggleOutput"));
+		Add("git.showOutput", "Show Git Output", () => {
+			workbench.Panel.Show(PanelView.Output);
+			IOutputChannels channels = ForgeDllMain.Channels;
+			workbench.Panel.ActivateChannel(channels.All().ToList().IndexOf(channels.Get("Git")));
+		});
 
 		Add("git.cleanAll", "Discard All Changes", () => {
-			if (Win32.Confirm("Are you sure you want to discard ALL changes?", "This action is irreversible!")) Run(workbench, context, static root => GitProcess.Run(root, "checkout", "--", ".") is not null);
+			Forge.UI.Controls.ConfirmDialog.Show("Are you sure you want to discard ALL changes?", "This action is irreversible!", "Discard All Changes", () => {
+				Run(workbench, context, static root => GitProcess.Run(root, "checkout", "--", ".") is not null);
+				context.Refresh();
+			});
 		});
 
 		Add("scm.acceptInput", "Commit", () => context.Run("git.commit"), "Ctrl+Enter", () => Panel.Ui?.HasContext(ContextKeys.ScmInputFocused) ?? false);
@@ -66,6 +73,10 @@ public static class GitCommands
 		view.RunGit = command => Run(workbench, context, _ => workbench.Repository is { } repository && command(repository));
 		view.FileOpened = path => {
 			workbench.OpenFile(path);
+			context.Refresh();
+		};
+		view.ChangeOpened = (entry, staged) => {
+			workbench.OpenGitChange(entry.Path, entry.Status, staged);
 			context.Refresh();
 		};
 	}

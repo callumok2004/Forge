@@ -6,5 +6,6 @@ public interface IFileDiff
 	IReadOnlyList<GitChange> GetChanges();
 
 	GitChange? At(int line);
+	void Sync(int version, Func<string> text);
 	void Clear();
 }

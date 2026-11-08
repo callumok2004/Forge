@@ -73,8 +73,16 @@ public static class WorkbenchCommands
 		Add("workbench.view.explorer", "Show Explorer", "View", () => workbench.Views?.ShowContainer(Sidebar.ExplorerId), "Ctrl+Shift+E");
 		Add("workbench.view.scm", "Show Source Control", "View", () => workbench.Views?.ShowContainer(Sidebar.SourceControlId), "Ctrl+Shift+G");
 		Add("workbench.view.debug", "Show Run and Debug", "View", () => workbench.Views?.ShowContainer(Sidebar.RunId), "Ctrl+Shift+D");
-		Add("workbench.action.openSettings", "Open Settings", "Preferences", () => workbench.OpenFile(UserData.SettingsPath), "Ctrl+,");
-		Add("workbench.action.quit", "Quit", "File", context.Window.CloseWindow);
+		Add("workbench.action.openSettings", "Open Settings", "Preferences", () => {
+			SettingsEditorPane pane = workbench.FindPane(SettingsEditorPane.PaneId) as SettingsEditorPane ?? new SettingsEditorPane(path => {
+				workbench.OpenFile(path);
+				context.Refresh();
+			});
+			workbench.OpenPane(pane);
+			pane.FocusSearch();
+		}, "Ctrl+,");
+		Add("workbench.action.openSettingsJson", "Open User Settings (JSON)", "Preferences", () => workbench.OpenFile(UserData.SettingsPath));
+		Add("workbench.action.quit","Quit", "File", context.Window.CloseWindow);
 
 		Add("workbench.action.showCommands", "Show All Commands", "View", () => workbench.QuickInput.Show(workbench.Palette), "Ctrl+Shift+P");
 		Add("workbench.action.quickOpen", "Go to File...", "Go", () => workbench.QuickInput.Show(workbench.QuickOpen), "Ctrl+P");
@@ -88,6 +96,11 @@ public static class WorkbenchCommands
 			context.ScrollToMatch(workbench.Find.Restart(workbench.ActiveView));
 		}, "Ctrl+F");
 
+		Add("editor.action.startFindReplaceAction", "Replace", "Editor", () => {
+			workbench.Find.ShowReplace(workbench.ActiveView);
+			context.ScrollToMatch(workbench.Find.Restart(workbench.ActiveView));
+		}, "Ctrl+H");
+
 		Add("workbench.action.toggleSidebarVisibility", "Toggle Primary Side Bar Visibility", "View", () => workbench.ShowSidebar = !workbench.ShowSidebar, "Ctrl+B");
 		Add("workbench.action.toggleAuxiliaryBar", "Toggle Secondary Side Bar Visibility", "View", () => workbench.Auxiliary.Toggle(), "Ctrl+Alt+B");
 
@@ -100,6 +113,19 @@ public static class WorkbenchCommands
 			workbench.Panel.Toggle(PanelView.Terminal);
 			workbench.PanelFocused = workbench.Panel.IsOpen;
 		}, "Ctrl+`");
+
+		Add("workbench.action.findInFiles", "Search: Find in Files", "Search", () => {
+			string? seed = workbench.ActiveView is { HasSelection: true } view && view.GetSelectedText() is { } selected && !selected.Contains('\n') ? selected : null;
+			workbench.Views?.ShowContainer(Sidebar.SearchId);
+			workbench.ShowSidebar = true;
+			workbench.Sidebar.Search.Focus(seed);
+		}, "Ctrl+Shift+F");
+
+		Add("workbench.view.search", "Show Search", "View", () => {
+			workbench.Views?.ShowContainer(Sidebar.SearchId);
+			workbench.ShowSidebar = true;
+			workbench.Sidebar.Search.Focus(null);
+		});
 
 		Add("workbench.actions.view.problems", "Focus Problems", "View", () => ShowPanel(workbench, PanelView.Problems), "Ctrl+Shift+M");
 		Add("workbench.action.output.toggleOutput", "Toggle Output", "View", () => ShowPanel(workbench, PanelView.Output), "Ctrl+Shift+U");

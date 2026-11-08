@@ -33,6 +33,8 @@ public sealed class ProcessExplorer : Panel
 
 	public bool IsOpen => IsPopup;
 
+	public override bool DismissOnFocusLost => false;
+
 	public void Toggle() {
 		if (IsPopup) {
 			ClosePopup();

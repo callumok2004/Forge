@@ -26,7 +26,9 @@ public sealed class EditorPart : Panel
 
 		SetBounds(_workbench.EditorLeft, top, _workbench.EditorWidth(windowWidth), _workbench.EditorBottom(windowHeight) - top);
 
-		_workbench.Tabs.Sync(_workbench.Documents, _workbench.ActiveIndex, _workbench.PaneIcon);
+		_workbench.PinDirtyPreview();
+		_workbench.TrackFocusChange();
+		_workbench.Tabs.Sync(_workbench.Documents, _workbench.ActiveIndex, _workbench.PaneIcon, _workbench.PreviewIndex);
 		_workbench.Breadcrumbs.Visible = _workbench.ActiveView is not null;
 		SyncPane();
 
@@ -92,7 +94,7 @@ public sealed class EditorPart : Panel
 
 		FindWidget find = _workbench.Find;
 		float offset = FindWidget.Offset * scale;
-		find.SetPos(Wide - (FindWidget.Width * scale) - offset, _workbench.EditorTop - _workbench.ShellTop + offset);
+		find.SetPos(Wide - ((FindWidget.Width + FindWidget.RightMargin) * scale), _workbench.EditorTop - _workbench.ShellTop + offset);
 	}
 
 	public override void PaintBackground(IPainter painter) {

@@ -89,6 +89,8 @@ public sealed class JsonRpcConnection : IDisposable
 
 	public bool IsRunning => !_disposed && !_process.HasExited;
 
+	public int ProcessId => _process.Id;
+
 	public async Task<JsonNode?> SendRequestAsync(string method, JsonNode? parameters,
 		CancellationToken cancellationToken = default) {
 		int id;

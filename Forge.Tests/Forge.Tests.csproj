@@ -11,6 +11,7 @@
 
 	<ItemGroup>
 		<PackageReference Include="xunit.v3" />
+		<ProjectReference Include="..\Forge.Search\Forge.Search.csproj" />
 		<ProjectReference Include="..\Forge.Extensions\Forge.Extensions.csproj" />
 		<ProjectReference Include="..\Forge.VSCode\Forge.VSCode.csproj" />
 	</ItemGroup>
@@ -19,5 +20,6 @@
 		<ProjectReference Include="..\Forge.Render\Forge.Render.csproj" />
 		<ProjectReference Include="..\Forge.Workbench\Forge.Workbench.csproj" />
 		<ProjectReference Include="..\Forge.UI\Forge.UI.csproj" />
+		<ProjectReference Include="..\Forge.Shell\Forge.Shell.csproj" />
 	</ItemGroup>
 </Project>

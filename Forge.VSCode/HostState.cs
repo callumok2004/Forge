@@ -47,16 +47,12 @@ public sealed class HostState
 
 	public IReadOnlyList<HostEditor> VisibleEditors { get; set; } = [];
 
-	public IReadOnlyDictionary<string, string> Configuration { get; set; } = new Dictionary<string, string>();
+	public JsonObject Configuration { get; set; } = [];
 
 	public JsonObject ToJson() {
 		JsonArray visible = [];
 
 		foreach (HostEditor editor in VisibleEditors) visible.Add(editor.ToJson());
-
-		JsonObject configuration = [];
-
-		foreach ((string key, string value) in Configuration) configuration[key] = value;
 
 		JsonArray folders = [];
 
@@ -72,7 +68,7 @@ public sealed class HostState
 			["workspaceFolders"] = folders.Count > 0 ? folders : null,
 			["activeTextEditor"] = ActiveEditor?.ToJson(),
 			["visibleTextEditors"] = visible,
-			["configuration"] = configuration,
+			["configuration"] = Configuration.DeepClone(),
 		};
 	}
 }

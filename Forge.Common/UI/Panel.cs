@@ -411,6 +411,8 @@ public class Panel
 
 	public virtual bool DismissOnOutsideClick => true;
 
+	public virtual bool DismissOnFocusLost => DismissOnOutsideClick;
+
 	public virtual void OnPopupDismissed() => ClosePopup();
 
 	#endregion

@@ -12,6 +12,7 @@ public sealed class Sidebar : Panel, IViewPart
 	public const string ExplorerId = ViewContainer.ExplorerId;
 	public const string SourceControlId = "workbench.view.scm";
 	public const string RunId = "workbench.view.debug";
+	public const string SearchId = "workbench.view.search";
 
 	private const float HeaderActionSize = 22f;
 	private const float HeaderPaddingRight = 8f;
@@ -35,6 +36,8 @@ public sealed class Sidebar : Panel, IViewPart
 	public ExplorerView Explorer { get; } = new();
 
 	public SourceControlView SourceControl { get; } = new();
+
+	public SearchView Search { get; } = new();
 
 	public DebugView Debug { get; } = new();
 

@@ -31,6 +31,8 @@ public sealed class WindowEvents
 	public Action? Closed;
 
 	public Action? PlacementChanged;
+
+	public Action<bool>? AppActivated;
 }
 
 public sealed unsafe class AppWindow : IAppWindow, IDisposable
@@ -142,6 +144,12 @@ public sealed unsafe class AppWindow : IAppWindow, IDisposable
 			return Win32.GetWindowPlacement(Handle, ref placement) &&
 				placement.ShowCommand == (uint)Win32.SwShowMaximized;
 		}
+	}
+
+	public void Restore() {
+		if (Win32.IsIconic(Handle)) Win32.ShowWindow(Handle, Win32.SwRestore);
+
+		Win32.SetForegroundWindow(Handle);
 	}
 
 	public void Minimize() => Win32.PostMessage(Handle, Win32.WmSysCommand, (nint)Win32.ScMinimize, 0);
@@ -357,6 +365,10 @@ public sealed unsafe class AppWindow : IAppWindow, IDisposable
 
 			case Win32.WmKillFocus:
 				window.Events.PointerLeftClient?.Invoke();
+				break;
+
+			case Win32.WmActivateApp:
+				window.Events.AppActivated?.Invoke(wParam != 0);
 				break;
 
 			case Win32.WmNcLeftButtonDown

@@ -101,13 +101,21 @@ public sealed class ExplorerView : Panel
 		Dock = DockType.Fill;
 		MouseInputEnabled = false;
 
-		_list = new ListPanel { Name = "ExplorerTree", Dock = DockType.Fill, RowHeight = Metrics.TreeRowHeight, PaddingRows = 1, RowPainter = PaintRow, Activated = Activate };
+		_list = new ListPanel { Name = "ExplorerTree", Dock = DockType.Fill, RowHeight = Metrics.TreeRowHeight, PaddingRows = 1, RowPainter = PaintRow, Activated = Activate, DoubleActivated = Pin };
 		AddChild(_list);
 	}
 
 	public IGitRepository? Repository { get; set; }
 
 	public Action<string>? FileOpened { get; set; }
+
+	public Action<string>? FilePinned { get; set; }
+
+	private void Pin(int row) {
+		if (row < 0 || row >= _visible.Count || _visible[row].IsDirectory) return;
+
+		FilePinned?.Invoke(_visible[row].FullPath);
+	}
 
 	public string? SelectedPath {
 		get;

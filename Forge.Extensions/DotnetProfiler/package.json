@@ -1,0 +1,66 @@
+{
+	"name": "dotnetprofiler",
+	"publisher": "forge",
+	"displayName": ".NET Profiler",
+	"version": "1.0.0",
+	"contributes": {
+		"configuration": {
+			"title": ".NET Profiler",
+			"properties": {
+				"dotnetProfiler.autoProfile": {
+					"type": "string",
+					"enum": [
+						"off",
+						"counters",
+						"startup"
+					],
+					"default": "counters",
+					"enumDescriptions": [
+						"Never attach automatically",
+						"Attach for live counters when a .NET debug session starts",
+						"Suspend the process at launch and profile from the first instruction"
+					],
+					"description": "What to do when a .NET debug session starts."
+				},
+				"dotnetProfiler.includeBlockedThreads": {
+					"type": "boolean",
+					"default": false,
+					"description": "Include samples from threads that are blocked or in native code (wall-clock rather than CPU time)."
+				},
+				"dotnetProfiler.inlineAnnotations": {
+					"type": "boolean",
+					"default": true,
+					"description": "After a recording, show each hot method's own/total time and allocations at the end of its declaration line."
+				},
+				"dotnetProfiler.namespaceFilter": {
+					"type": "string",
+					"default": "",
+					"markdownDescription": "Limit every profiler result - call stacks, top functions, allocations and heap snapshot types - to these namespaces. `Profiler.Host` covers that namespace and everything nested under it; `Profiler.Host.*` is the same written explicitly, and a `*` inside a pattern matches one name segment. Separate several patterns with `;`. Applies to the next recording or snapshot; leave empty to profile the whole process."
+				},
+				"dotnetProfiler.openPanelOnAttach": {
+					"type": "boolean",
+					"default": true,
+					"description": "Open the profiler panel automatically when a session attaches."
+				},
+				"dotnetProfiler.processListRefreshMs": {
+					"type": "number",
+					"default": 5000,
+					"minimum": 0,
+					"description": "How often the .NET Processes list re-enumerates, in milliseconds. Only polls while the view is visible. Set to 0 to refresh only when you click the refresh button."
+				},
+				"dotnetProfiler.refreshIntervalMs": {
+					"type": "number",
+					"default": 250,
+					"minimum": 50,
+					"maximum": 10000,
+					"description": "How often live counters are sampled and the graphs update, in milliseconds. Lower values are more responsive but increase EventPipe traffic. Applies immediately to running sessions."
+				},
+				"dotnetProfiler.trackAllocations": {
+					"type": "boolean",
+					"default": true,
+					"description": "Collect allocation-by-type data during CPU profiling (raises the runtime provider to Verbose)."
+				}
+			}
+		}
+	}
+}

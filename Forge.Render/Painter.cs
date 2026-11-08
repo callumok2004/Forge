@@ -27,10 +27,13 @@ public sealed class Painter : IPainter, IDisposable
 
 	private readonly FontSet _fonts;
 
+	private readonly DWrite.IDWriteFactory _dwrite;
+
 	public Painter(RenderDevice device, FontSet fonts) {
 		_context = device.Context;
 		_factory = device.Factory;
 		_fonts = fonts;
+		_dwrite = device.DWriteFactory;
 
 		_brush = _context.CreateSolidColorBrush(new Vortice.Mathematics.Color4(1f, 1f, 1f, 1f));
 
@@ -232,7 +235,14 @@ public sealed class Painter : IPainter, IDisposable
 
 			if (character < ' ') continue;
 
-			(int glyphFace, ushort glyph, float advance) = font.GetGlyph(character);
+			bool pair = char.IsHighSurrogate(character) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]);
+			(int glyphFace, ushort glyph, float advance) = pair ? font.GetGlyph(char.ConvertToUtf32(character, text[i + 1])) : font.GetGlyph(character);
+
+			if (pair) {
+				i++;
+
+				if (monospace) advance = cellWidth * 2f;
+			}
 
 			if (glyphFace != face && count > 0) {
 				Flush();
@@ -243,7 +253,7 @@ public sealed class Painter : IPainter, IDisposable
 
 			face = glyphFace;
 			_glyphIndices[count] = glyph;
-			_glyphAdvances[count] = monospace && glyphFace == 0 ? cellWidth : advance;
+			_glyphAdvances[count] = monospace && glyphFace == 0 && !pair ? cellWidth : advance;
 			runWidth += _glyphAdvances[count];
 			count++;
 		}
@@ -261,7 +271,45 @@ public sealed class Painter : IPainter, IDisposable
 			_textRun.Indices = ExactIndices(count);
 			_textRun.Advances = ExactAdvances(count);
 
+			if (font.IsColorFace(face) && DrawColorRun(x, baselineY, color)) {
+				colored = false;
+				return;
+			}
+
 			_context.DrawGlyphRun(new Vector2(x, baselineY), _textRun, _brush, Vortice.DCommon.MeasuringMode.Natural);
+		}
+	}
+
+	private DWrite.IDWriteFactory2? _colorFactory;
+	private bool _colorFactoryResolved;
+
+	private bool DrawColorRun(float x, float baselineY, Color color) {
+		if (!_colorFactoryResolved) {
+			_colorFactoryResolved = true;
+			_colorFactory = _dwrite.QueryInterfaceOrNull<DWrite.IDWriteFactory2>();
+		}
+
+		if (_colorFactory is null) return false;
+
+		DWrite.IDWriteColorGlyphRunEnumerator? layers = null;
+
+		try {
+			if (_colorFactory.TranslateColorGlyphRun(new Vector2(x, baselineY), _textRun, out layers).Failure || layers is null) return false;
+
+			while (layers.MoveNext()) {
+				DWrite.ColorGlyphRun layer = layers.CurrentRun;
+				Vortice.Mathematics.Color4 run = layer.RunColor;
+				SetColor(layer.PaletteIndex == 0xFFFF ? color : new Color(run.R, run.G, run.B, run.A * color.A));
+				_context.DrawGlyphRun(new Vector2(layer.BaselineOriginX, layer.BaselineOriginY), layer.GlyphRun, _brush, Vortice.DCommon.MeasuringMode.Natural);
+			}
+
+			return true;
+		}
+		catch (SharpGen.Runtime.SharpGenException) {
+			return false;
+		}
+		finally {
+			layers?.Dispose();
 		}
 	}
 
@@ -417,5 +465,6 @@ public sealed class Painter : IPainter, IDisposable
 		_iconRun.FontFace = null;
 		_roundStroke?.Dispose();
 		_brush.Dispose();
+		_colorFactory?.Dispose();
 	}
 }

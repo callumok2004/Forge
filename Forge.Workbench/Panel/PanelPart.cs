@@ -51,7 +51,8 @@ public sealed class PanelPart : Panel, IDisposable, IViewPart
 	private readonly ActionButton _killTerminal;
 	private readonly ActionButton _profiles;
 	private readonly ActionButton _clearOutput;
-	private readonly Button _channel;
+	private readonly SelectBox _channel;
+	private string[] _channelNames = [];
 	private readonly ActionButton _consoleSearch;
 	private readonly ActionButton _consoleClear;
 
@@ -115,7 +116,7 @@ public sealed class PanelPart : Panel, IDisposable, IViewPart
 			OutputView.ClearSelection();
 		};
 
-		_channel = new Button { Name = "Channel", Dock = DockType.Right, Foreground = Theme.EditorForeground, HoverBackground = Theme.HoverOverlay, Radius = Metrics.RadiusSmall, Padding = new Thickness(Metrics.Space8, 0f, Metrics.Space4, 0f), Action = OpenChannelMenu };
+		_channel = new SelectBox { Name = "Channel", Dock = DockType.Right, Changed = ActivateChannel };
 		_title.AddChild(_channel);
 
 		DebugConsole.Filter.Dock = DockType.None;
@@ -555,7 +556,7 @@ public sealed class PanelPart : Panel, IDisposable, IViewPart
 		if (consoleAlone) PlaceFilter(_title);
 		else if (!consoleMerged) PlaceFilter(null);
 
-		_channel.SetText($"{ActiveChannel.GetName()} $(chevron-down)");
+		SyncChannelOptions();
 		InvalidateLayout();
 		Repaint();
 	}
@@ -595,17 +596,27 @@ public sealed class PanelPart : Panel, IDisposable, IViewPart
 		Changed?.Invoke();
 	}
 
-	private void OpenChannelMenu() {
-		Menu menu = new();
+	private void SyncChannelOptions() {
 		IReadOnlyList<IOutputChannel> all = Channels.All();
+		int active = 0;
+		bool same = _channelNames.Length == all.Count;
 
 		for (int i = 0; i < all.Count; i++) {
-			int index = i;
-			menu.Add(new MenuItem(all[i].GetName(), action: () => ActivateChannel(index)) { Checked = all[i] == ActiveChannel });
+			if (all[i] == ActiveChannel) active = i;
+
+			if (same && !string.Equals(_channelNames[i], all[i].GetName(), StringComparison.Ordinal)) same = false;
 		}
 
-		(float x, float y) = _channel.GetAbsPos();
-		menu.Open(x, y + _channel.Tall);
+		if (!same) {
+			_channelNames = new string[all.Count];
+
+			for (int i = 0; i < all.Count; i++) _channelNames[i] = all[i].GetName();
+
+			_channel.SetOptions(_channelNames, active);
+			return;
+		}
+
+		_channel.Selected = active;
 	}
 
 	public string CopyOutput() => OutputView.Copy();

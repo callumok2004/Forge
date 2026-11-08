@@ -11,9 +11,18 @@ public sealed class Document : IDocument
 
 	public TextBuffer GetBuffer() => Buffer;
 
-	public bool IsDirty() => Buffer.State != _savedState;
+	public bool IsDirty() => Source?.IsDirty() ?? Buffer.State != _savedState;
 
-	public void MarkSaved() => _savedState = Buffer.State;
+	public void MarkSaved() {
+		if (Source is { } source) source.MarkSaved();
+		else _savedState = Buffer.State;
+	}
+
+	public Document? Source { get; private init; }
+
+	public string? SourcePath => Source?.Path ?? Path;
+
+	public static Document DiffOf(Document source, string uri, string name) => new(null, name, source.Buffer) { VirtualUri = uri, Source = source };
 
 	private int _savedState;
 
@@ -85,6 +94,8 @@ public sealed class Document : IDocument
 	public Func<string, bool>? SaveHandler { get; set; }
 
 	public bool Save() {
+		if (Source is { } source) return source.Save();
+
 		if (Path is not null) return SaveAs(Path);
 
 		if (SaveHandler is not { } handler || !handler(Buffer.GetText())) return false;

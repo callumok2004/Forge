@@ -8,6 +8,7 @@ public interface IOutputChannel
 	void OnAppended(Action<IOutputChannel> handler);
 
 	void Append(string line);
+	void AppendRaw(string line);
 	void Clear();
 
 	int CopyTo(string[] destination, int skip);

@@ -21,6 +21,16 @@ public sealed class ListPanel : Panel
 
 	public Action<int>? Activated { get; set; }
 
+	public Action<int>? DoubleActivated { get; set; }
+
+	public override bool OnMouseDoublePressed(MouseButton button, float x, float y) {
+		int row = RowAt(y);
+
+		if (row >= 0 && button == MouseButton.Left) DoubleActivated?.Invoke(row);
+
+		return true;
+	}
+
 	public Action<int>? Hovered { get; set; }
 
 	public int Selected => _selected;

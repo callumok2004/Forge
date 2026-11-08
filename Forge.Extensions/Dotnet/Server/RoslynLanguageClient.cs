@@ -87,7 +87,9 @@ public sealed partial class RoslynLanguageClient : IDisposable
 
 	public event Action? ProjectsLoaded;
 
-	internal JsonRpcConnection? Connection => _connection is { IsRunning: true } connection ? connection : null;
+	private volatile bool _initialized;
+
+	internal JsonRpcConnection? Connection => _initialized && _connection is { IsRunning: true } connection ? connection : null;
 
 	internal async Task<JsonNode?> RequestAsync(string method, JsonObject parameters) {
 		if (Connection is not { } connection) return null;
@@ -145,7 +147,11 @@ public sealed partial class RoslynLanguageClient : IDisposable
 
 		startInfo.Environment["DOTNET_ROLL_FORWARD"] = "LatestMajor";
 
-		if (!settings.UseServerGC) {
+		if (settings.UseServerGC) {
+			startInfo.Environment["DOTNET_gcServer"] = "1";
+			startInfo.Environment["DOTNET_GCDynamicAdaptationMode"] = "1";
+		}
+		else {
 			startInfo.Environment["DOTNET_gcServer"] = "0";
 			startInfo.Environment["DOTNET_gcConcurrent"] = "1";
 			startInfo.Environment["DOTNET_GCConserveMemory"] = "9";
@@ -159,7 +165,7 @@ public sealed partial class RoslynLanguageClient : IDisposable
 		try {
 			Directory.CreateDirectory(logDirectory);
 
-			JsonRpcConnection connection = new(startInfo);
+			JsonRpcConnection connection = new(startInfo, negotiateTransport: !arguments.Contains("--stdio"));
 			connection.Log += message => Log?.Invoke(message);
 			connection.Notification += OnNotification;
 			connection.RequestHandler = (method, parameters) => method switch {
@@ -168,6 +174,7 @@ public sealed partial class RoslynLanguageClient : IDisposable
 			};
 			connection.AsyncRequestHandler = (method, parameters) => method == "workspace/applyEdit" ? Workspace.OnApplyEditAsync(parameters) : null;
 
+			_initialized = false;
 			_connection = connection;
 
 			Initialize(connection, solutionPath, projectPaths);
@@ -246,6 +253,7 @@ public sealed partial class RoslynLanguageClient : IDisposable
 				}
 
 				connection.SendNotification("initialized", new JsonObject());
+				_initialized = true;
 				Documents.Ready();
 
 				SetState(LanguageServerState.Running, "Loading projects...");
@@ -291,6 +299,9 @@ public sealed partial class RoslynLanguageClient : IDisposable
 				SetState(LanguageServerState.Running, "Ready");
 				CodeLenses.Invalidate();
 				ProjectsLoaded?.Invoke();
+
+				if (_connection?.ProcessId is { } processId) ServerHeapTrim.Schedule(processId, Log);
+
 				break;
 
 			case "$/progress":
@@ -310,6 +321,7 @@ public sealed partial class RoslynLanguageClient : IDisposable
 	}
 
 	public void Stop() {
+		_initialized = false;
 		_connection?.Dispose();
 		_connection = null;
 		Documents.Reset();

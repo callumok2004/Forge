@@ -24,4 +24,4 @@ public enum GitChangeKind
 	Deleted,
 }
 
-public readonly record struct GitChange(int Line, int Count, GitChangeKind Kind);
+public readonly record struct GitChange(int Line, int Count, GitChangeKind Kind, bool Secondary = false);

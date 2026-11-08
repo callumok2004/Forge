@@ -1,0 +1,107 @@
+[
+	{
+		"category": "Text Editor",
+		"title": "Font",
+		"properties": {
+			"editor.fontSize": { "type": "number", "default": 14, "minimum": 6, "maximum": 100, "description": "Controls the font size in pixels." },
+			"editor.fontFamily": { "type": "string", "default": "Consolas, 'Courier New', monospace", "description": "Controls the font family." },
+			"editor.lineHeight": { "type": "number", "default": 0, "description": "Controls the line height. Use 0 to automatically compute the line height from the font size. Values between 0 and 8 will be used as a multiplier with the font size. Values greater than or equal to 8 will be used as effective values." }
+		}
+	},
+	{
+		"category": "Text Editor",
+		"title": "Text Editor",
+		"properties": {
+			"editor.tabSize": { "type": "number", "default": 4, "minimum": 1, "description": "The number of spaces a tab is equal to. This setting is overridden based on the file contents when `#editor.detectIndentation#` is on." },
+			"editor.indentSize": { "type": ["string", "number"], "default": "tabSize", "description": "The number of spaces used for indentation or `\"tabSize\"` to use the value from `#editor.tabSize#`. This setting is overridden based on the file contents when `#editor.detectIndentation#` is on." },
+			"editor.insertSpaces": { "type": "boolean", "default": true, "description": "Insert spaces when pressing `Tab`. This setting is overridden based on the file contents when `#editor.detectIndentation#` is on." },
+			"editor.codeLens": { "type": "boolean", "default": true, "description": "Controls whether the editor shows CodeLens." },
+			"editor.mouseWheelZoom": { "type": "boolean", "default": false, "description": "Zoom the font of the editor when using mouse wheel and holding `Ctrl`." }
+		}
+	},
+	{
+		"category": "Text Editor",
+		"title": "Formatting",
+		"properties": {
+			"editor.formatOnType": { "type": "boolean", "default": false, "description": "Controls whether the editor should automatically format the line after typing." }
+		}
+	},
+	{
+		"category": "Text Editor",
+		"title": "Minimap",
+		"properties": {
+			"editor.minimap.enabled": { "type": "boolean", "default": true, "description": "Controls whether the minimap is shown." }
+		}
+	},
+	{
+		"category": "Text Editor",
+		"title": "Suggestions",
+		"properties": {
+			"editor.suggest.expandDocs": { "type": "boolean", "default": false, "description": "Controls whether suggest details show inline with the label or only in the details widget." }
+		}
+	},
+	{
+		"category": "Text Editor",
+		"title": "Diff Editor",
+		"properties": {
+			"diffEditor.hideUnchangedRegions.enabled": { "type": "boolean", "default": false, "description": "Controls whether the diff editor shows unchanged regions." },
+			"diffEditor.experimental.showMoves": { "type": "boolean", "default": false, "description": "Controls whether the diff editor should show detected code moves." }
+		}
+	},
+	{
+		"category": "Text Editor",
+		"title": "Files",
+		"properties": {
+			"files.eol": { "type": "string", "default": "auto", "enum": ["\n", "\r\n", "auto"], "enumDescriptions": ["LF", "CRLF", "Uses operating system specific end of line character."], "description": "The default end of line character." },
+			"files.insertFinalNewline": { "type": "boolean", "default": false, "description": "When enabled, insert a final new line at the end of the file when saving it." },
+			"files.exclude": { "type": "object", "default": { "**/.git": true, "**/.svn": true, "**/.hg": true, "**/.DS_Store": true, "**/Thumbs.db": true }, "description": "Configure glob patterns for excluding files and folders. For example, the File Explorer decides which files and folders to show or hide based on this setting." }
+		}
+	},
+	{
+		"category": "Workbench",
+		"title": "Editor Management",
+		"properties": {
+			"workbench.editor.mouseBackForwardToNavigate": { "type": "boolean", "default": true, "description": "Enables the use of mouse buttons four and five for commands 'Go Back' and 'Go Forward'." }
+		}
+	},
+	{
+		"category": "Window",
+		"title": "Window",
+		"properties": {
+			"window.zoomLevel": { "type": "number", "default": 0, "minimum": -8, "maximum": 8, "description": "Adjust the default zoom level for all windows. Each increment above `0` (e.g. `1`) or below (e.g. `-1`) represents zooming `20%` larger or smaller." },
+			"window.title": { "type": "string", "default": "${dirty}${activeEditorShort}${separator}${rootName}${separator}${profileName}${separator}${appName}", "description": "Controls the window title based on the current context such as the opened workspace or active editor." },
+			"window.uiFontFamily": { "type": "string", "default": "Geist, 'Segoe WPC', 'Segoe UI', Tahoma", "description": "Controls the font family of the workbench user interface." },
+			"window.uiFontSize": { "type": "number", "default": 13, "minimum": 6, "maximum": 32, "description": "Controls the font size in pixels of the workbench user interface." }
+		}
+	},
+	{
+		"category": "Features",
+		"title": "Search",
+		"properties": {
+			"search.exclude": { "type": "object", "default": { "**/node_modules": true, "**/bower_components": true, "**/*.code-search": true }, "description": "Configure glob patterns for excluding files and folders in fulltext searches and file search in quick open. To exclude files from the recently opened list in quick open, patterns must be absolute. Inherits all glob patterns from the `#files.exclude#` setting." }
+		}
+	},
+	{
+		"category": "Features",
+		"title": "Debug",
+		"properties": {
+			"debug.inlineValues": { "type": "string", "default": "auto", "enum": ["on", "off", "auto"], "enumDescriptions": ["Always show variable values inline in editor while debugging.", "Never show variable values inline in editor while debugging.", "Show variable values inline in editor while debugging when the language supports inline value locations."], "description": "Show variable values inline in editor while debugging." },
+			"debug.focusWindowOnBreak": { "type": "boolean", "default": true, "description": "Controls whether the workbench window should be focused when the debugger breaks." },
+			"debug.focusEditorOnBreak": { "type": "boolean", "default": true, "description": "Controls whether the editor should be focused when the debugger breaks." }
+		}
+	},
+	{
+		"category": "Features",
+		"title": "Terminal",
+		"properties": {
+			"terminal.integrated.defaultProfile.windows": { "type": ["string", "null"], "default": null, "description": "The default terminal profile on Windows." }
+		}
+	},
+	{
+		"category": "Extensions",
+		"title": "Git",
+		"properties": {
+			"git.enableSmartCommit": { "type": "boolean", "default": false, "description": "Commit all changes when there are no staged changes." }
+		}
+	}
+]

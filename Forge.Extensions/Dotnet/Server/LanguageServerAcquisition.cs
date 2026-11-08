@@ -15,7 +15,7 @@ public static class LanguageServerAcquisition
 		"https://pkgs.dev.azure.com/azure-public/vside/_packaging/vs-impl/nuget/v3/flat2";
 
 	private static string PackageId =>
-		$"microsoft.codeanalysis.languageserver.win-{Architecture}";
+		$"roslyn-language-server.win-{Architecture}";
 
 	private static string Architecture =>
 		System.Runtime.InteropServices.RuntimeInformation.OSArchitecture switch {
@@ -26,20 +26,104 @@ public static class LanguageServerAcquisition
 	public static string InstallDirectory(string storageDirectory) =>
 		Path.Combine(storageDirectory, "roslyn");
 
+	private const string ServerDll = "Microsoft.CodeAnalysis.LanguageServer.dll";
+
+	public readonly record struct Candidate(string Version, string? LocalDirectory);
+
+	public static string? InstalledVersion(string storageDirectory) => VersionOf(InstallDirectory(storageDirectory));
+
+	private static string? VersionOf(string directory) {
+		string dll = Path.Combine(directory, ServerDll);
+
+		if (!File.Exists(dll)) return null;
+
+		string? product = System.Diagnostics.FileVersionInfo.GetVersionInfo(dll).ProductVersion;
+
+		if (product is not { Length: > 0 }) return null;
+
+		int plus = product.IndexOf('+');
+		return plus < 0 ? product : product[..plus];
+	}
+
+	private static IEnumerable<string> BundledServerDirectories() {
+		string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+		foreach (string folder in (string[])[".vscode", ".vscode-insiders", ".vscode-oss"]) {
+			string extensions = Path.Combine(home, folder, "extensions");
+
+			if (!Directory.Exists(extensions)) continue;
+
+			foreach (string extension in Directory.EnumerateDirectories(extensions, "ms-dotnettools.csharp-*")) {
+				string server = Path.Combine(extension, ".roslyn");
+
+				if (File.Exists(Path.Combine(server, ServerDll))) yield return server;
+			}
+		}
+	}
+
+	public static async Task<Candidate?> NewestAsync(CancellationToken cancellation = default) {
+		Candidate? best = null;
+
+		foreach (string directory in BundledServerDirectories()) {
+			if (VersionOf(directory) is { } version && (best is null || Compare(version, best.Value.Version) > 0)) best = new Candidate(version, directory);
+		}
+
+		try {
+			using HttpClient client = new() { Timeout = TimeSpan.FromSeconds(30) };
+			client.DefaultRequestHeaders.Add("User-Agent", "Forge");
+
+			if (await LatestVersionAsync(client, cancellation).ConfigureAwait(false) is { } feed && (best is null || Compare(feed, best.Value.Version) > 0)) best = new Candidate(feed, null);
+		}
+		catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException) {
+		}
+
+		return best;
+	}
+
+	public static bool IsNewer(string candidate, string? installed) => installed is null || Compare(candidate, installed) > 0;
+
+	private static ServerLaunch? CopyFrom(string source, string storageDirectory, string? dotnetPath, string version, Action<string> progress) {
+		string target = InstallDirectory(storageDirectory);
+		string staging = target + ".downloading";
+
+		try {
+			progress($"Copying Microsoft.CodeAnalysis.LanguageServer {version} from {source}...");
+			Delete(staging);
+
+			foreach (string file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories)) {
+				string destination = Path.Combine(staging, Path.GetRelativePath(source, file));
+				Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+				File.Copy(file, destination, overwrite: true);
+			}
+
+			if (!Replace(staging, target, progress)) return null;
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
+			progress($"Could not copy the language server: {exception.Message}");
+			return null;
+		}
+
+		progress($"Installed Microsoft.CodeAnalysis.LanguageServer {version}.");
+		return LanguageServerLocator.Locate(null, storageDirectory, dotnetPath);
+	}
+
 	public static async Task<ServerLaunch?> AcquireAsync(string storageDirectory, string? dotnetPath,
 		Action<string> progress, CancellationToken cancellation = default) {
 		string target = InstallDirectory(storageDirectory);
 
 		try {
-			using HttpClient client = new() { Timeout = TimeSpan.FromMinutes(10) };
-			client.DefaultRequestHeaders.Add("User-Agent", "Forge");
-
 			progress("Resolving the latest Microsoft.CodeAnalysis.LanguageServer...");
 
-			if (await LatestVersionAsync(client, cancellation).ConfigureAwait(false) is not { } version) {
+			if (await NewestAsync(cancellation).ConfigureAwait(false) is not { } candidate) {
 				progress("Could not read the package feed. Set dotnet.server.path to a local copy.");
 				return null;
 			}
+
+			if (candidate.LocalDirectory is { } local) return CopyFrom(local, storageDirectory, dotnetPath, candidate.Version, progress);
+
+			string version = candidate.Version;
+			using HttpClient client = new() { Timeout = TimeSpan.FromMinutes(10) };
+			client.DefaultRequestHeaders.Add("User-Agent", "Forge");
 
 			progress($"Downloading {PackageId} {version}...");
 
@@ -159,9 +243,18 @@ public static class LanguageServerAcquisition
 	}
 
 	private static void Extract(string archive, string target) {
+		using ZipArchive zip = ZipFile.OpenRead(archive);
+
 		string prefix = $"content/LanguageServer/win-{Architecture}/";
 
-		using ZipArchive zip = ZipFile.OpenRead(archive);
+		foreach (ZipArchiveEntry entry in zip.Entries) {
+			string name = entry.FullName.Replace('\\', '/');
+
+			if (!name.EndsWith("/" + ServerDll, StringComparison.OrdinalIgnoreCase) || !name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase)) continue;
+
+			prefix = name[..(name.Length - ServerDll.Length)];
+			break;
+		}
 
 		foreach (ZipArchiveEntry entry in zip.Entries) {
 			if (entry.Length == 0 && entry.Name.Length == 0) continue;

@@ -4,6 +4,7 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<ProjectReference Include="..\Forge.Git\Forge.Git.csproj" />
 		<ProjectReference Include="..\Forge.Workspace\Forge.Workspace.csproj" />
 	</ItemGroup>
 </Project>

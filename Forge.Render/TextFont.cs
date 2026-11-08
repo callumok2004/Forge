@@ -20,6 +20,7 @@ public sealed class TextFont : ITextFont, IDisposable
 	private static readonly string[] FallbackFamilies = ["Segoe UI", "Segoe UI Symbol", "Cambria Math", "Segoe UI Emoji"];
 
 	private readonly Dictionary<char, (int Face, ushort Glyph, float Advance)> _extended = [];
+	private readonly Dictionary<int, (int Face, ushort Glyph, float Advance)> _supplementary = [];
 	private readonly List<(DWrite.IDWriteFontFace Face, float Scale)?> _fallbacks = [];
 	private readonly DWrite.FontWeight _weight;
 
@@ -34,7 +35,7 @@ public sealed class TextFont : ITextFont, IDisposable
 
 	private bool _disposed;
 
-	public TextFont(DWrite.IDWriteFactory factory, DWrite.IDWriteFontCollection? bundled, string[] familyCandidates, float sizeInPixels, TextWeight textWeight = TextWeight.Regular, float lineHeightOverride = 0f) {
+	public TextFont(DWrite.IDWriteFactory factory, DWrite.IDWriteFontCollection? bundled, string[] familyCandidates, float sizeInPixels, TextWeight textWeight = TextWeight.Regular, float lineHeightOverride = 0f, bool italic = false) {
 		DWrite.FontWeight weight = textWeight switch {
 			TextWeight.SemiBold => DWrite.FontWeight.SemiBold,
 			TextWeight.Bold => DWrite.FontWeight.Bold,
@@ -66,7 +67,7 @@ public sealed class TextFont : ITextFont, IDisposable
 		}
 
 		_family = source.GetFontFamily(familyIndex);
-		_font = _family.GetFirstMatchingFont(weight, DWrite.FontStretch.Normal, DWrite.FontStyle.Normal);
+		_font = _family.GetFirstMatchingFont(weight, DWrite.FontStretch.Normal, italic ? DWrite.FontStyle.Italic : DWrite.FontStyle.Normal);
 		_fontFace = _font.CreateFontFace();
 
 		DWrite.FontMetrics metrics = _fontFace.Metrics;
@@ -162,6 +163,27 @@ public sealed class TextFont : ITextFont, IDisposable
 
 	internal DWrite.IDWriteFontFace FaceAt(int face) => face == 0 ? _fontFace : _fallbacks[face - 1]!.Value.Face;
 
+	internal bool IsColorFace(int face) => face > 0 && FallbackFamilies[face - 1] == "Segoe UI Emoji";
+
+	internal (int Face, ushort Glyph, float Advance) GetGlyph(int codePoint) {
+		if (_supplementary.TryGetValue(codePoint, out (int Face, ushort Glyph, float Advance) cached)) return cached;
+
+		(int Face, ushort Glyph, float Advance) resolved = (0, 0, CellWidth * 2f);
+
+		if (Lookup(_fontFace, _designScale, (uint)codePoint) is { } primary) resolved = (0, primary.Glyph, primary.Advance);
+		else {
+			for (int i = FallbackFamilies.Length - 1; i >= 0; i--) {
+				if (Fallback(i) is not { } fallback || Lookup(fallback.Face, fallback.Scale, (uint)codePoint) is not { } found) continue;
+
+				resolved = (i + 1, found.Glyph, found.Advance);
+				break;
+			}
+		}
+
+		_supplementary[codePoint] = resolved;
+		return resolved;
+	}
+
 	private (int Face, ushort Glyph, float Advance) Resolve(char character) {
 		if (_extended.TryGetValue(character, out (int Face, ushort Glyph, float Advance) cached)) return cached;
 
@@ -181,7 +203,9 @@ public sealed class TextFont : ITextFont, IDisposable
 		return resolved;
 	}
 
-	private (ushort Glyph, float Advance)? Lookup(DWrite.IDWriteFontFace face, float scale, char character) {
+	private (ushort Glyph, float Advance)? Lookup(DWrite.IDWriteFontFace face, float scale, char character) => Lookup(face, scale, (uint)character);
+
+	private (ushort Glyph, float Advance)? Lookup(DWrite.IDWriteFontFace face, float scale, uint character) {
 		try {
 			_codePointScratch[0] = character;
 			face.GetGlyphIndices(_codePointScratch, _glyphScratch);
@@ -217,7 +241,16 @@ public sealed class TextFont : ITextFont, IDisposable
 		if (_isMonospace) return text.Length * CellWidth;
 
 		float width = 0f;
-		for (int i = 0; i < text.Length; i++) width += GetAdvance(text[i]);
+
+		for (int i = 0; i < text.Length; i++) {
+			if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) {
+				width += GetGlyph(char.ConvertToUtf32(text[i], text[i + 1])).Advance;
+				i++;
+				continue;
+			}
+
+			width += GetAdvance(text[i]);
+		}
 
 		return width;
 	}

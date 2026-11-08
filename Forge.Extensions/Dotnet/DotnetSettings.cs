@@ -10,7 +10,7 @@ public sealed class DotnetSettings
 
 	public string ServerLogLevel { get; private set; } = "Information";
 
-	public bool UseServerGC { get; private set; }
+	public bool UseServerGC { get; private set; } = true;
 
 	public string SourceGeneratorExecution { get; private set; } = "automatic";
 

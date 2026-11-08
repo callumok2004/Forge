@@ -146,6 +146,39 @@ rpc.on("webview/message", params => {
 	return null;
 });
 
+let shuttingDown = false;
+
+async function shutdown() {
+	if (shuttingDown) return;
+
+	shuttingDown = true;
+	setTimeout(() => process.exit(0), 3000);
+
+	for (const id of [...loaded.keys()]) {
+		try {
+			await rpc.handlers.get("extension/deactivate")({ id });
+		} catch {
+		}
+	}
+
+	setTimeout(() => process.exit(0), 10);
+}
+
+process.stdin.on("end", shutdown);
+process.stdin.on("close", shutdown);
+
+const parentPid = Number(process.env.FORGE_PARENT_PID);
+
+if (parentPid > 0) {
+	setInterval(() => {
+		try {
+			process.kill(parentPid, 0);
+		} catch {
+			shutdown();
+		}
+	}, 2000).unref?.();
+}
+
 rpc.on("host/shutdown", async () => {
 	for (const id of [...loaded.keys()]) {
 		try {

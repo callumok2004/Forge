@@ -79,8 +79,11 @@ public sealed class DebugService : IDebug, IDisposable
 		_modelChanged?.Invoke();
 	}
 
-	public bool StartDebugging(string? configurationName, bool noDebug) =>
-		StartDebugging(configurationName, noDebug, skipPreLaunch: false);
+	public bool StartDebugging(string? configurationName, bool noDebug) {
+		if (_session is null) ReloadConfigurations();
+
+		return StartDebugging(configurationName, noDebug, skipPreLaunch: false);
+	}
 
 	private bool StartDebugging(string? configurationName, bool noDebug, bool skipPreLaunch) {
 		if (_session is not null) {
@@ -91,7 +94,7 @@ public sealed class DebugService : IDebug, IDisposable
 		string? name = configurationName ?? _selected;
 
 		if (name is null || _launch.Find(name) is not { } configuration) {
-			Report($"No launch configuration named \"{name}\" in .vscode/launch.json.");
+			Report($"No launch configuration named \"{name}\" in launch.json.");
 			return false;
 		}
 
@@ -178,12 +181,18 @@ public sealed class DebugService : IDebug, IDisposable
 			}
 
 			session.Dispose();
+
+			if (_restart is { } restart && ReferenceEquals(restart.Session, session)) {
+				_restart = null;
+				StartDebugging(restart.Name, restart.NoDebug);
+			}
 		};
 
 		session.RunInTerminalRequested += (commandLine, cwd) =>
 			TaskRunner?.Invoke(session.Configuration.Name, commandLine, cwd, null!);
 
 		_session = session;
+		_sessionNoDebug = noDebug;
 		_focusedFrameId = -1;
 
 		_ = StartSessionAsync(session);
@@ -206,7 +215,7 @@ public sealed class DebugService : IDebug, IDisposable
 		TaskConfigurations tasks = TaskConfigurations.Load(WorkspaceFolder);
 
 		if (tasks.Find(label) is not { } task) {
-			Report($"Could not find the task \"{label}\" in .vscode/tasks.json.");
+			Report($"Could not find the task \"{label}\" in tasks.json.");
 			return false;
 		}
 
@@ -244,13 +253,30 @@ public sealed class DebugService : IDebug, IDisposable
 		}
 	}
 
+	private bool _sessionNoDebug;
+
+	private (DebugSession Session, string Name, bool NoDebug)? _restart;
+
 	public void RestartSession() {
-		if (_session is not { } session) return;
+		if (_session is not { } session || _restart is not null) return;
 
-		string name = session.Configuration.Name;
+		_restart = (session, session.Configuration.Name, _sessionNoDebug);
+		_ = RestartAsync(session);
+	}
 
-		StopSession(disconnect: false, suspend: false);
-		StartDebugging(name, noDebug: false);
+	private async Task RestartAsync(DebugSession session) {
+		await session.StopAsync(disconnect: false, suspend: false).ConfigureAwait(false);
+		await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+
+		if (_restart is not { } restart || !ReferenceEquals(restart.Session, session) || !ReferenceEquals(_session, session)) return;
+
+		_restart = null;
+		_session = null;
+		ClearCallStack();
+		_stateChanged?.Invoke();
+		SessionEnded?.Invoke(session.Id);
+		session.Dispose();
+		StartDebugging(restart.Name, restart.NoDebug);
 	}
 
 	public void StopSession(bool disconnect, bool suspend) {

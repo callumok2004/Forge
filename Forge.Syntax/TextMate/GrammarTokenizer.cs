@@ -274,11 +274,23 @@ public sealed partial class GrammarTokenizer(Grammar grammar)
 			});
 		}
 
-		string[] extended = new string[scopes.Count + 1];
+		int parts = name.AsSpan().Count(' ') + 1;
+
+		if (parts == 1) {
+			string[] single = new string[scopes.Count + 1];
+
+			for (int i = 0; i < scopes.Count; i++) single[i] = scopes[i];
+
+			single[^1] = name;
+			return single;
+		}
+
+		string[] split = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+		string[] extended = new string[scopes.Count + split.Length];
 
 		for (int i = 0; i < scopes.Count; i++) extended[i] = scopes[i];
 
-		extended[^1] = name;
+		split.CopyTo(extended, scopes.Count);
 		return extended;
 	}
 

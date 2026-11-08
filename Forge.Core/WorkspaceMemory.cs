@@ -22,6 +22,10 @@ public sealed class WorkspaceMemory
 
 	public Dictionary<string, string> ViewLocations { get; set; } = [];
 
+	public List<string> ActivityOrder { get; set; } = [];
+
+	public List<string> AuxiliaryOrder { get; set; } = [];
+
 	public bool ShowSidebar { get; set; } = true;
 
 	public float SidebarWidth { get; set; }

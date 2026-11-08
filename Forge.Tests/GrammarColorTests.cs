@@ -52,6 +52,15 @@ public class GrammarColorTests
 	}
 
 	[Fact]
+	public void JsonKeysUsePropertyNameColor() {
+		Color key = Grammars.ColorFor(["source.json", "meta.structure.dictionary.json", "string.json", "support.type.property-name.json"]);
+		Color text = Grammars.ColorFor(["source.json", "meta.structure.dictionary.json", "string.json"]);
+
+		Assert.NotEqual(text, key);
+		Assert.Equal(key, ColorAt("a.json", "{ \"key\": \"value\" }\n", 0, 4));
+	}
+
+	[Fact]
 	public void XmlTagNamesUseTagColor() {
 		string text = "<Project Sdk=\"Microsoft.NET.Sdk\">\n\t<PropertyGroup />\n</Project>\n";
 		Color tag = Grammars.ColorFor(["text.xml", "meta.tag.xml", "entity.name.tag.localname.xml"]);

@@ -73,8 +73,48 @@ public sealed class ServerLifecycle(RoslynLanguageClient server, SolutionWorkspa
 		});
 	}
 
+	private bool _updateChecked;
+
+	private void CheckForUpdate(ICommandHost host) {
+		if (_updateChecked || settings.ServerPath is { Length: > 0 }) return;
+
+		_updateChecked = true;
+
+		string snooze = Path.Combine(settings.StorageDirectory, "roslyn-update-snoozed");
+
+		if (File.Exists(snooze) && DateTime.UtcNow - File.GetLastWriteTimeUtc(snooze) < TimeSpan.FromHours(24)) return;
+
+		_ = Task.Run(async () => {
+			string? installed = LanguageServerAcquisition.InstalledVersion(settings.StorageDirectory);
+
+			if (await LanguageServerAcquisition.NewestAsync().ConfigureAwait(false) is not { } newest || !LanguageServerAcquisition.IsNewer(newest.Version, installed)) return;
+
+			output.Log(host, $"A newer language server is available: {newest.Version} (installed: {installed ?? "none"}).");
+			host.ShowMessage(MessageSeverity.Info, $"A newer C# language server is available ({newest.Version}). You have {installed ?? "none"}.", ["Update", "Later"], choice => {
+				if (choice != 0) {
+					try {
+						Directory.CreateDirectory(settings.StorageDirectory);
+						File.WriteAllText(snooze, string.Empty);
+						File.SetLastWriteTimeUtc(snooze, DateTime.UtcNow);
+					}
+					catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
+					}
+
+					return;
+				}
+
+				output.Show(host);
+				server.Stop();
+				AcquireThenStart(host);
+				host.Refresh();
+			});
+		});
+	}
+
 	private void Start(ICommandHost host, ServerLaunch launch) {
 		if (!_attached) Attach(host);
+
+		CheckForUpdate(host);
 
 		server.Start(launch, Path.Combine(settings.StorageDirectory, "logs"), workspace.Solution, workspace.Projects, settings);
 	}

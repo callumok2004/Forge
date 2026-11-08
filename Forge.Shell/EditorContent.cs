@@ -29,6 +29,8 @@ public sealed class EditorContent : Panel
 	public override bool OnKeyTyped(char character) {
 		if (_workbench.ActiveView is not { } view) return false;
 
+		if (InOriginal) return true;
+
 		if (!view.TryAutoClose(character)) view.InsertText([character]);
 
 		_workbench.IntelliSense?.Typed(character);
@@ -57,13 +59,41 @@ public sealed class EditorContent : Panel
 
 	private int OffsetAt(TextView view, float x, float y) {
 		(float absX, float absY) = Absolute(x, y);
-		return view.OffsetFromPoint(Code, absX, absY, _workbench.EditorLeft, _workbench.EditorTop);
+		return view.OffsetFromPoint(Code, absX, absY, _workbench.EditorLeft + DiffOffset, _workbench.EditorTop);
 	}
+
+	private float DiffOffset => _workbench.ActiveDiff is { } diff && !diff.OriginalFocused ? diff.ModifiedLeft : 0f;
+
+	private TextView? Target => _workbench.FocusedView;
+
+	private bool InOriginal => _workbench.ActiveDiff is { OriginalFocused: true };
 
 	public override void OnCursorMoved(float x, float y) {
 		if (_workbench.ActiveView is not { } view) return;
 
-		bool inGlyphMargin = x < TextView.GlyphMarginWidth;
+		if (_workbench.ActiveDiff is { } diff && !_selecting) {
+			(float diffX, float diffY) = Absolute(x, y);
+
+			if (diff.Hover(diffX, diffY)) Repaint();
+
+			if (diff.Cursor is { } cursor) {
+				Cursor = cursor;
+				return;
+			}
+
+			if (!diff.IsInModified(diffX) && !diff.IsInOriginal(diffX)) {
+				Cursor = CursorCode.Arrow;
+				return;
+			}
+
+			if (diff.IsInOriginal(diffX)) {
+				Cursor = CursorCode.IBeam;
+				return;
+			}
+		}
+
+		float localX = x - DiffOffset;
+		bool inGlyphMargin = localX >= 0f && localX < TextView.GlyphMarginWidth;
 		(float lensX, float lensY) = Absolute(x, y);
 		int lens = _selecting ? -1 : view.CodeLensAt(lensX, lensY);
 
@@ -84,6 +114,7 @@ public sealed class EditorContent : Panel
 		if (_selecting) {
 			_dragX = x;
 			_dragY = y;
+			view = Target ?? view;
 
 			int before = view.CaretOffset;
 			view.MoveTo(OffsetAt(view, x, y), extend: true);
@@ -152,6 +183,33 @@ public sealed class EditorContent : Panel
 			return true;
 		}
 
+		if (_workbench.ActiveDiff is { } diff) {
+			(float diffX, float diffY) = Absolute(x, y);
+
+			if (diff.Press(Code, diffX, diffY, clicks, Tall)) {
+				Repaint();
+				Changed?.Invoke();
+				return true;
+			}
+
+			if (diff.OriginalFocused) {
+				TextView original = diff.Original;
+				int at = OffsetAt(original, x, y);
+				_selecting = true;
+				_dragX = x;
+				_dragY = y;
+				Ui?.SetMouseCapture(this);
+
+				if (x < original.GutterWidth(Code) || clicks >= 3) original.SelectLineAt(at);
+				else if (clicks == 2) original.SelectWordAt(at);
+				else original.MoveTo(at, extend: (Ui!.GetModifiers() & KeyModifiers.Shift) != 0);
+
+				Repaint();
+				Pressed?.Invoke();
+				return true;
+			}
+		}
+
 		int offset = OffsetAt(view, x, y);
 		(float absoluteX, float absoluteY) = Absolute(x, y);
 
@@ -172,7 +230,7 @@ public sealed class EditorContent : Panel
 			return true;
 		}
 
-		if (x < TextView.GlyphMarginWidth) {
+		if (x - DiffOffset < TextView.GlyphMarginWidth) {
 			BreakpointToggled?.Invoke(view.Snapshot.GetLineAt(offset) + 1);
 			Pressed?.Invoke();
 			return true;
@@ -184,7 +242,7 @@ public sealed class EditorContent : Panel
 		_dragY = y;
 		Ui?.SetMouseCapture(this);
 
-		if (x < view.GutterWidth(Code) || clicks >= 3) view.SelectLineAt(offset);
+		if (x - DiffOffset < view.GutterWidth(Code) || clicks >= 3) view.SelectLineAt(offset);
 		else if (clicks == 2) view.SelectWordAt(offset);
 		else view.MoveTo(offset, extend: (Ui!.GetModifiers() & KeyModifiers.Shift) != 0);
 
@@ -211,7 +269,7 @@ public sealed class EditorContent : Panel
 	public override void OnThink(float deltaSeconds) {
 		if (_linkActive && !LinkGesture) _workbench.IntelliSense?.Navigation.Clear();
 
-		if (!_selecting || _workbench.ActiveView is not { } view) {
+		if (!_selecting || Target is not { } view) {
 			if (!_linkActive) SetThinking(false);
 
 			return;

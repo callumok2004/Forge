@@ -15,6 +15,12 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 
 	public void SetFeatures(ILanguageFeatures features) => Features = features;
 
+	private readonly List<ILanguageFeatures> _providers = [];
+
+	public void AddFeatures(ILanguageFeatures features) {
+		if (!_providers.Contains(features)) _providers.Add(features);
+	}
+
 	public SuggestWidget Suggest { get; } = new();
 
 	public SignatureHelpWidget Signature { get; } = new();
@@ -82,7 +88,24 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 
 	public Action<bool>? DetailsVisibleChanged;
 
-	public ILanguageFeatures? Features { get; set; }
+	public ILanguageFeatures? Features {
+		get {
+			if (_providers.Count == 0) return null;
+
+			if (_providers.Count > 1 && workbench.GetActiveFilePath() is { } path) {
+				foreach (ILanguageFeatures provider in _providers) {
+					if (provider.Handles(path)) return provider;
+				}
+			}
+
+			return _providers[0];
+		}
+		set {
+			if (value is null || _providers.Contains(value)) return;
+
+			_providers.Insert(0, value);
+		}
+	}
 
 	private int _signatureGeneration;
 
@@ -234,13 +257,21 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 
 		int end = Math.Clamp(view.GetCaretOffset(), start, span.End);
 
+		if (entry.ReplacesToEnd && end < span.End) end++;
+
+		string insert = entry.InsertText;
+		int cursor = insert.IndexOf("$0", StringComparison.Ordinal);
+
+		if (cursor >= 0) insert = insert.Remove(cursor, 2);
+		else cursor = insert.Length;
+
 		document.GetBuffer().BeginEdit();
-		document.GetBuffer().Replace(start, end - start, entry.InsertText);
+		document.GetBuffer().Replace(start, end - start, insert);
 		document.GetBuffer().EndEdit();
 
-		view.ExternalEdit(start, entry.InsertText.Length - (end - start));
+		view.ExternalEdit(start, insert.Length - (end - start));
 
-		view.MoveTo(Math.Min(start + entry.InsertText.Length, view.GetSnapshot().Length), extend: false);
+		view.MoveTo(Math.Min(start + cursor, view.GetSnapshot().Length), extend: false);
 
 		if (imports.Count > 0) ApplyEdits(document, imports, view);
 

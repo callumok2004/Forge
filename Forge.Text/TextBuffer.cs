@@ -140,8 +140,10 @@ public sealed class TextBuffer
 
 	#region Editing
 
+	public bool ReadOnly { get; set; }
+
 	public void Insert(int offset, ReadOnlySpan<char> text) {
-		if (text.IsEmpty) return;
+		if (text.IsEmpty || ReadOnly) return;
 
 		offset = Math.Clamp(offset, 0, Length);
 
@@ -155,7 +157,7 @@ public sealed class TextBuffer
 	}
 
 	public void Delete(int offset, int count) {
-		if (count <= 0) return;
+		if (count <= 0 || ReadOnly) return;
 
 		offset = Math.Clamp(offset, 0, Length);
 		count = Math.Min(count, Length - offset);
@@ -171,6 +173,8 @@ public sealed class TextBuffer
 	}
 
 	public void Replace(int offset, int count, ReadOnlySpan<char> text) {
+		if (ReadOnly) return;
+
 		offset = Math.Clamp(offset, 0, Length);
 		count = Math.Clamp(count, 0, Length - offset);
 		if (count == 0 && text.IsEmpty) return;
@@ -361,6 +365,12 @@ public sealed class TextBuffer
 	public bool Undo(out int caret) => Undo(out _, out caret);
 
 	public bool Undo(out Selection restore, out int caret) {
+		if (ReadOnly) {
+			restore = Selection.None;
+			caret = -1;
+			return false;
+		}
+
 		caret = -1;
 		restore = Selection.None;
 
@@ -387,6 +397,12 @@ public sealed class TextBuffer
 	public bool Redo(out int caret) => Redo(out _, out caret);
 
 	public bool Redo(out Selection restore, out int caret) {
+		if (ReadOnly) {
+			restore = Selection.None;
+			caret = -1;
+			return false;
+		}
+
 		caret = -1;
 		restore = Selection.None;
 

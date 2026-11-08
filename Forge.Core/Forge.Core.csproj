@@ -8,4 +8,8 @@
 		<PackageReference Include="CommunityToolkit.Diagnostics" />
 		<PackageReference Include="System.IO.Hashing" />
 	</ItemGroup>
+
+	<ItemGroup>
+		<None Include="core-settings.json" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
 </Project>

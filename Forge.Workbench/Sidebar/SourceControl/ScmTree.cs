@@ -108,7 +108,7 @@ public sealed class ScmTree : Panel
 		ScmRowAction[] fileActions = staged ? ScmRowAction.StagedFile : ScmRowAction.ChangedFile;
 
 		if (!_view.TreeView) {
-			foreach (GitEntry entry in entries) _rows.Add(new ScmRow(ScmRowKind.File, group, 2, Path.GetFileName(entry.Path), entry.Path, entry, 0, fileActions));
+			foreach (GitEntry entry in entries) _rows.Add(new ScmRow(ScmRowKind.File, group, 2, Path.GetFileName(entry.Path), $"file:{groupKey}:{entry.Path}", entry, 0, fileActions));
 
 			return;
 		}
@@ -152,7 +152,7 @@ public sealed class ScmTree : Panel
 				continue;
 			}
 
-			_rows.Add(new ScmRow(ScmRowKind.File, group, 2 + segments.Length, Path.GetFileName(entry.Path), entry.Path, entry, 0, fileActions));
+			_rows.Add(new ScmRow(ScmRowKind.File, group, 2 + segments.Length, Path.GetFileName(entry.Path), $"file:{groupKey}:{entry.Path}", entry, 0, fileActions));
 		}
 	}
 
@@ -172,6 +172,8 @@ public sealed class ScmTree : Panel
 
 	public void Open(in ScmRow row) => _view.FileOpened?.Invoke(row.Entry.Path);
 
+	public void OpenChange(in ScmRow row) => _view.ChangeOpened?.Invoke(row.Entry, row.Staged);
+
 	public void Stage(ScmRow row) => _view.Run(repository => repository.Stage(row.Entry.Path));
 
 	public void Unstage(ScmRow row) => _view.Run(repository => repository.Unstage(row.Entry.Path));
@@ -179,9 +181,11 @@ public sealed class ScmTree : Panel
 	public void Discard(ScmRow row) {
 		string name = row.Kind == ScmRowKind.Folder ? row.Label : Path.GetFileName(row.Entry.Path);
 
-		if (!Win32.Confirm($"Are you sure you want to discard changes in '{name}'?", "This action is irreversible!")) return;
+		bool untracked = row.Entry.Status == GitFileStatus.Untracked;
+		string message = untracked ? $"Are you sure you want to DELETE the following untracked file: '{name}'?" : $"Are you sure you want to discard changes in '{name}'?";
+		string primary = untracked ? "Delete File" : row.Kind == ScmRowKind.Folder ? "Discard Changes" : "Discard File";
 
-		_view.Run(repository => repository.Discard(row.Entry.Path, row.Entry.Status == GitFileStatus.Untracked));
+		ConfirmDialog.Show(message, untracked ? "This is IRREVERSIBLE!\nThis file will be FOREVER LOST if you proceed." : "This action is irreversible!", primary, () => _view.Run(repository => repository.Discard(row.Entry.Path, untracked)));
 	}
 
 	#endregion
@@ -310,7 +314,7 @@ public sealed class ScmTree : Panel
 			return true;
 		}
 
-		if (target.Kind == ScmRowKind.File) Open(target);
+		if (target.Kind == ScmRowKind.File) OpenChange(target);
 		else Toggle(target.Key);
 
 		return true;

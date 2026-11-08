@@ -1,4 +1,5 @@
 using Forge.Common.Git;
+using Forge.Text;
 
 namespace Forge.Git;
 
@@ -9,93 +10,152 @@ public sealed class GitDiff : IFileDiff
 	private GitChange[] _changes = None;
 
 	private string? _path;
+	private string? _index;
+	private string? _head;
+	private int _version = -1;
+	private int _generation;
+	private int _syncedGeneration = -1;
 
 	public IReadOnlyList<GitChange> GetChanges() => _changes;
 
 	public string? GetPath() => _path;
 
 	public void Refresh(IGitRepository repository, string fullPath) {
-		_path = fullPath;
+		string root = repository.GetRootPath();
+		string relative = Path.GetRelativePath(root, fullPath).Replace('\\', '/');
+		string? index = null;
+		string? head = null;
 
-		string? output = GitProcess.Run(repository.GetRootPath(),
-			"diff", "--no-color", "--no-ext-diff", "-U0", "--", fullPath);
+		bool inside = !relative.StartsWith("../", StringComparison.Ordinal) && relative != ".." && !Path.IsPathRooted(relative);
 
-		if (output is null) {
-			_changes = None;
-			return;
+		if (inside && !relative.StartsWith(".git/", StringComparison.OrdinalIgnoreCase) && !IsMerging(repository, fullPath)) {
+			index = WithoutBom(GitProcess.Run(root, "show", ":" + relative));
+
+			if (IsStaged(repository, fullPath)) head = WithoutBom(GitProcess.Run(root, "show", "HEAD:" + relative)) ?? string.Empty;
 		}
 
-		List<GitChange> changes = [];
+		lock (this) {
+			_path = fullPath;
+			_index = index;
+			_head = head;
+			_generation++;
+		}
+	}
 
-		foreach (ReadOnlySpan<char> line in output.AsSpan().EnumerateLines()) {
-			if (line.StartsWith("@@")) {
-				if (TryParseHunk(line, out GitChange change)) changes.Add(change);
+	public void Sync(int version, Func<string> text) {
+		string? index;
+		string? head;
+		int generation;
+
+		lock (this) {
+			if (version == _version && _syncedGeneration == _generation) return;
+
+			index = _index;
+			head = _head;
+			generation = _generation;
+		}
+
+		GitChange[] changes = None;
+
+		if (index is not null || head is not null) {
+			string current = text();
+			List<GitChange> result = [];
+			List<LineHunk> primary = index is null ? [] : LineDiff.Compute(index, current);
+
+			foreach (LineHunk hunk in primary) result.Add(ToChange(hunk, false));
+
+			if (head is not null) {
+				foreach (LineHunk hunk in LineDiff.Compute(head, current)) {
+					if (!Overlaps(primary, hunk)) result.Add(ToChange(hunk, true));
+				}
+
+				result.Sort(static (a, b) => a.Line.CompareTo(b.Line));
 			}
+
+			if (result.Count > 0) changes = [.. result];
 		}
 
-		_changes = changes.Count > 0 ? [.. changes] : None;
+		lock (this) {
+			if (generation != _generation) return;
+
+			_changes = changes;
+			_version = version;
+			_syncedGeneration = generation;
+		}
 	}
 
 	public void Clear() {
-		_changes = None;
-		_path = null;
+		lock (this) {
+			_changes = None;
+			_path = null;
+			_index = null;
+			_head = null;
+			_generation++;
+		}
 	}
 
 	public GitChange? At(int line) {
 		GitChange[] changes = _changes;
+		GitChange? found = null;
 
+		for (int i = FirstAtOrAfter(changes, line); i < changes.Length && changes[i].Line <= line; i++) {
+			GitChange change = changes[i];
+
+			if (line >= change.Line + Math.Max(1, change.Count)) continue;
+
+			if (found is not { } best || (best.Secondary && !change.Secondary)) found = change;
+		}
+
+		return found;
+	}
+
+	private static int FirstAtOrAfter(GitChange[] changes, int line) {
 		int low = 0;
-		int high = changes.Length - 1;
+		int high = changes.Length;
 
-		while (low <= high) {
+		while (low < high) {
 			int middle = (low + high) / 2;
 			GitChange change = changes[middle];
 
-			if (line < change.Line) high = middle - 1;
-			else if (line >= change.Line + Math.Max(1, change.Count)) low = middle + 1;
-			else return change;
+			if (change.Line + Math.Max(1, change.Count) <= line) low = middle + 1;
+			else high = middle;
 		}
 
-		return null;
+		return Math.Max(0, low - 1);
 	}
 
-	private static bool TryParseHunk(ReadOnlySpan<char> header, out GitChange change) {
-		change = default;
+	private static GitChange ToChange(LineHunk hunk, bool secondary) {
+		if (hunk.ModifiedCount == 0) return new GitChange(hunk.ModifiedStart, 0, GitChangeKind.Deleted, secondary);
 
-		int minus = header.IndexOf('-');
-		int plus = header.IndexOf('+');
+		return new GitChange(hunk.ModifiedStart, hunk.ModifiedCount, hunk.OriginalCount > 0 ? GitChangeKind.Modified : GitChangeKind.Added, secondary);
+	}
 
-		if (minus < 0 || plus < 0 || plus < minus) return false;
+	private static bool Overlaps(List<LineHunk> primary, LineHunk hunk) {
+		int start = hunk.ModifiedStart;
+		int end = hunk.ModifiedStart + hunk.ModifiedCount;
 
-		if (!TryReadRange(header[(minus + 1)..plus], out _, out int oldCount) ||
-			!TryReadRange(header[(plus + 1)..], out int newStart, out int newCount)) return false;
-
-		if (newCount == 0) {
-			change = new GitChange(newStart, 0, GitChangeKind.Deleted);
-			return true;
+		foreach (LineHunk other in primary) {
+			if (other.ModifiedStart <= end && start <= other.ModifiedStart + other.ModifiedCount) return true;
 		}
 
-		change = new GitChange(newStart - 1, newCount,
-			oldCount > 0 ? GitChangeKind.Modified : GitChangeKind.Added);
-
-		return true;
+		return false;
 	}
 
-	private static bool TryReadRange(ReadOnlySpan<char> text, out int start, out int count) {
-		start = 0;
-		count = 1;
+	private static string? WithoutBom(string? text) => text is ['\uFEFF', ..] ? text[1..] : text;
 
-		int end = 0;
-		while (end < text.Length && (char.IsAsciiDigit(text[end]) || text[end] == ',')) end++;
+	private static bool IsStaged(IGitRepository repository, string fullPath) {
+		foreach (GitEntry entry in repository.GetStaged()) {
+			if (string.Equals(Path.GetFullPath(entry.Path), fullPath, StringComparison.OrdinalIgnoreCase)) return true;
+		}
 
-		text = text[..end];
+		return false;
+	}
 
-		if (text.IsEmpty) return false;
+	private static bool IsMerging(IGitRepository repository, string fullPath) {
+		foreach (GitEntry entry in repository.GetMerge()) {
+			if (string.Equals(Path.GetFullPath(entry.Path), fullPath, StringComparison.OrdinalIgnoreCase)) return true;
+		}
 
-		int comma = text.IndexOf(',');
-
-		if (comma < 0) return int.TryParse(text, out start);
-
-		return int.TryParse(text[..comma], out start) && int.TryParse(text[(comma + 1)..], out count);
+		return false;
 	}
 }

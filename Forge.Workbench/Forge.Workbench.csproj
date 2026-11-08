@@ -4,6 +4,7 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<ProjectReference Include="..\Forge.Search\Forge.Search.csproj" />
 		<ProjectReference Include="..\Forge.UI.Controls\Forge.UI.Controls.csproj" />
 		<ProjectReference Include="..\Forge.Editor\Forge.Editor.csproj" />
 		<ProjectReference Include="..\Forge.Git\Forge.Git.csproj" />

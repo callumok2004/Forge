@@ -404,6 +404,9 @@ public sealed class DebugSession : IDisposable
 		if (command != "runInTerminal") return null;
 
 		string? cwd = arguments?["cwd"]?.GetValue<string>();
+
+		if (arguments?["kind"]?.GetValue<string>() == "external" && arguments["args"] is JsonArray external && external.Count > 0) return RunExternal(external, cwd, arguments["env"] as JsonObject);
+
 		string commandLine = arguments?["args"] is JsonArray args
 			? string.Join(' ', args.Select(static value => Quote(value?.GetValue<string>())))
 			: string.Empty;
@@ -411,6 +414,32 @@ public sealed class DebugSession : IDisposable
 		RunInTerminalRequested?.Invoke(commandLine, cwd);
 
 		return new JsonObject();
+	}
+
+	private JsonObject RunExternal(JsonArray args, string? cwd, JsonObject? env) {
+		ProcessStartInfo start = new(args[0]?.GetValue<string>() ?? string.Empty) {
+			UseShellExecute = false,
+			CreateNoWindow = false,
+			WorkingDirectory = cwd is { Length: > 0 } && Directory.Exists(cwd) ? cwd : Environment.CurrentDirectory,
+		};
+
+		for (int i = 1; i < args.Count; i++) start.ArgumentList.Add(args[i]?.GetValue<string>() ?? string.Empty);
+
+		if (env is not null) {
+			foreach ((string key, JsonNode? value) in env) {
+				if (value is null) start.Environment.Remove(key);
+				else start.Environment[key] = value.GetValue<string>();
+			}
+		}
+
+		try {
+			using Process? process = Process.Start(start);
+			return process is null ? [] : new JsonObject { ["processId"] = process.Id };
+		}
+		catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException) {
+			Log?.Invoke($"Could not start the external terminal: {exception.Message}");
+			return [];
+		}
 	}
 
 	private static string Quote(string? value) {

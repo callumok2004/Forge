@@ -7,5 +7,6 @@ public static class ContextKeys
 	public const string OutputFocus = "outputFocus";
 	public const string ScmInputFocused = "scmInputFocused";
 	public const string FindInputFocused = "findInputFocused";
+	public const string ReplaceInputFocused = "replaceInputFocused";
 	public const string InQuickOpen = "inQuickOpen";
 }

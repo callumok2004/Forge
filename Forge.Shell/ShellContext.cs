@@ -61,7 +61,7 @@ public sealed class ShellContext(Workbench workbench, AppWindow window, RenderDe
 	}
 
 	public void RevealCaret() {
-		if (Workbench.ActiveView is not { } view) return;
+		if (Workbench.FocusedView is not { } view) return;
 
 		view.EnsureCaretVisible(Painter.GetCode(), Workbench.TextWidth(Device.Width), Workbench.EditorHeight(Device.Height));
 		RefreshEditor();
@@ -95,5 +95,5 @@ public sealed class ShellContext(Workbench workbench, AppWindow window, RenderDe
 
 	public void CloseMenu() => _openMenu?.CloseAll();
 
-	public TextView? ActiveView => Workbench.ActiveView;
+	public TextView? ActiveView => Workbench.FocusedView;
 }

@@ -51,6 +51,9 @@ public sealed class AuxiliaryBar : Panel, IViewPart
 
 	public void Attach(ViewPaneContainer container) {
 		_host.Attach(container);
+
+		if (ActiveViewId is null || string.Equals(ActiveViewId, container.Container.Id, StringComparison.Ordinal)) ShowView(container.Container.Id);
+
 		Strip.Rebuild();
 	}
 

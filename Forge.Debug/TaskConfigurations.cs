@@ -33,7 +33,7 @@ public sealed class TaskConfigurations
 	public IReadOnlyList<TaskDefinition> Tasks => _tasks;
 
 	public static string FileFor(string workspaceFolder) =>
-		Path.Combine(workspaceFolder, ".vscode", "tasks.json");
+		Forge.Core.WorkspaceConfig.PathFor(workspaceFolder, "tasks.json");
 
 	public static TaskConfigurations Load(string workspaceFolder) {
 		TaskConfigurations configurations = new();

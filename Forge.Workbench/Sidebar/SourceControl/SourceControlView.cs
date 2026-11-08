@@ -57,6 +57,8 @@ public sealed class SourceControlView : Panel
 
 	public Action<string>? FileOpened { get; set; }
 
+	public Action<GitEntry, bool>? ChangeOpened { get; set; }
+
 	public Action<Func<IGitRepository, bool>>? RunGit { get; set; }
 
 	public TextEntry Input => _section.Tree.Input;

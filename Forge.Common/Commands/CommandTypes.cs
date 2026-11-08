@@ -1,6 +1,9 @@
 namespace Forge.Common.Commands;
 
-public readonly record struct CompletionEntry(int Index, string Label, string LabelDetail, string LabelDescription, string InsertText, string Detail, string Kind, string FilterText, bool Preselect, int ReplaceLine, int ReplaceStartColumn, int ReplaceEndColumn);
+public readonly record struct CompletionEntry(int Index, string Label, string LabelDetail, string LabelDescription, string InsertText, string Detail, string Kind, string FilterText, bool Preselect, int ReplaceLine, int ReplaceStartColumn, int ReplaceEndColumn)
+{
+	public bool ReplacesToEnd { get; init; }
+}
 
 public enum CompletionTrigger
 {

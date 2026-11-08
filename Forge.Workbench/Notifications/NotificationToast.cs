@@ -10,12 +10,16 @@ public sealed class NotificationToast : Panel
 {
 	public const float Width = 450f;
 	private const float MessageHeight = 42f;
+	private const float LineHeight = 22f;
+	private const float VerticalPadding = 10f;
 	private const float ButtonRowHeight = 34f;
 	private const float ButtonHeight = 24f;
 	private const float IconSize = 16f;
 	private const float CloseSize = 22f;
 
-	private readonly Label _message = new() { Font = FontRole.Ui };
+	private readonly string _text;
+	private readonly List<(int Start, int Length)> _lines = [];
+	private float _wrappedWidth = -1f;
 	private readonly ActionButton _close = new() { Icon = Codicon.Close, Visible = false };
 	private readonly List<PrimaryButton> _buttons = [];
 	private readonly MessageSeverity _severity;
@@ -24,10 +28,9 @@ public sealed class NotificationToast : Panel
 		_severity = severity;
 		Name = "NotificationToast";
 
-		_message.SetText(message);
+		_text = message;
 		_close.Action = () => Dismissed?.Invoke(this);
 
-		AddChild(_message);
 		AddChild(_close);
 
 		_chosen = chosen;
@@ -57,7 +60,82 @@ public sealed class NotificationToast : Panel
 
 	public bool Sticky => _severity == MessageSeverity.Error || _buttons.Count > 0;
 
-	public float PreferredHeight => (MessageHeight + (_buttons.Count > 0 ? ButtonRowHeight : 0f)) * Scale;
+	public float PreferredHeight => MessageAreaHeight() + ((_buttons.Count > 0 ? ButtonRowHeight : 0f) * Scale);
+
+	private float TextWidth(float scale) => (Width * scale) - ((IconSize + Metrics.Space8 + Metrics.Space8) * scale) - (CloseSize * scale) - (Metrics.Space8 * 2f * scale);
+
+	private float MessageAreaHeight() {
+		float scale = Scale;
+		Wrap(TextWidth(scale));
+		return MathF.Max(MessageHeight, (_lines.Count * LineHeight) + (VerticalPadding * 2f)) * scale;
+	}
+
+	private void Wrap(float width) {
+		if (width == _wrappedWidth || Ui is null) return;
+
+		_wrappedWidth = width;
+		_lines.Clear();
+
+		ITextFont font = Ui.GetFonts().GetUi();
+		ReadOnlySpan<char> text = _text;
+		int start = 0;
+
+		while (start < text.Length) {
+			int newline = text[start..].IndexOfAny('\r', '\n');
+			int paragraphEnd = newline < 0 ? text.Length : start + newline;
+			int lineStart = start;
+
+			while (lineStart < paragraphEnd) {
+				int end = paragraphEnd;
+
+				if (font.Measure(text[lineStart..end]) > width) {
+					int fit = lineStart + 1;
+
+					for (int i = lineStart + 1; i <= paragraphEnd; i++) {
+						if (font.Measure(text[lineStart..i]) > width) break;
+
+						fit = i;
+					}
+
+					int space = text[lineStart..fit].LastIndexOf(' ');
+					end = space > 0 && fit < paragraphEnd ? lineStart + space : fit;
+				}
+
+				_lines.Add((lineStart, end - lineStart));
+				lineStart = end;
+
+				while (lineStart < paragraphEnd && text[lineStart] == ' ') lineStart++;
+			}
+
+			if (paragraphEnd == start) _lines.Add((start, 0));
+
+			start = paragraphEnd;
+
+			if (start < text.Length && text[start] == '\r') start++;
+			if (start < text.Length && text[start] == '\n') start++;
+		}
+
+		if (_lines.Count == 0) _lines.Add((0, 0));
+	}
+
+	public override void Paint(IPainter painter) {
+		float scale = Scale;
+		ITextFont font = painter.GetUi();
+		float left = ScreenX + ((IconSize + Metrics.Space8 + Metrics.Space8) * scale);
+		float area = MessageAreaHeight();
+		float block = _lines.Count * LineHeight * scale;
+		float top = ScreenY + ((area - block) / 2f);
+		float lineHeight = LineHeight * scale;
+
+		painter.PushClip(left, ScreenY, TextWidth(scale), area);
+
+		for (int i = 0; i < _lines.Count; i++) {
+			(int start, int length) = _lines[i];
+			painter.DrawText(font, _text.AsSpan(start, length), left, top + (i * lineHeight) + ((lineHeight - font.GetLineHeight()) / 2f) + font.GetBaseline(), Theme.Foreground);
+		}
+
+		painter.PopClip();
+	}
 
 	public override void OnCursorEntered() => SetCloseVisible(true);
 
@@ -76,11 +154,12 @@ public sealed class NotificationToast : Panel
 		float icon = (IconSize + Metrics.Space8 + Metrics.Space8) * scale;
 		float closeSize = CloseSize * scale;
 
-		_close.SetBounds(Wide - inset - closeSize, ((MessageHeight * scale) - closeSize) / 2f, closeSize, closeSize);
-		_message.SetBounds(icon, 0f, Wide - icon - closeSize - (inset * 2f), MessageHeight * scale);
+		float area = MessageAreaHeight();
+
+		_close.SetBounds(Wide - inset - closeSize, ((VerticalPadding + (LineHeight / 2f)) * scale) - (closeSize / 2f), closeSize, closeSize);
 
 		float right = Wide - inset;
-		float top = (MessageHeight * scale) + (((ButtonRowHeight - ButtonHeight) / 2f - Metrics.Space4) * scale);
+		float top = area + (((ButtonRowHeight - ButtonHeight) / 2f - Metrics.Space4) * scale);
 
 		for (int i = _buttons.Count - 1; i >= 0; i--) {
 			PrimaryButton button = _buttons[i];
@@ -105,6 +184,6 @@ public sealed class NotificationToast : Panel
 			_ => (Codicon.Info, Theme.InfoForeground),
 		};
 
-		painter.DrawIcon(glyph, ScreenX + ((Metrics.Space8 + (IconSize / 2f)) * scale) + (Metrics.Space4 * scale), ScreenY + (MessageHeight * scale / 2f), IconSize * scale, color);
+		painter.DrawIcon(glyph, ScreenX + ((Metrics.Space8 + (IconSize / 2f)) * scale) + (Metrics.Space4 * scale), ScreenY + ((VerticalPadding + (LineHeight / 2f)) * scale), IconSize * scale, color);
 	}
 }

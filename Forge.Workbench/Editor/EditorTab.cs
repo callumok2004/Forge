@@ -46,9 +46,10 @@ public sealed class EditorTab : Button
 		}
 	}
 
-	public void Bind(IDocument document, int index, bool selected, Codicon? icon = null) {
+	public void Bind(IDocument document, int index, bool selected, Codicon? icon = null, bool preview = false) {
 		Index = index;
 		Selected = selected;
+		Italic = preview;
 		_icon = icon;
 		bool dirty = document.IsDirty();
 
@@ -70,6 +71,12 @@ public sealed class EditorTab : Button
 		if (Ui is null) return 0f;
 
 		return MathF.Ceiling(MeasureContents(FontFor(Ui.GetFonts()), scale) + ((Padding.Left + Padding.Right) * scale));
+	}
+
+	public override bool OnMouseDoublePressed(MouseButton button, float x, float y) {
+		if (button == MouseButton.Left) _strip.Pinned?.Invoke(Index);
+
+		return true;
 	}
 
 	public override bool OnMousePressed(MouseButton button, float x, float y) {

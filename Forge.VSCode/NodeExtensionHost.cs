@@ -51,6 +51,8 @@ public sealed class NodeExtensionHost : IDisposable
 			startInfo.ArgumentList.Add("--smol");
 			startInfo.ArgumentList.Add(BootstrapPath);
 			startInfo.Environment["FORGE_EXTENSION_HOST"] = "1";
+			startInfo.Environment["FORGE_URI_SCHEME"] = Core.Native.UriLauncher.Scheme;
+			startInfo.Environment["FORGE_PARENT_PID"] = Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
 			try {
 				JsonRpcConnection connection = new(startInfo, negotiateTransport: false);

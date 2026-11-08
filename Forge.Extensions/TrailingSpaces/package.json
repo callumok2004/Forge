@@ -6,5 +6,42 @@
 	"version": "1.0.0",
 	"activationEvents": [
 		"*"
-	]
+	],
+	"contributes": {
+		"configuration": {
+			"title": "Trailing Spaces",
+			"properties": {
+				"trailing-spaces.deleteModifiedLinesOnly": {
+					"type": "boolean",
+					"default": false,
+					"description": "By default, trailing spaces are deleted within the whole document. Set to true to affect only the lines you edited since last save. Trailing spaces will still be searched for and highlighted in the whole document."
+				},
+				"trailing-spaces.highlightCurrentLine": {
+					"type": "boolean",
+					"default": true,
+					"description": "By default, the lines being currently edited (i.e. with active cursors) will have its trailing spaces highlighted. Set to false to ignore trailing spaces on the current lines."
+				},
+				"trailing-spaces.includeEmptyLines": {
+					"type": "boolean",
+					"default": true,
+					"description": "By default, empty lines are cleared as well when calling the deletion command. Set to false to ignore empty lines upon deletion."
+				},
+				"trailing-spaces.liveMatching": {
+					"type": "boolean",
+					"default": true,
+					"description": "By default, Trailing Spaces is \"live\". It means the trailing spaces regions will be matched in the background, and highlighted if a color scope is defined, when the document is opened and edited. Set to false to disable live matching and highlighting (the deletion command remains available, so-called \"lazy matching\")."
+				},
+				"trailing-spaces.syntaxIgnore": {
+					"type": "array",
+					"default": [],
+					"description": "With this option you can ignore specific files based on the syntax used. An item has to match the case-sensitive string of the language used in the file."
+				},
+				"trailing-spaces.trimOnSave": {
+					"type": "boolean",
+					"default": false,
+					"description": "Controls whether trailing spaces are trimmed automatically when saving a file."
+				}
+			}
+		}
+	}
 }

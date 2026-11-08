@@ -294,7 +294,13 @@ public sealed class UiSystem : IUiSystem
 		return target.OnMouseWheeled(delta, x - absX, y - absY);
 	}
 
-	public void DismissPopups() => DismissPopupsOutside(float.NegativeInfinity, float.NegativeInfinity);
+	public void DismissPopups() {
+		for (int i = _popups.Count - 1; i >= 0; i--) {
+			Panel popup = _popups[i].Panel;
+
+			if (popup.DismissOnFocusLost) popup.OnPopupDismissed();
+		}
+	}
 
 	private bool DismissPopupsOutside(float x, float y) {
 		bool dismissed = false;

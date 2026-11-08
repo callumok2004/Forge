@@ -75,7 +75,18 @@ public class Label : Panel
 
 	public float IconGap { get; init; } = 4f;
 
-	protected ITextFont FontFor(IFontSet fonts) => FontSize > 0f ? fonts.GetUi(FontSize, Font == FontRole.UiStrong) : Font switch {
+	public bool Italic {
+		get;
+		set {
+			if (field == value) return;
+
+			field = value;
+			Parent?.InvalidateLayout();
+			Repaint();
+		}
+	}
+
+	protected ITextFont FontFor(IFontSet fonts) => Italic && FontSize > 0f ? fonts.GetUiItalic(FontSize) : FontSize > 0f ? fonts.GetUi(FontSize, Font == FontRole.UiStrong) : Font switch {
 		FontRole.UiStrong => fonts.GetUiStrong(),
 		FontRole.UiSmall => fonts.GetUiSmall(),
 		FontRole.Code => fonts.GetCode(),

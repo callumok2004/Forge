@@ -13,6 +13,7 @@ public interface IFontSet
 	ITextFont GetUiDescription();
 
 	ITextFont GetUi(float size, bool strong = false);
+	ITextFont GetUiItalic(float size) => GetUi(size);
 	ITextFont GetMono(float size, bool strong = false);
 	ITextFont GetFamily(string[] families, float size);
 

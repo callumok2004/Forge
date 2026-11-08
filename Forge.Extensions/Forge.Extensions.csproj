@@ -20,6 +20,7 @@
 		<None Include="TrailingSpaces\package.json" CopyToOutputDirectory="PreserveNewest" Link="Extensions\TrailingSpaces\package.json" />
 		<None Include="MergeConflict\package.json" CopyToOutputDirectory="PreserveNewest" Link="Extensions\MergeConflict\package.json" />
 		<None Include="IndentRainbow\package.json" CopyToOutputDirectory="PreserveNewest" Link="Extensions\IndentRainbow\package.json" />
+		<None Include="DotnetProfiler\package.json" CopyToOutputDirectory="PreserveNewest" Link="Extensions\DotnetProfiler\package.json" />
 		<None Include="Discord\discord-languages.json" CopyToOutputDirectory="PreserveNewest" Link="Extensions\Discord\discord-languages.json" />
 	</ItemGroup>
 

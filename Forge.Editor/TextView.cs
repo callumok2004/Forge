@@ -20,15 +20,28 @@ public sealed class TextView : ITextView
 		buffer.Changed += OnBufferChanged;
 	}
 
-	public readonly record struct ViewZone(int Id, int AfterLine, float Height);
+	public enum ZoneKind : byte
+	{
+		Space,
+		Diagonal,
+		Hidden,
+		Moved,
+	}
+
+	public readonly record struct ViewZone(int Id, int AfterLine, float Height, int Hide = 0, ZoneKind Kind = ZoneKind.Space);
 
 	private readonly List<ViewZone> _zones = [];
 	private int _zoneCounter;
+	private int _hiddenZones;
 
 	public IReadOnlyList<ViewZone> Zones => _zones;
 
-	public int AddZone(int afterLine, float height) {
-		ViewZone zone = new(++_zoneCounter, afterLine, height);
+	public int AddZone(int afterLine, float height) => AddZone(afterLine, height, 0, ZoneKind.Space);
+
+	public int AddZone(int afterLine, float height, int hide, ZoneKind kind) {
+		ViewZone zone = new(++_zoneCounter, afterLine, height, hide, kind);
+
+		if (hide > 0) _hiddenZones++;
 		int index = 0;
 
 		while (index < _zones.Count && _zones[index].AfterLine <= afterLine) index++;
@@ -43,15 +56,35 @@ public sealed class TextView : ITextView
 		if (index >= 0) _zones[index] = _zones[index] with { Height = height };
 	}
 
-	public void RemoveZone(int id) => _zones.RemoveAll(zone => zone.Id == id);
+	public void RemoveZone(int id) {
+		int index = _zones.FindIndex(zone => zone.Id == id);
 
-	private float ZonesBefore(int line) {
+		if (index < 0) return;
+
+		if (_zones[index].Hide > 0) _hiddenZones--;
+
+		_zones.RemoveAt(index);
+	}
+
+	public bool IsHiddenLine(int line) {
+		if (_hiddenZones == 0) return false;
+
+		foreach (ViewZone zone in _zones) {
+			if (zone.AfterLine >= line) break;
+
+			if (zone.Hide > 0 && line <= zone.AfterLine + zone.Hide) return true;
+		}
+
+		return false;
+	}
+
+	private float ZonesBefore(int line, float lineHeight) {
 		float total = 0f;
 
 		foreach (ViewZone zone in _zones) {
 			if (zone.AfterLine >= line) break;
 
-			total += zone.Height;
+			total += zone.Height - (Math.Min(zone.Hide, line - zone.AfterLine - 1) * lineHeight);
 		}
 
 		return total;
@@ -107,7 +140,18 @@ public sealed class TextView : ITextView
 
 	public int HoveredLens { get; set; } = -1;
 
+	public bool CodeLensEnabled {
+		get;
+		set {
+			field = value;
+
+			if (!value) ApplyCodeLenses([], 0f);
+		}
+	} = true;
+
 	public void SetCodeLenses(ReadOnlySpan<LensLine> lines, float rowHeight) {
+		if (!CodeLensEnabled) lines = [];
+
 		StableScroll stable = CaptureScroll();
 
 		ApplyCodeLenses(lines, rowHeight);
@@ -315,6 +359,28 @@ public sealed class TextView : ITextView
 		}
 	}
 
+	public DiffMarks? DiffMarks { get; set; }
+
+	private void DrawDiffChars(IPainter painter, int line, float textLeft, float lineTop, float lineHeight) {
+		DiffMarks marks = DiffMarks!;
+		TextSpan span = Snapshot.GetLineSpan(line);
+		float cellWidth = painter.GetCode().GetCellWidth();
+
+		for (int i = marks.FirstChar(line); i < marks.Chars.Count && marks.Chars[i].Line == line; i++) {
+			CharRange range = marks.Chars[i];
+			int start = VisualColumnAt(line, span.Start + Math.Min(range.Start, span.Length));
+			float left = textLeft + (start * cellWidth);
+
+			if (range.Start == range.End) {
+				painter.FillRectangle(left, lineTop, 3f * Scale, lineHeight, marks.TextBackground);
+				continue;
+			}
+
+			int end = range.End == int.MaxValue ? VisualColumnAt(line, span.End) + 1 : VisualColumnAt(line, span.Start + Math.Min(range.End, span.Length));
+			painter.FillRectangle(left, lineTop, (end - start) * cellWidth, lineHeight, marks.TextBackground);
+		}
+	}
+
 	#endregion
 
 	private void DrawCodeLenses(IPainter painter, float y, float textLeft, float width, float lineHeight) {
@@ -373,7 +439,7 @@ public sealed class TextView : ITextView
 		}
 	}
 
-	public float TopOf(int line, float lineHeight) => (line * lineHeight) + ZonesBefore(line);
+	public float TopOf(int line, float lineHeight) => (line * lineHeight) + ZonesBefore(line, lineHeight);
 
 	public float ZoneTop(int id, float lineHeight) {
 		float above = 0f;
@@ -381,7 +447,7 @@ public sealed class TextView : ITextView
 		foreach (ViewZone zone in _zones) {
 			if (zone.Id == id) return ((zone.AfterLine + 1) * lineHeight) + above;
 
-			above += zone.Height;
+			above += zone.Height - (zone.Hide * lineHeight);
 		}
 
 		return 0f;
@@ -390,7 +456,7 @@ public sealed class TextView : ITextView
 	public float ContentHeight(float lineHeight) {
 		float total = Snapshot.LineCount * lineHeight;
 
-		foreach (ViewZone zone in _zones) total += zone.Height;
+		foreach (ViewZone zone in _zones) total += zone.Height - (zone.Hide * lineHeight);
 
 		return total;
 	}
@@ -405,15 +471,27 @@ public sealed class TextView : ITextView
 
 			if (contentY < zoneTop + zone.Height) return Math.Clamp(zone.AfterLine, 0, Math.Max(0, Snapshot.LineCount - 1));
 
-			consumed += zone.Height;
+			consumed += zone.Height - (zone.Hide * lineHeight);
 		}
 
 		return Math.Clamp((int)((contentY - consumed) / lineHeight), 0, Math.Max(0, Snapshot.LineCount - 1));
 	}
 
 	private void OnBufferChanged(TextBuffer buffer, TextChange change) {
+		TextSnapshot before = Snapshot;
+		int removedEnd = change.Offset + change.RemovedLength;
+		bool caretInside = change.RemovedLength > 0 && CaretOffset > change.Offset && CaretOffset < removedEnd;
+		bool anchorInside = change.RemovedLength > 0 && SelectionAnchor > change.Offset && SelectionAnchor < removedEnd;
+		(int caretLine, int caretColumn) = Position(before, CaretOffset);
+		(int anchorLine, int anchorColumn) = Position(before, SelectionAnchor);
+
 		CaretOffset = MapThrough(CaretOffset, change);
 		SelectionAnchor = MapThrough(SelectionAnchor, change);
+
+		if (Snapshot.Version != buffer.Version) SyncSnapshot(change.Offset);
+
+		if (caretInside) CaretOffset = ClampedOffset(Snapshot, caretLine, caretColumn, change);
+		if (anchorInside) SelectionAnchor = ClampedOffset(Snapshot, anchorLine, anchorColumn, change);
 
 		if (_zones.Count == 0) return;
 
@@ -429,6 +507,18 @@ public sealed class TextView : ITextView
 
 			_zones[i] = _zones[i] with { AfterLine = Math.Max(line, _zones[i].AfterLine - removed + inserted) };
 		}
+	}
+
+	private static (int Line, int Column) Position(TextSnapshot snapshot, int offset) {
+		int clamped = Math.Clamp(offset, 0, snapshot.Length);
+		int line = snapshot.GetLineAt(clamped);
+		return (line, clamped - snapshot.GetLineStartOffset(line));
+	}
+
+	private static int ClampedOffset(TextSnapshot snapshot, int line, int column, in TextChange change) {
+		int target = Math.Clamp(line, 0, Math.Max(0, snapshot.LineCount - 1));
+		int offset = snapshot.GetLineStartOffset(target) + Math.Min(column, snapshot.GetLineLength(target));
+		return Math.Clamp(offset, change.Offset, change.Offset + change.InsertedLength);
 	}
 
 	private static int MapThrough(int offset, in TextChange change) {
@@ -500,6 +590,10 @@ public sealed class TextView : ITextView
 
 	public float ScrollY { get; private set; }
 
+	public void SetScrollY(float value) => ScrollY = Math.Max(0f, value);
+
+	public bool ShowVerticalScrollbar { get; set; } = true;
+
 	public float ScrollX { get; private set; }
 
 	public int TabWidth { get; set; } = 4;
@@ -507,6 +601,9 @@ public sealed class TextView : ITextView
 	public bool CaretVisible { get; set; } = true;
 
 	public IFileDiff? Diff { get; set; }
+
+	private Func<string>? _bufferText;
+	private TextBuffer? _bufferTextOwner;
 
 	public void ResetBlink() => CaretVisible = true;
 
@@ -530,6 +627,7 @@ public sealed class TextView : ITextView
 		buffer.CursorState = CurrentSelection;
 		buffer.Changed += OnBufferChanged;
 		_zones.Clear();
+		_hiddenZones = 0;
 		_lensRows.Clear();
 		Snapshot = buffer.CreateSnapshot();
 		ScrollY = 0;
@@ -581,6 +679,8 @@ public sealed class TextView : ITextView
 			target++;
 		}
 		else if (delta < 0 && target > 0 && Snapshot[target] == '\n' && Snapshot[target - 1] == '\r') target--;
+
+		if (target > 0 && target < Snapshot.Length && char.IsLowSurrogate(Snapshot[target]) && char.IsHighSurrogate(Snapshot[target - 1])) target += delta > 0 ? 1 : -1;
 
 		MoveTo(target, extend);
 	}
@@ -875,6 +975,7 @@ public sealed class TextView : ITextView
 
 		int start = CaretOffset - 1;
 		if (start > 0 && Snapshot[start] == '\n' && Snapshot[start - 1] == '\r') start--;
+		else if (start > 0 && char.IsLowSurrogate(Snapshot[start]) && char.IsHighSurrogate(Snapshot[start - 1])) start--;
 
 		Buffer.Delete(start, CaretOffset - start);
 		SyncSnapshot(start);
@@ -894,6 +995,7 @@ public sealed class TextView : ITextView
 
 		int end = CaretOffset + 1;
 		if (Snapshot[CaretOffset] == '\r' && end < Snapshot.Length && Snapshot[end] == '\n') end++;
+		else if (char.IsHighSurrogate(Snapshot[CaretOffset]) && end < Snapshot.Length && char.IsLowSurrogate(Snapshot[end])) end++;
 
 		Buffer.Delete(CaretOffset, end - CaretOffset);
 		SyncSnapshot(CaretOffset);
@@ -1553,6 +1655,7 @@ public sealed class TextView : ITextView
 		LastLineHeight = lineHeight;
 		LastViewportHeight = height;
 		SyncDiff(lineHeight);
+		ClampScroll(lineHeight, height);
 		ClampScrollX();
 
 		int firstLine = LineAtY(ScrollY, lineHeight);
@@ -1567,13 +1670,20 @@ public sealed class TextView : ITextView
 		for (int line = firstLine; line <= lastLine; line++) {
 			float lineTop = y + TopOf(line, lineHeight) - ScrollY;
 
-			if (!painter.NeedsPaint(x, lineTop, width, lineHeight)) continue;
+			if (!painter.NeedsPaint(x, lineTop, width, lineHeight) || IsHiddenLine(line)) continue;
 
 			bool inserted = IsDiffInserted(line);
 
 			if (inserted) painter.FillRectangle(x, lineTop, width, lineHeight, Theme.DiffInsertedLineBackground);
 
-			if (line == caretLine && !HasSelection) {
+			bool marked = DiffMarks is { } marks && marks.Contains(line);
+
+			if (marked) {
+				painter.FillRectangle(x, lineTop, width, lineHeight, DiffMarks!.LineBackground);
+				painter.DrawIcon(DiffMarks.Removed ? Codicon.Remove : Codicon.Add, x + gutterWidth - (GutterPaddingRight / 2f), lineTop + (lineHeight / 2f), 11f * Scale, Theme.EditorForeground.WithAlpha(0.7f));
+			}
+
+			if (line == caretLine && !HasSelection && !marked) {
 				painter.FillRectangle(x + gutterWidth, lineTop, width - gutterWidth, lineHeight,
 					inserted ? Theme.DiffInsertedTextBackground.Over(Theme.DiffInsertedLineBackground) : Theme.CurrentLineBackground);
 
@@ -1583,6 +1693,10 @@ public sealed class TextView : ITextView
 			DrawExecutionLine(painter, line, x, lineTop, width, lineHeight);
 
 			painter.PushClip(textAreaLeft, lineTop, textAreaWidth, lineHeight);
+
+			if (marked) DrawDiffChars(painter, line, textLeft, lineTop, lineHeight);
+
+			if (FindMatches is { Count: > 0 } || FindScope is not null) DrawFindMatches(painter, line, textLeft, lineTop, lineHeight);
 
 			if (HasSelection) DrawSelection(painter, line, selection, textLeft, lineTop, lineHeight);
 
@@ -1617,7 +1731,7 @@ public sealed class TextView : ITextView
 
 		painter.DrawVerticalLine(x + gutterWidth, y, y + height, Theme.ChromeBorder);
 
-		DrawScrollbar(painter, x, y, width, height, lineHeight);
+		if (ShowVerticalScrollbar) DrawScrollbar(painter, x, y, width, height, lineHeight);
 		DrawHorizontalScrollbar(painter, x, y, width, height, gutterWidth);
 
 		RecordRendered(x, y, width, height);
@@ -1914,6 +2028,49 @@ public sealed class TextView : ITextView
 			Theme.ScrollbarSlider);
 	}
 
+	public IReadOnlyList<FindMatch>? FindMatches { get; set; }
+
+	public int CurrentFindMatch { get; set; } = -1;
+
+	public (int Start, int End)? FindScope { get; set; }
+
+	private void FillColumns(IPainter painter, int line, int from, int to, float textLeft, float lineTop, float lineHeight, Color color) {
+		TextSpan visible = Snapshot.GetLineSpan(line);
+		int start = Math.Clamp(from, visible.Start, visible.End);
+		int end = Math.Clamp(to, visible.Start, visible.End);
+
+		if (end <= start && to <= visible.End) return;
+
+		float cell = painter.GetCode().GetCellWidth();
+		float left = VisualColumnAt(line, start) * cell;
+		float right = VisualColumnAt(line, end) * cell + (to > visible.End ? cell : 0f);
+
+		painter.FillRectangle(textLeft + left, lineTop, right - left, lineHeight, color);
+	}
+
+	private void DrawFindMatches(IPainter painter, int line, float textLeft, float lineTop, float lineHeight) {
+		TextSpan span = Snapshot.GetLineSpanWithTerminator(line);
+
+		if (FindScope is { } scope && scope.End > span.Start && scope.Start < span.End) FillColumns(painter, line, scope.Start, scope.End, textLeft, lineTop, lineHeight, Theme.FindRangeHighlightBackground);
+
+		if (FindMatches is not { Count: > 0 } matches) return;
+
+		int low = 0;
+		int high = matches.Count;
+
+		while (low < high) {
+			int mid = (low + high) >>> 1;
+
+			if (matches[mid].Start + matches[mid].Length <= span.Start) low = mid + 1;
+			else high = mid;
+		}
+
+		for (int i = low; i < matches.Count && matches[i].Start < span.End; i++) {
+			FindMatch match = matches[i];
+			FillColumns(painter, line, match.Start, match.Start + match.Length, textLeft, lineTop, lineHeight, i == CurrentFindMatch ? Theme.FindMatchBackground : Theme.FindMatchHighlightBackground);
+		}
+	}
+
 	private void DrawSelection(IPainter painter, int line, TextSpan selection, float textLeft, float lineTop,
 		float lineHeight) {
 		TextSpan lineSpan = Snapshot.GetLineSpanWithTerminator(line);
@@ -1945,7 +2102,16 @@ public sealed class TextView : ITextView
 	}
 
 	private void DrawChangeMark(IPainter painter, int line, float divider, float lineTop, float lineHeight) {
-		if (Diff is not { } diff || diff.GetPath() != Path || diff.At(line) is not { } change) return;
+		if (Diff is not { } diff || diff.GetPath() != Path) return;
+
+		if (_bufferTextOwner != Buffer) {
+			_bufferTextOwner = Buffer;
+			_bufferText = Buffer.GetText;
+		}
+
+		diff.Sync(Buffer.Version, _bufferText!);
+
+		if (diff.At(line) is not { } change) return;
 
 		float scale = Scale;
 		float width = ChangeMarkWidth * scale;
@@ -1953,7 +2119,7 @@ public sealed class TextView : ITextView
 
 		if (change.Kind == GitChangeKind.Deleted) {
 			float size = MathF.Round(lineHeight / 4f);
-			painter.FillTriangle(laneX, lineTop - size, laneX, lineTop + size, laneX + size + width, lineTop, Theme.GitDeletedForeground);
+			painter.FillTriangle(laneX, lineTop - size, laneX, lineTop + size, laneX + size + width, lineTop, change.Secondary ? Theme.GitDeletedSecondaryForeground : Theme.GitDeletedForeground);
 			return;
 		}
 
@@ -1962,7 +2128,9 @@ public sealed class TextView : ITextView
 		bool last = line == change.Line + Math.Max(1, change.Count) - 1;
 		float top = first ? lineTop + gap : lineTop;
 		float bottom = last ? lineTop + lineHeight - gap : lineTop + lineHeight;
-		Color color = change.Kind == GitChangeKind.Added ? Theme.GitAddedForeground : Theme.GitModifiedForeground;
+		Color color = change.Kind == GitChangeKind.Added
+			? change.Secondary ? Theme.GitAddedSecondaryForeground : Theme.GitAddedForeground
+			: change.Secondary ? Theme.GitModifiedSecondaryForeground : Theme.GitModifiedForeground;
 
 		if (first || last) painter.FillRoundedRectangle(laneX, top, width, bottom - top, width / 2f, color);
 		else painter.FillRectangle(laneX, top, width, bottom - top, color);

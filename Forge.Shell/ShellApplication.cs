@@ -48,9 +48,16 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 	private int Boot(string[] args) {
 		AppIdentity.Apply();
 
+		if (UriLauncher.Find(args) is { } launchUri) {
+			if (UriLauncher.TryForward(launchUri)) return 0;
+
+			_pendingUris.Add(launchUri);
+		}
+
 		AppWindow.FatalHandler = ReportFatal;
 
 		Settings settings = Settings.Load(UserData.SettingsPath);
+		SettingsSchema.ExtensionDirectories = [Path.Combine(AppContext.BaseDirectory, "Extensions"), VSCodeExtensions.DefaultDirectory];
 		WindowState windowState = WindowState.Load(UserData.WindowStatePath);
 
 		using AppWindow window = new("Forge", 1280, 800, windowState);
@@ -120,6 +127,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		string rootPath = ResolveWorkspaceRoot(args);
 		workbench.RootPath = rootPath;
+		settings.LoadWorkspace(rootPath);
 		workbench.Panel.WorkingDirectory = rootPath;
 		workbench.Panel.DefaultProfile = settings.DefaultTerminalProfile;
 		workbench.Panel.History = new TerminalHistory(UserData.TerminalHistoryPath);
@@ -139,6 +147,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			repository.OnChanged(() => {
 				workbench.BranchName = repository.GetBranch() ?? workbench.BranchName;
 				workbench.TitleBar.BranchName = workbench.BranchName;
+				workbench.RefreshDiff(window.Invalidate);
+				workbench.RefreshGitDiffs(window.Invalidate);
 				window.Invalidate();
 			});
 
@@ -199,6 +209,9 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		}
 
 		workbench.Post = Post;
+
+		IOutputChannel gitChannel = workbench.Panel.Channel("Git");
+		Git.GitProcess.Log = line => uiWork.Enqueue(() => gitChannel.AppendRaw(line));
 
 
 		using Forge.Webview.WebviewHost webviews = new(window.Handle, device, Path.Combine(UserData.Directory, "webview"), Post);
@@ -310,10 +323,39 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		DebugCommands.Register(Registry, debugger);
 
 		WorkbenchViews views = new(workbench, Post) { Refresh = window.Invalidate, SavedLocations = memory.ViewLocations };
+		workbench.ActivityBar.SetCustomOrder(memory.ActivityOrder);
+		workbench.ActivityBar.OrderChanged = order => memory.ActivityOrder = [.. order];
+		workbench.Auxiliary.Strip.SetCustomOrder(memory.AuxiliaryOrder);
+		workbench.Auxiliary.Strip.OrderChanged = order => memory.AuxiliaryOrder = [.. order];
 		workbench.Views = views;
 		RegisterBuiltInViews(views, workbench, Path.GetFileName(rootPath.TrimEnd(Path.DirectorySeparatorChar)), explorerIcon);
 
+		SearchView search = workbench.Sidebar.Search;
+		search.RootPath = rootPath;
+		search.OpenEditorPaths = () => [.. workbench.Documents.Select(document => document.Path).OfType<string>()];
+		search.MatchOpened = (path, line, column, length, preserveFocus) => {
+			workbench.OpenMatch(path, line, column, length, preview: true);
+
+			if (preserveFocus) search.RequestFocus();
+
+			window.Invalidate();
+		};
+		search.ExcludeSettings = SearchExcludes;
+		search.ReplacePreviewRequested = (path, edits, line) => {
+			workbench.OpenReplacePreview(path, edits, line);
+			window.Invalidate();
+		};
+		search.ReplaceRequested = (path, edits) => {
+			workbench.ReplaceInFile(path, edits);
+			window.Invalidate();
+		};
+
 		ThreadPool.UnsafeQueueUserWorkItem(_ => LoadExtensions(workbench, debugger, window.Invalidate, Post), null);
+
+		UriLauncher.Listen(uri => Post(() => {
+			OpenUri(uri);
+			window.Restore();
+		}));
 
 		IFileIndex index = new FileIndex(rootPath);
 		workbench.QuickOpen.Attach(index);
@@ -328,6 +370,24 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		window.Events.PlacementChanged += () => window.CaptureState().Save(UserData.WindowStatePath);
 
+		window.Events.AppActivated += active => {
+			if (active || Workbench.AutoSaveMode is not ("onWindowChange" or "onFocusChange")) return;
+
+			workbench.AutoSave();
+			window.Invalidate();
+		};
+
+		Timer autoSaveTimer = new(_ => Post(() => {
+			if (Workbench.AutoSaveMode != "afterDelay") return;
+
+			workbench.AutoSave();
+			window.Invalidate();
+		}));
+
+		workbench.DocumentAdded += document => document.Buffer.Changed += (_, _) => {
+			if (Workbench.AutoSaveMode == "afterDelay") autoSaveTimer.Change(Math.Max(0, Settings.Current.GetInt32("files.autoSaveDelay") ?? 1000), Timeout.Infinite);
+		};
+
 		index.StartScan();
 
 		using WorkspaceWatcher watcher = new(rootPath, (directories, git) => {
@@ -336,6 +396,14 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			if (directories.Count > 0) Post(() => {
 				workbench.Sidebar.Explorer.Reload(directories);
 				workbench.ReloadExternalChanges(directories);
+
+				foreach (string directory in directories) {
+					if (!Forge.Core.WorkspaceConfig.IsConfigFolder(directory)) continue;
+
+					debugger.ReloadConfigurations();
+					Settings.Current.Reload();
+					break;
+				}
 			});
 		});
 
@@ -386,6 +454,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 	private static void RegisterBuiltInViews(WorkbenchViews views, Workbench workbench, string folder, IVectorIcon? explorerIcon) {
 		views.Register(new ViewContainer(Sidebar.ExplorerId, folder.Length > 0 ? folder : "Explorer", Codicon.Files, ViewLocation.Sidebar, 0) { VectorIcon = explorerIcon });
+		views.Register(new ViewContainer(Sidebar.SearchId, "Search", Codicon.Search, ViewLocation.Sidebar, ActivityBar.SearchOrder));
 		views.Register(new ViewContainer(Sidebar.SourceControlId, "Source Control", Codicon.SourceControl, ViewLocation.Sidebar, 20));
 		views.Register(new ViewContainer(Sidebar.RunId, "Run and Debug", Codicon.DebugAlt, ViewLocation.Sidebar, 30));
 
@@ -395,6 +464,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 				new ViewAction("workbench.files.action.collapseExplorerFolders", Codicon.CollapseAll, "Collapse Folders in Explorer"),
 			],
 		});
+		views.AddView(new ViewDescriptor("workbench.view.search.view", "Search", Sidebar.SearchId, () => workbench.Sidebar.Search) { TitleControls = () => [.. workbench.Sidebar.Search.HeaderActions] });
 		views.AddView(new ViewDescriptor("workbench.scm", "Source Control", Sidebar.SourceControlId, () => workbench.Sidebar.SourceControl) { TitleControls = () => [.. workbench.Sidebar.SourceControl.HeaderActions] });
 		views.AddView(new ViewDescriptor("workbench.debug.variablesView", "Run and Debug", Sidebar.RunId, () => workbench.Sidebar.Debug));
 		views.ShowContainer(Sidebar.ExplorerId);
@@ -403,6 +473,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 	private static string ContainerFor(string? saved) => saved switch {
 		null or "" or nameof(ActivityView.Explorer) => Sidebar.ExplorerId,
 		nameof(ActivityView.SourceControl) => Sidebar.SourceControlId,
+		nameof(ActivityView.Search) => Sidebar.SearchId,
 		nameof(ActivityView.Run) => Sidebar.RunId,
 		_ => saved,
 	};
@@ -461,6 +532,32 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		memory.AuxiliaryWidth = workbench.Auxiliary.Width;
 		memory.AuxiliaryView = workbench.Auxiliary.ActiveViewId;
 		memory.DebugConfiguration = debugger.GetSelectedConfiguration();
+	}
+
+	private static readonly string[] DefaultFilesExclude = ["**/.git", "**/.svn", "**/.hg", "**/.DS_Store", "**/Thumbs.db"];
+	private static readonly string[] DefaultSearchExclude = ["**/node_modules", "**/bower_components", "**/*.code-search"];
+
+	private static IReadOnlyList<string> SearchExcludes() {
+		Dictionary<string, bool> patterns = [];
+
+		foreach (string pattern in DefaultFilesExclude) patterns[pattern] = true;
+		foreach (string pattern in DefaultSearchExclude) patterns[pattern] = true;
+
+		foreach (string key in (string[])["files.exclude", "search.exclude"]) {
+			if (Settings.Current.GetRaw(key) is not System.Text.Json.Nodes.JsonObject entries) continue;
+
+			foreach ((string pattern, System.Text.Json.Nodes.JsonNode? value) in entries) {
+				if (value is System.Text.Json.Nodes.JsonValue flag && flag.TryGetValue(out bool enabled)) patterns[pattern] = enabled;
+			}
+		}
+
+		List<string> result = [];
+
+		foreach ((string pattern, bool enabled) in patterns) {
+			if (enabled) result.Add(pattern);
+		}
+
+		return result;
 	}
 
 	private static string ResolveWorkspaceRoot(string[] args) {
@@ -553,7 +650,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		}
 
 		workbench.ActivityBar.ViewSelected = view => {
-			string id = view == ActivityView.Search ? "workbench.view.search" : "workbench.view.extensions";
+			string id = "workbench.view.extensions";
 
 			if (workbench.ActivityBar.ActiveId == id) workbench.ShowSidebar = !workbench.ShowSidebar;
 			else {
@@ -581,6 +678,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			Debug = debugger,
 		};
 
+		workbench.IntelliSense.AddFeatures(new JsonSchemaFeatures(path => workbench.Documents.FirstOrDefault(document => string.Equals(document.Path, path, StringComparison.OrdinalIgnoreCase))?.Buffer.GetText(), () => workbench.RootPath));
+
 		workbench.IntelliSense.Suggest.DetailsVisible = settings.SuggestDetailsVisible;
 
 		void ApplyZoom() {
@@ -597,6 +696,21 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			Refresh();
 		}
 
+		settings.Changed += _ => {
+			if (fonts.Configure(settings.EditorFontFamily, settings.EditorFontSize, settings.EditorLineHeight, settings.UiFontFamily, settings.UiFontSize)) {
+				if (workbench.Webviews is Forge.Webview.WebviewHost host) host.ThemeCss = Common.Webview.WebviewTheme.BuildCss(settings.EditorFontFamily[0], settings.EditorFontSize);
+			}
+
+			workbench.ShowMinimap = settings.MinimapEnabled;
+			workbench.Panel.DefaultProfile = settings.DefaultTerminalProfile;
+			workbench.IntelliSense.Suggest.DetailsVisible = settings.SuggestDetailsVisible;
+			ApplyZoom();
+			UpdateTitle(window, workbench, rootPath);
+			Refresh();
+		};
+
+		settings.Watch(uiWork.Enqueue);
+
 		ShellContext context = new(workbench, window, device, painter, settings, debugger, rootPath) {
 			Refresh = Refresh,
 			RefreshEditor = RefreshEditor,
@@ -607,7 +721,15 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		workbench.Panel.ProblemsChanged += () => workbench.Sidebar.Explorer.SetProblems(workbench.Panel.Problems, workbench.RootPath);
 		workbench.Sidebar.Explorer.FileOpened = path => {
-			workbench.OpenFile(path);
+			workbench.OpenFile(path, preview: true);
+			Refresh();
+		};
+		workbench.Sidebar.Explorer.FilePinned = path => {
+			workbench.OpenFile(path, preview: false);
+			Refresh();
+		};
+		workbench.Tabs.Pinned = index => {
+			workbench.Pin(index);
 			Refresh();
 		};
 
@@ -1080,7 +1202,10 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		HostState state = new() {
 			WorkspacePath = workbench.RootPath,
 			ActiveEditor = EditorStateFor(workbench),
+			Configuration = Settings.Current.Snapshot(),
 		};
+
+		Settings.Current.Changed += _ => post(() => bridge.Notify("host/state", new System.Text.Json.Nodes.JsonObject { ["configuration"] = Settings.Current.Snapshot() }));
 
 		ExtensionHostSync sync = new(workbench, bridge, post, refresh);
 		bridge.ContextChanged = () => post(() => workbench.SyncEditorActions());
@@ -1093,7 +1218,24 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		post(() => {
 			workbench.ExtensionSync = sync;
 			sync.Start();
+			_uriBridge = bridge;
+
+			foreach (string uri in _pendingUris) OpenUri(uri);
+
+			_pendingUris.Clear();
 		});
+	}
+
+	private static readonly List<string> _pendingUris = [];
+	private static VSCodeBridge? _uriBridge;
+
+	private static void OpenUri(string uri) {
+		if (_uriBridge is not { } bridge) {
+			_pendingUris.Add(uri);
+			return;
+		}
+
+		_ = bridge.RequestAsync("host/openUri", new System.Text.Json.Nodes.JsonObject { ["uri"] = uri });
 	}
 
 	private static HostEditor? EditorStateFor(Workbench workbench) {

@@ -130,6 +130,8 @@ public static class Languages
 		return GrammarIndex.ForPath(path) is { } entry ? FromGrammar(entry) : PlainText;
 	}
 
+	public static LanguageDefinition GrammarForPath(string? path) => GrammarIndex.ForPath(path) is { } entry ? FromGrammar(entry) : ForPath(path);
+
 	private static LanguageDefinition FromGrammar(GrammarEntry entry) {
 		lock (GrammarSync) {
 			if (FromGrammars.TryGetValue(entry.Id, out LanguageDefinition? cached)) return cached;

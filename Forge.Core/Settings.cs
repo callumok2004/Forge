@@ -42,28 +42,26 @@ public sealed class Settings
 
 	public bool SuggestDetailsVisible { get; private set; }
 
-	public void SetSuggestDetailsVisible(bool visible) {
-		if (visible == SuggestDetailsVisible) return;
+	public void SetSuggestDetailsVisible(bool visible) => SetValue("editor.suggest.expandDocs", visible ? true : null);
 
-		SuggestDetailsVisible = visible;
-		_dirty = true;
-		Save();
-	}
+	public void SetMinimapEnabled(bool enabled) => SetValue("editor.minimap.enabled", enabled ? null : false);
 
-	public void SetMinimapEnabled(bool enabled) {
-		if (enabled == MinimapEnabled) return;
+	public void SetValue(string key, JsonNode? value) => SetValue(key, value, SettingsTarget.User);
 
-		MinimapEnabled = enabled;
-		_dirty = true;
-		Save();
-	}
+	public void SetValue(string key, JsonNode? value, SettingsTarget target) {
+		if (target == SettingsTarget.Workspace) {
+			SetWorkspaceValue(key, value);
+			return;
+		}
 
-	public void SetValue(string key, JsonNode? value) {
+		if (JsonNode.DeepEquals(value, _raw[key])) return;
+
 		if (value is null) _raw.Remove(key);
 		else _raw[key] = value;
 
 		_dirty = true;
 		Save();
+		Rebuild();
 	}
 
 	public void AdjustZoom(float delta) => SetZoom(ZoomLevel + delta);
@@ -75,35 +73,27 @@ public sealed class Settings
 
 		if (clamped == ZoomLevel) return;
 
-		ZoomLevel = clamped;
-		_dirty = true;
-
-		Save();
+		SetValue("window.zoomLevel", clamped == 0f ? null : MathF.Round(clamped, 2));
 	}
 
 	public void Save() {
 		if (!_dirty || _path is null) return;
 
+		if (Write(_path, _raw)) _dirty = false;
+	}
+
+	private static bool Write(string path, JsonObject root) {
 		try {
-			if (MinimapEnabled) _raw.Remove("editor.minimap.enabled");
-			else _raw["editor.minimap.enabled"] = false;
+			if (Path.GetDirectoryName(path) is { } directory) Directory.CreateDirectory(directory);
 
-			if (SuggestDetailsVisible) _raw["editor.suggest.expandDocs"] = true;
-			else _raw.Remove("editor.suggest.expandDocs");
-
-			if (ZoomLevel == 0f) _raw.Remove("window.zoomLevel");
-			else _raw["window.zoomLevel"] = MathF.Round(ZoomLevel, 2);
-
-			string json = _raw.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
-
-			string temporary = _path + ".tmp";
+			string json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+			string temporary = path + ".tmp";
 			File.WriteAllText(temporary, json);
-			File.Move(temporary, _path, overwrite: true);
-
-			_dirty = false;
+			File.Move(temporary, path, overwrite: true);
+			return true;
 		}
-		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-			or NotSupportedException) {
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException) {
+			return false;
 		}
 	}
 
@@ -111,59 +101,176 @@ public sealed class Settings
 		Settings settings = new() { _path = path };
 
 		try {
-			if (File.Exists(path)) {
-				JsonNodeOptions nodeOptions = new() { PropertyNameCaseInsensitive = false };
-				JsonDocumentOptions documentOptions = new() {
-					CommentHandling = JsonCommentHandling.Skip,
-					AllowTrailingCommas = true,
-				};
-
-				if (JsonNode.Parse(File.ReadAllText(path), nodeOptions, documentOptions)
-					is JsonObject root) {
-					settings._raw = root;
-					settings.Apply(root);
-				}
-			}
+			if (Read(path) is { } root) settings._raw = root;
 		}
 		catch (Exception exception) when (exception is IOException or JsonException
 			or UnauthorizedAccessException) {
 			settings._path = null;
 		}
 
+		settings._effective = (JsonObject)settings._raw.DeepClone();
+		settings.Apply(settings._effective, Defaults);
 		Current = settings;
 		return settings;
 	}
 
-	private void Apply(JsonObject root) {
-		ZoomLevel = Math.Clamp(Number(root, "window.zoomLevel", ZoomLevel), MinZoomLevel, MaxZoomLevel);
-		EditorFontSize = Number(root, "editor.fontSize", EditorFontSize);
-		EditorLineHeight = Number(root, "editor.lineHeight", EditorLineHeight);
-		UiFontSize = Number(root, "window.uiFontSize", UiFontSize);
-		TabSize = (int)Number(root, "editor.tabSize", TabSize);
+	private static readonly Settings Defaults = new();
 
-		EditorFontFamily = FontStack(root, "editor.fontFamily", EditorFontFamily);
-		UiFontFamily = FontStack(root, "window.uiFontFamily", UiFontFamily);
-		MinimapEnabled = Boolean(root, "editor.minimap.enabled", MinimapEnabled);
-		MouseWheelZoom = Boolean(root, "editor.mouseWheelZoom", MouseWheelZoom);
-		SuggestDetailsVisible = Boolean(root, "editor.suggest.expandDocs", SuggestDetailsVisible);
+	private static JsonObject? Read(string path) {
+		if (!File.Exists(path)) return null;
 
-		DefaultTerminalProfile = root["terminal.integrated.defaultProfile.windows"]
-			?.GetValue<string>() ?? DefaultTerminalProfile;
+		JsonNodeOptions nodeOptions = new() { PropertyNameCaseInsensitive = false };
+		JsonDocumentOptions documentOptions = new() {
+			CommentHandling = JsonCommentHandling.Skip,
+			AllowTrailingCommas = true,
+		};
+
+		using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+		using StreamReader reader = new(stream);
+
+		return JsonNode.Parse(reader.ReadToEnd(), nodeOptions, documentOptions) as JsonObject;
 	}
 
-	public JsonNode? GetRaw(string key) => _raw[key]?.DeepClone();
+	public event Action<IReadOnlyList<string>>? Changed;
+
+	public JsonObject Snapshot() => (JsonObject)_effective.DeepClone();
+
+	public IEnumerable<string> Keys => _effective.Select(static pair => pair.Key);
+
+	public string? UserPath => _path;
+
+	public JsonNode? UserValue(string key) => _raw[key];
+
+	public JsonNode? WorkspaceValue(string key) => _workspace[key];
+
+	public bool HasWorkspace => _workspaceRoot is not null;
+
+	public string? WorkspaceSettingsPath => _workspaceRoot is { } root ? Forge.Core.WorkspaceConfig.PathFor(root, "settings.json") : null;
+
+	private JsonObject _effective = [];
+
+	private JsonObject _workspace = [];
+
+	private string? _workspaceRoot;
+
+	public void LoadWorkspace(string? root) {
+		_workspaceRoot = root;
+		Reload();
+	}
+
+	private void SetWorkspaceValue(string key, JsonNode? value) {
+		if (WorkspaceSettingsPath is not { } path) return;
+
+		JsonObject file;
+
+		try {
+			file = Read(path) ?? [];
+		}
+		catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException) {
+			return;
+		}
+
+		if (JsonNode.DeepEquals(value, file[key])) return;
+
+		if (value is null) file.Remove(key);
+		else file[key] = value?.DeepClone();
+
+		if (Write(path, file)) Reload();
+	}
+
+	private FileSystemWatcher? _watcher;
+
+	private Timer? _debounce;
+
+	public void Watch(Action<Action> post) {
+		if (_path is null || _watcher is not null || Path.GetDirectoryName(_path) is not { } directory) return;
+
+		_debounce = new Timer(_ => post(Reload));
+		_watcher = new FileSystemWatcher(directory, Path.GetFileName(_path)) {
+			NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
+		};
+
+		FileSystemEventHandler changed = (_, _) => _debounce.Change(150, Timeout.Infinite);
+		_watcher.Changed += changed;
+		_watcher.Created += changed;
+		_watcher.Renamed += (_, _) => _debounce.Change(150, Timeout.Infinite);
+		_watcher.EnableRaisingEvents = true;
+	}
+
+	public void Reload() {
+		try {
+			if (_path is not null) _raw = Read(_path) ?? [];
+
+			JsonObject workspace = [];
+
+			if (_workspaceRoot is { } root) {
+				foreach (string layer in Forge.Core.WorkspaceConfig.Layers(root, "settings.json")) {
+					if (Read(layer) is not { } values) continue;
+
+					foreach ((string key, JsonNode? value) in values) workspace[key] = value?.DeepClone();
+				}
+			}
+
+			_workspace = workspace;
+		}
+		catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException) {
+			return;
+		}
+
+		Rebuild();
+	}
+
+	private void Rebuild() {
+		JsonObject next = (JsonObject)_raw.DeepClone();
+
+		foreach ((string key, JsonNode? value) in _workspace) next[key] = value?.DeepClone();
+
+		List<string> changed = [];
+
+		foreach ((string key, JsonNode? value) in next) {
+			if (!JsonNode.DeepEquals(value, _effective[key])) changed.Add(key);
+		}
+
+		foreach ((string key, _) in _effective) {
+			if (!next.ContainsKey(key)) changed.Add(key);
+		}
+
+		if (changed.Count == 0) return;
+
+		_effective = next;
+		Apply(next, Defaults);
+		Changed?.Invoke(changed);
+	}
+
+	private void Apply(JsonObject root, Settings defaults) {
+		ZoomLevel = Math.Clamp(Number(root, "window.zoomLevel", defaults.ZoomLevel), MinZoomLevel, MaxZoomLevel);
+		EditorFontSize = Number(root, "editor.fontSize", defaults.EditorFontSize);
+		EditorLineHeight = Number(root, "editor.lineHeight", defaults.EditorLineHeight);
+		UiFontSize = Number(root, "window.uiFontSize", defaults.UiFontSize);
+		TabSize = (int)Number(root, "editor.tabSize", defaults.TabSize);
+
+		EditorFontFamily = FontStack(root, "editor.fontFamily", defaults.EditorFontFamily);
+		UiFontFamily = FontStack(root, "window.uiFontFamily", defaults.UiFontFamily);
+		MinimapEnabled = Boolean(root, "editor.minimap.enabled", defaults.MinimapEnabled);
+		MouseWheelZoom = Boolean(root, "editor.mouseWheelZoom", defaults.MouseWheelZoom);
+		SuggestDetailsVisible = Boolean(root, "editor.suggest.expandDocs", defaults.SuggestDetailsVisible);
+
+		DefaultTerminalProfile = root["terminal.integrated.defaultProfile.windows"] is JsonValue profile && profile.TryGetValue(out string? name) ? name : defaults.DefaultTerminalProfile;
+	}
+
+	public JsonNode? GetRaw(string key) => _effective[key]?.DeepClone();
 
 	public string? GetString(string key) =>
-		_raw[key] is JsonValue value && value.TryGetValue(out string? text) ? text : null;
+		_effective[key] is JsonValue value && value.TryGetValue(out string? text) ? text : null;
 
 	public bool? GetBoolean(string key) =>
-		_raw[key] is JsonValue value && value.TryGetValue(out bool flag) ? flag : null;
+		_effective[key] is JsonValue value && value.TryGetValue(out bool flag) ? flag : null;
 
 	public int? GetInt32(string key) =>
-		_raw[key] is JsonValue value && value.TryGetValue(out double number) ? (int)number : null;
+		_effective[key] is JsonValue value && value.TryGetValue(out double number) ? (int)number : null;
 
 	public string[]? GetStringArray(string key) {
-		if (_raw[key] is not JsonArray array) return null;
+		if (_effective[key] is not JsonArray array) return null;
 
 		List<string> values = [with(array.Count)];
 
@@ -203,4 +310,10 @@ public sealed class Settings
 		family.Equals("sans-serif", StringComparison.OrdinalIgnoreCase) ||
 		family.Equals("serif", StringComparison.OrdinalIgnoreCase) ||
 		family.Equals("system-ui", StringComparison.OrdinalIgnoreCase);
+}
+
+public enum SettingsTarget : byte
+{
+	User,
+	Workspace,
 }

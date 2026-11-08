@@ -28,7 +28,6 @@ public sealed class ActivityBar : Panel
 	public const int ExtensionsOrder = 40;
 
 	private readonly List<Entry> _entries = [];
-	private readonly ActionButton _search;
 	private readonly ActionButton _extensions;
 	private readonly ActionButton _toggleSidebar;
 	private readonly ActionButton _togglePanel;
@@ -42,9 +41,7 @@ public sealed class ActivityBar : Panel
 		Dock = DockType.Left;
 		MouseInputEnabled = false;
 
-		_search = CreateBuiltIn(ActivityView.Search, Codicon.Search);
 		_extensions = CreateBuiltIn(ActivityView.Extensions, Codicon.Extensions);
-		_entries.Add(new Entry("workbench.view.search", SearchOrder, _search));
 		_entries.Add(new Entry("workbench.view.extensions", ExtensionsOrder, _extensions));
 
 		_manage = CreateControl("workbench.action.openSettings", Codicon.SettingsGear);
@@ -129,8 +126,77 @@ public sealed class ActivityBar : Panel
 		if (_entries.Find(entry => entry.Id == id) is { } entry) entry.Button.VectorIcon = icon;
 	}
 
+	private readonly List<string> _customOrder = [];
+
+	public Action<IReadOnlyList<string>>? OrderChanged { get; set; }
+
+	public void SetCustomOrder(IEnumerable<string>? order) {
+		_customOrder.Clear();
+
+		if (order is not null) _customOrder.AddRange(order);
+
+		Reorder();
+	}
+
+	private int Rank(Entry entry) {
+		int index = _customOrder.IndexOf(entry.Id);
+		return index >= 0 ? index : 10000 + entry.Order;
+	}
+
+	public int? DropIndex {
+		get;
+		set {
+			if (field == value) return;
+
+			field = value;
+			Repaint();
+		}
+	}
+
+	public int DropIndexAt(float absoluteY) {
+		for (int i = 0; i < _entries.Count; i++) {
+			ActionButton button = _entries[i].Button;
+			(_, float top) = button.GetAbsPos();
+
+			if (absoluteY < top + (button.Tall / 2f)) return i;
+		}
+
+		return _entries.Count;
+	}
+
+	public int IndexOf(string id) => _entries.FindIndex(entry => entry.Id == id);
+
+	public void MoveEntry(string id, int index) {
+		int current = IndexOf(id);
+
+		if (current < 0) return;
+
+		List<string> order = [.. _entries.Select(static entry => entry.Id)];
+		order.RemoveAt(current);
+		order.Insert(Math.Clamp(current < index ? index - 1 : index, 0, order.Count), id);
+
+		_customOrder.Clear();
+		_customOrder.AddRange(order);
+		Reorder();
+		OrderChanged?.Invoke(_customOrder);
+	}
+
+	public override void PostChildPaint(IPainter painter) {
+		base.PostChildPaint(painter);
+
+		if (DropIndex is not { } index || _entries.Count == 0) return;
+
+		float scale = Scale;
+		float thickness = 2f * scale;
+		float gap = ActionGap * scale;
+		ActionButton reference = _entries[Math.Min(index, _entries.Count - 1)].Button;
+		float y = index < _entries.Count ? reference.ScreenY - (gap / 2f) : reference.ScreenY + reference.Tall + (gap / 2f);
+
+		painter.FillRectangle(reference.ScreenX, y - (thickness / 2f), reference.Wide, thickness, Theme.ActivityBarForeground);
+	}
+
 	private void Reorder() {
-		_entries.Sort(static (left, right) => left.Order.CompareTo(right.Order));
+		_entries.Sort((left, right) => Rank(left).CompareTo(Rank(right)));
 
 		foreach (Entry entry in _entries) RemoveChild(entry.Button);
 

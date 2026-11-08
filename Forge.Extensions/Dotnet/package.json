@@ -9,5 +9,110 @@
 		"workspaceContains:**/*.csproj",
 		"onLanguage:csharp",
 		"onCommand:dotnet."
-	]
+	],
+	"contributes": {
+		"configuration": {
+			"title": "C#",
+			"properties": {
+				"dotnet.defaultSolution": {
+					"type": "string",
+					"description": "The path of the default solution to be opened in the workspace when multiple solutions are available.",
+					"order": 0
+				},
+				"dotnet.dotnetPath": {
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null,
+					"description": "Specifies the path to a dotnet installation directory to use instead of the default system one. Example: \"/home/username/mycustomdotnetdirectory\".",
+					"scope": "machine-overridable"
+				},
+				"dotnet.explorer.groupInFileExplorer": {
+					"type": "boolean",
+					"default": true,
+					"description": "Group project files in the Explorer the way Solution Explorer does."
+				},
+				"dotnet.formatting.preserveCommentIndentation": {
+					"type": "boolean",
+					"default": true,
+					"description": "Keep the indentation of comment lines when formatting."
+				},
+				"dotnet.layout.enabled": {
+					"type": "boolean",
+					"default": true,
+					"description": "Show the memory layout of types as inline hints."
+				},
+				"dotnet.layout.fieldOffsets": {
+					"type": "boolean",
+					"default": true,
+					"description": "Show the byte offset of each field in the memory layout hints."
+				},
+				"dotnet.navigation.preferImplementation": {
+					"type": "boolean",
+					"default": true,
+					"description": "Go to Definition on an abstract or interface member navigates to the single implementation when there is exactly one."
+				},
+				"dotnet.projects.maxAutoLoad": {
+					"type": "integer",
+					"default": 100,
+					"minimum": 0,
+					"description": "The maximum number of projects loaded automatically when no solution is found."
+				},
+				"dotnet.server.environmentVariables": {
+					"type": "object",
+					"additionalProperties": {
+						"type": "string"
+					},
+					"default": {},
+					"description": "Custom environment variables to pass to the language server process. Specify as key-value pairs, for example: { \"DOTNET_GCName\": \"libclrgc.dylib\" }. (Requires extension restart)"
+				},
+				"dotnet.server.logLevel": {
+					"type": "string",
+					"default": "Information",
+					"enum": [
+						"Trace",
+						"Debug",
+						"Information",
+						"Warning",
+						"Error",
+						"Critical",
+						"None"
+					],
+					"description": "Sets the logging level for the language server."
+				},
+				"dotnet.server.path": {
+					"type": "string",
+					"scope": "machine-overridable",
+					"description": "Specifies the absolute path to the server (LSP or O#) executable. When left empty the version pinned to the C# Extension is used. (Requires extension restart)"
+				},
+				"dotnet.server.sourceGeneratorExecution": {
+					"type": "string",
+					"enum": [
+						"Balanced",
+						"Automatic"
+					],
+					"default": "Balanced",
+					"markdownEnumDescriptions": [
+						"Source generators are executed after an explicit user action, including save, build, or the [Rerun source generators](command:csharp.rerunSourceGenerators) command.",
+						"Source generators are executed automatically as the user types."
+					],
+					"markdownDescription": "Controls when source generators are executed. (Requires extension restart)"
+				},
+				"dotnet.server.useServerGC": {
+					"type": "boolean",
+					"default": true,
+					"description": "Configure the language server to use .NET server garbage collection.  Server garbage collection generally provides better performance at the expense of higher memory consumption. (Requires extension restart)"
+				},
+				"dotnet.solution.path": {
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null,
+					"description": "The path of the solution to open when the workspace loads. Overrides dotnet.defaultSolution."
+				}
+			}
+		}
+	}
 }

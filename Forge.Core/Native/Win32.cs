@@ -54,6 +54,7 @@ public static unsafe partial class Win32
 	public const uint WmDpiChanged = 0x02E0;
 	public const uint WmGetMinMaxInfo = 0x0024;
 	public const uint WmActivate = 0x0006;
+	public const uint WmActivateApp = 0x001C;
 	public const uint WmNcCalcSize = 0x0083;
 	public const uint WmNcHitTest = 0x0084;
 	public const uint WmNcLeftButtonDown = 0x00A1;
@@ -331,6 +332,12 @@ public static unsafe partial class Win32
 	[LibraryImport(User32)]
 	[return: MarshalAs(UnmanagedType.Bool)]
 	public static partial bool SetForegroundWindow(nint hwnd);
+
+	public const int SwRestore = 9;
+
+	[LibraryImport(User32)]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	public static partial bool IsIconic(nint hwnd);
 
 	public const int VkShift = 0x10;
 	public const int VkControl = 0x11;

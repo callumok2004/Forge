@@ -1464,13 +1464,26 @@ function workspaceFolderFor(target) {
 	});
 }
 
-function configurationValue(fullKey) {
-	if (fullKey in state.configuration) return state.configuration[fullKey];
+const configurationDefaults = {};
+
+function registerConfigurationDefaults(manifest) {
+	const contributed = manifest?.contributes?.configuration;
+	const sections = Array.isArray(contributed) ? contributed : contributed ? [contributed] : [];
+
+	for (const section of sections) {
+		for (const [key, schema] of Object.entries(section?.properties ?? {})) {
+			if (schema && "default" in schema && !(key in configurationDefaults)) configurationDefaults[key] = schema.default;
+		}
+	}
+}
+
+function lookupConfiguration(source, fullKey) {
+	if (fullKey in source) return source[fullKey];
 
 	const prefix = `${fullKey}.`;
 	let result;
 
-	for (const [key, value] of Object.entries(state.configuration)) {
+	for (const [key, value] of Object.entries(source)) {
 		if (!key.startsWith(prefix)) continue;
 		result ??= {};
 		let cursor = result;
@@ -1480,6 +1493,39 @@ function configurationValue(fullKey) {
 	}
 
 	return result;
+}
+
+function isPlainObject(value) {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function mergeConfiguration(base, override) {
+	if (override === undefined) return base;
+	if (!isPlainObject(base) || !isPlainObject(override)) return override;
+
+	const merged = { ...base };
+	for (const [key, value] of Object.entries(override)) merged[key] = mergeConfiguration(base[key], value);
+	return merged;
+}
+
+function configurationValue(fullKey) {
+	return mergeConfiguration(lookupConfiguration(configurationDefaults, fullKey), lookupConfiguration(state.configuration, fullKey));
+}
+
+function configurationChange(previous, next) {
+	const changed = new Set();
+
+	for (const key of new Set([...Object.keys(previous ?? {}), ...Object.keys(next ?? {})])) {
+		if (JSON.stringify(previous?.[key]) !== JSON.stringify(next?.[key])) changed.add(key);
+	}
+
+	if (changed.size === 0) return null;
+
+	const keys = [...changed];
+
+	return {
+		affectsConfiguration: section => keys.some(key => key === section || key.startsWith(`${section}.`) || section.startsWith(`${key}.`)),
+	};
 }
 
 const workspace = {
@@ -1537,8 +1583,8 @@ const workspace = {
 			has: key => configurationValue(full(key)) !== undefined,
 			update: (key, value, target) => call("workspace/updateConfiguration", { key: full(key), value: toPlain(value), target: target ?? null }),
 			inspect: key => {
-				const value = configurationValue(full(key));
-				return { key: full(key), defaultValue: undefined, globalValue: value, workspaceValue: undefined, workspaceFolderValue: undefined };
+				const name = full(key);
+				return { key: name, defaultValue: lookupConfiguration(configurationDefaults, name), globalValue: lookupConfiguration(state.configuration, name), workspaceValue: undefined, workspaceFolderValue: undefined };
 			},
 		};
 	},
@@ -1735,7 +1781,7 @@ const env = {
 	appName: "Visual Studio Code",
 	appRoot: __dirname,
 	appHost: "desktop",
-	uriScheme: "vscode",
+	uriScheme: process.env.FORGE_URI_SCHEME || "vscode",
 	language: "en",
 	machineId: "forge",
 	sessionId: `forge-${Date.now()}`,
@@ -1770,6 +1816,8 @@ const extensions = {
 };
 
 function registerExtension(id, directory, manifest) {
+	registerConfigurationDefaults(manifest);
+
 	const entry = {
 		id,
 		extensionPath: directory,
@@ -1895,12 +1943,18 @@ function applyState(next) {
 	const previousSelection = JSON.stringify(state.activeTextEditor?.selections ?? null);
 	const previousTabs = JSON.stringify(state.tabGroups ?? []);
 	const previousFocused = state.focused;
+	const previousConfiguration = state.configuration;
 
 	if ("workspaceFolders" in next) {
 		state.workspaceFolders = next.workspaceFolders ? next.workspaceFolders.map(folder => ({ name: folder.name, index: folder.index, uri: Uri.revive(folder.uri) })) : undefined;
 	}
 
 	for (const key of ["activeTextEditor", "visibleTextEditors", "configuration", "focused", "shell"]) if (key in next) state[key] = next[key];
+
+	if ("configuration" in next) {
+		const change = configurationChange(previousConfiguration, state.configuration);
+		if (change) emitter("workspace.onDidChangeConfiguration").fire(change);
+	}
 
 	if ("tabGroups" in next) {
 		state.tabGroups = next.tabGroups;

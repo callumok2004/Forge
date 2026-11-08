@@ -16,6 +16,7 @@ using Forge.Git;
 using Forge.Language;
 using Forge.Render;
 using Forge.Search;
+using Forge.Text;
 using Forge.Theming;
 using Forge.UI.Controls;
 using Forge.UI;
@@ -233,6 +234,63 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 			Diff.Refresh(repository, path);
 			refreshed();
 		}, null);
+	}
+
+	public void RefreshGitDiffs(Action refreshed) {
+		if (Repository is not { } repository) return;
+
+		string root = repository.GetRootPath();
+		List<(Document Document, DiffEditor Diff, string OriginalSpec, string? ModifiedSpec)> targets = [];
+
+		for (int i = 0; i < _documents.Count; i++) {
+			if (_panes[i] is not null || !_diffEditors.TryGetValue(_views[i], out DiffEditor? diff) || _documents[i].DiffOriginalUri is not { } original || GitSpec(original) is not { } originalSpec) continue;
+
+			string? modifiedSpec = _documents[i].VirtualUri is { } uri && GitSpec(uri) is { } spec ? spec : null;
+			targets.Add((_documents[i], diff, originalSpec, modifiedSpec));
+		}
+
+		if (targets.Count == 0) return;
+
+		ThreadPool.UnsafeQueueUserWorkItem(_ => {
+			List<(Document, DiffEditor, string, string?)> texts = [];
+
+			foreach ((Document document, DiffEditor diff, string originalSpec, string? modifiedSpec) in targets) texts.Add((document, diff, GitText(root, originalSpec), modifiedSpec is null ? null : GitText(root, modifiedSpec)));
+
+			Post(() => {
+				foreach ((Document document, DiffEditor diff, string original, string? modified) in texts) {
+					if (!_documents.Contains(document)) continue;
+
+					if (!string.Equals(diff.Original.Buffer.GetText(), original, StringComparison.Ordinal)) diff.ReplaceOriginal(original);
+
+					if (modified is not null && !string.Equals(document.Buffer.GetText(), modified, StringComparison.Ordinal)) {
+						bool readOnly = document.Buffer.ReadOnly;
+						document.Buffer.ReadOnly = false;
+						document.Buffer.ReplaceChanged(document.Buffer.GetText(), modified);
+						document.Buffer.ReadOnly = readOnly;
+						document.MarkSaved();
+					}
+				}
+
+				refreshed();
+			});
+		}, null);
+	}
+
+	private static string? GitSpec(string uri) {
+		if (!uri.StartsWith("git:/", StringComparison.Ordinal)) return null;
+
+		int query = uri.LastIndexOf('?');
+
+		if (query < 0) return null;
+
+		string relative = uri[5..query];
+		string reference = uri[(query + 1)..];
+
+		return reference switch {
+			"" or "~" => ":" + relative,
+			"HEAD" => "HEAD:" + relative,
+			_ => null,
+		};
 	}
 
 	public Action? PaintBackdrop { get; init; }
@@ -464,13 +522,67 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 		if (document.Path is { } path && ViewStates.TryGetValue(path, out EditorViewState? state)) view.RestoreViewState(state.Anchor, state.Caret, state.ScrollTop);
 
-		_documents.Add(document);
-		_views.Add(view);
-		_panes.Add(null);
-		ActiveIndex = _documents.Count - 1;
+		int at = _documents.Count;
+
+		if (_openingPreview && PreviewEnabled) {
+			int replaced = PreviewIndex;
+
+			if (replaced >= 0 && !_documents[replaced].IsDirty()) {
+				Close(replaced);
+				at = Math.Min(replaced, _documents.Count);
+			}
+
+			_preview = document;
+		}
+
+		_documents.Insert(at, document);
+		_views.Insert(at, view);
+		_panes.Insert(at, null);
+		ActiveIndex = at;
 		DocumentAdded?.Invoke(document);
 		TouchHistory();
 		SyncBreadcrumbs();
+	}
+
+	private Document? _preview;
+	private bool _openingPreview;
+
+	private static bool PreviewEnabled => Settings.Current.GetBoolean("workbench.editor.enablePreview") ?? true;
+
+	public int PreviewIndex => _preview is { } preview ? _documents.IndexOf(preview) : -1;
+
+	public void Pin(int index) {
+		if (index >= 0 && index < _documents.Count && ReferenceEquals(_documents[index], _preview)) _preview = null;
+	}
+
+	public void PinDirtyPreview() {
+		if (_preview is { } preview && preview.IsDirty()) _preview = null;
+	}
+
+	public void OpenFile(string path, bool preview) {
+		bool previous = _openingPreview;
+		_openingPreview = preview;
+
+		try {
+			OpenFile(path);
+
+			if (!preview) Pin(ActiveIndex);
+		}
+		finally {
+			_openingPreview = previous;
+		}
+	}
+
+	private T AsPreview<T>(bool preview, Func<T> open) {
+		bool previous = _openingPreview;
+		_openingPreview = preview;
+
+		try {
+			return open();
+		}
+		finally {
+			_openingPreview = previous;
+		}
 	}
 
 	public void ReloadExternalChanges(IReadOnlyCollection<string> directories) {
@@ -489,6 +601,17 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 			}
 
 			if (watched) changed |= document.ReloadIfChangedOnDisk();
+		}
+
+		foreach (Document document in _documents) {
+			if (document.Source is not { } source || _documents.Contains(source) || source.Path is not { } sourcePath || Path.GetDirectoryName(sourcePath) is not { } sourceDirectory) continue;
+
+			foreach (string candidate in directories) {
+				if (!string.Equals(candidate.TrimEnd(Path.DirectorySeparatorChar), sourceDirectory, StringComparison.OrdinalIgnoreCase)) continue;
+
+				changed |= source.ReloadIfChangedOnDisk();
+				break;
+			}
 		}
 
 		if (changed) ActiveDocumentChanged?.Invoke();
@@ -532,6 +655,169 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		}
 
 		Open(document);
+	}
+
+	public void ShowDiff(Document document, string originalKey, string originalText, float previousLineHeight, float previousViewport) {
+		document.DiffOriginalUri = originalKey;
+		document.DiffOriginalText = originalText;
+
+		int index = _documents.IndexOf(document);
+
+		if (index < 0) return;
+
+		TextView view = ViewAt(index);
+		view.DiffBase = null;
+		view.Diff = null;
+
+		if (_diffEditors.Remove(view, out DiffEditor? previous)) previous.Detach();
+
+		DiffEditor diff = new(view, originalText, document.SourcePath ?? document.Name, originalKey.EndsWith("?~", StringComparison.Ordinal)) { HideUnchangedRegions = Settings.Current.GetBoolean("diffEditor.hideUnchangedRegions.enabled") ?? false, ShowMoves = Settings.Current.GetBoolean("diffEditor.experimental.showMoves") ?? false };
+		diff.StageHunk = hunk => StageHunk(document, diff, hunk);
+		_diffEditors[view] = diff;
+
+		if (LineDiff.Compute(originalText, document.Buffer.GetText()) is not [var first, ..]) return;
+
+		TextSnapshot snapshot = view.Snapshot;
+		int line = Math.Clamp(first.ModifiedStart, 0, Math.Max(0, snapshot.LineCount - 1));
+		view.MoveTo(snapshot.GetLineSpan(line).Start, extend: false);
+
+		float lineHeight = view.LastViewportHeight > 0f ? view.LastLineHeight : previousLineHeight;
+		float viewport = view.LastViewportHeight > 0f ? view.LastViewportHeight : previousViewport;
+
+		if (lineHeight > 0f) diff.Sync(lineHeight, _scale);
+
+		if (lineHeight > 0f && viewport > 0f) view.RevealLineInCenter(line, lineHeight, viewport);
+		else RevealCaret?.Invoke();
+	}
+
+	private readonly Dictionary<TextView, DiffEditor> _diffEditors = [];
+
+	public TextView? FocusedView => ActiveDiff is { OriginalFocused: true } diff ? diff.Original : ActiveView;
+
+	public DiffEditor? ActiveDiff => ActiveView is { } view && _diffEditors.TryGetValue(view, out DiffEditor? diff) && !diff.Inline ? diff : null;
+
+	private void StageHunk(Document document, DiffEditor diff, LineHunk hunk) {
+		if (Repository is not { } repository || document.SourcePath is not { } path) return;
+
+		string root = repository.GetRootPath();
+		string relative = System.IO.Path.GetRelativePath(root, path).Replace('\\', '/');
+		string staged = diff.OriginalWithHunk(hunk);
+		string? entry = Git.GitProcess.Run(root, "ls-files", "-s", "--", relative);
+		string mode = entry is { Length: > 6 } ? entry[..6] : "100644";
+
+		if (Git.GitProcess.RunWithInput(root, staged, "hash-object", "-w", "--stdin", "--path", relative)?.Trim() is not { Length: > 0 } hash) return;
+
+		if (Git.GitProcess.Run(root, "update-index", "--add", "--cacheinfo", mode + "," + hash + "," + relative) is null) return;
+
+		diff.ReplaceOriginal(staged);
+		document.DiffOriginalText = staged;
+		ThreadPool.UnsafeQueueUserWorkItem(_ => repository.Refresh(), null);
+	}
+
+	public void OpenGitChange(string path, GitFileStatus status, bool staged, bool preview = true) => AsPreview(preview, () => {
+		OpenGitChangeCore(path, status, staged);
+
+		if (!preview) Pin(ActiveIndex);
+
+		return true;
+	});
+
+	private void OpenGitChangeCore(string path, GitFileStatus status, bool staged) {
+		if (Repository is not { } repository) return;
+
+		string root = repository.GetRootPath();
+		string relative = System.IO.Path.GetRelativePath(root, path).Replace('\\', '/');
+		string name = System.IO.Path.GetFileName(path);
+		float previousLineHeight = ActiveView?.LastLineHeight ?? 0f;
+		float previousViewport = ActiveView?.LastViewportHeight ?? 0f;
+
+		if (status == GitFileStatus.Untracked || (status == GitFileStatus.Conflicted && !staged)) {
+			OpenFile(path);
+			return;
+		}
+
+		if (status == GitFileStatus.Deleted) {
+			string reference = staged ? "HEAD" : string.Empty;
+			string uri = GitUri(relative, "deleted" + reference);
+
+			if (FindVirtual(uri) is not { } deleted) deleted = Document.Virtual(uri, name + (staged ? " (Index)" : " (Deleted)"), string.Empty);
+
+			OpenVirtual(deleted);
+			deleted.Buffer.ReadOnly = true;
+			ViewAt(_documents.IndexOf(deleted)).Highlighter.SetLanguage(Forge.Syntax.Languages.ForPath(path));
+			string before = GitText(root, (staged ? "HEAD:" : ":") + relative);
+
+			if (before.Length == 0 && !staged) before = GitText(root, "HEAD:" + relative);
+
+			ShowDiff(deleted, GitUri(relative, reference), before, previousLineHeight, previousViewport);
+			return;
+		}
+
+		if (staged) {
+			Document? index = OpenGitVersion(root, relative, string.Empty, name + " (Index)");
+
+			if (index is null || status == GitFileStatus.Added) return;
+
+			ShowDiff(index, GitUri(relative, "HEAD"), GitText(root, "HEAD:" + relative), previousLineHeight, previousViewport);
+			return;
+		}
+
+		if (OpenDiffTab(path, GitUri(relative, "~"), name + " (Working Tree)") is not { } document) return;
+
+		ShowDiff(document, GitUri(relative, "~"), GitText(root, ":" + relative), previousLineHeight, previousViewport);
+	}
+
+	public Document? OpenDiffTab(string path, string originalKey, string title, bool preview) => AsPreview(preview, () => OpenDiffTab(path, originalKey, title));
+
+	public Document? OpenDiffTab(string path, string originalKey, string title) {
+		if (FindDocument(path) is not { } source) {
+			try {
+				source = Document.Open(path);
+			}
+			catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
+				return null;
+			}
+		}
+
+		source.ReloadIfChangedOnDisk();
+
+		string uri = "diff:" + originalKey + "|" + path;
+
+		if (FindVirtual(uri) is { } existing) {
+			OpenVirtual(existing);
+			return existing;
+		}
+
+		Document diff = Document.DiffOf(source, uri, title);
+		Open(diff);
+		ViewAt(_documents.Count - 1).Highlighter.SetLanguage(Forge.Syntax.Languages.ForPath(path));
+		return diff;
+	}
+
+	private Document? OpenGitVersion(string root, string relative, string reference, string title) {
+		string uri = GitUri(relative, reference);
+
+		if (FindVirtual(uri) is not { } document) {
+			document = Document.Virtual(uri, title, GitText(root, (reference.Length == 0 ? ":" : reference + ":") + relative));
+		}
+
+		OpenVirtual(document);
+		return document;
+	}
+
+	private Document? FindDocument(string path) {
+		foreach (Document document in _documents) {
+			if (string.Equals(document.Path, path, StringComparison.OrdinalIgnoreCase)) return document;
+		}
+
+		return null;
+	}
+
+	private static string GitUri(string relative, string reference) => "git:/" + relative + "?" + reference;
+
+	private static string GitText(string root, string spec) {
+		string text = Git.GitProcess.Run(root, "show", spec) ?? string.Empty;
+		return text is ['\uFEFF', ..] ? text[1..] : text;
 	}
 
 	public bool Save(Document document) {
@@ -692,6 +978,106 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		return applied;
 	}
 
+	public void OpenMatch(string path, int line, int column, int length, bool preview = false) {
+		History.Observe();
+		History.MarkJump();
+		OpenFile(path, preview);
+
+		if (ActiveView is not { } view) return;
+
+		int index = Math.Clamp(line, 0, Math.Max(0, view.Snapshot.LineCount - 1));
+		Forge.Text.TextSpan span = view.Snapshot.GetLineSpan(index);
+		int start = Math.Clamp(span.Start + column, span.Start, span.End);
+
+		view.PushUndoStop();
+		view.MoveTo(start, extend: false);
+		view.MoveTo(Math.Clamp(start + length, start, view.Snapshot.Length), extend: true);
+
+		if (view.LastLineHeight > 0f && view.LastViewportHeight > 0f) view.RevealLineInCenter(index, view.LastLineHeight, view.LastViewportHeight);
+		else RevealCaret?.Invoke();
+	}
+
+	public void ReplaceInFile(string path, IReadOnlyList<(Forge.Search.TextMatch Match, string Replacement)> edits) {
+		Document? open = null;
+
+		foreach (Document document in _documents) {
+			if (string.Equals(document.Path, path, StringComparison.OrdinalIgnoreCase)) open = document;
+		}
+
+		System.Text.Encoding encoding = new System.Text.UTF8Encoding(false);
+		Forge.Text.TextBuffer buffer = open?.Buffer ?? new Forge.Text.TextBuffer(ReadText(path, out encoding));
+		ApplyMatchEdits(buffer, edits);
+
+		if (open is not null) return;
+
+		try {
+			File.WriteAllText(path, buffer.GetText(), encoding);
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
+		}
+	}
+
+	public void OpenReplacePreview(string path, IReadOnlyList<(Forge.Search.TextMatch Match, string Replacement)> edits, int line) {
+		Document? open = null;
+
+		foreach (Document document in _documents) {
+			if (string.Equals(document.Path, path, StringComparison.OrdinalIgnoreCase)) open = document;
+		}
+
+		string original = open?.Buffer.GetText() ?? ReadText(path, out _);
+		Forge.Text.TextBuffer replaced = new(original);
+		ApplyMatchEdits(replaced, edits);
+
+		string name = System.IO.Path.GetFileName(path);
+		string uri = "search-preview:/" + path.Replace('\\', '/');
+		float previousLineHeight = ActiveView?.LastLineHeight ?? 0f;
+		float previousViewport = ActiveView?.LastViewportHeight ?? 0f;
+
+		if (FindVirtual(uri) is { } existing) {
+			existing.Buffer.ReplaceChanged(existing.Buffer.GetText(), replaced.GetText());
+			OpenVirtual(existing);
+			ShowDiff(existing, "file:/" + path, original, previousLineHeight, previousViewport);
+			return;
+		}
+
+		Document preview = Document.Virtual(uri, name + " \u2194 " + name + " (Replace Preview)", replaced.GetText());
+		OpenVirtual(preview);
+		ShowDiff(preview, "file:/" + path, original, previousLineHeight, previousViewport);
+	}
+
+	private static void ApplyMatchEdits(Forge.Text.TextBuffer buffer, IReadOnlyList<(Forge.Search.TextMatch Match, string Replacement)> edits) {
+		Forge.Text.TextSnapshot snapshot = buffer.CreateSnapshot();
+		List<(int Offset, int Length, string Text)> spans = new(edits.Count);
+
+		foreach ((Forge.Search.TextMatch match, string replacement) in edits) {
+			if (match.Line >= snapshot.LineCount) continue;
+
+			Forge.Text.TextSpan line = snapshot.GetLineSpan(match.Line);
+			int start = Math.Min(line.Start + match.Column, line.End);
+			spans.Add((start, Math.Min(match.Length, line.End - start), replacement));
+		}
+
+		spans.Sort(static (a, b) => b.Offset.CompareTo(a.Offset));
+		buffer.PushStackElement();
+
+		foreach ((int offset, int length, string text) in spans) buffer.Replace(offset, length, text);
+
+		buffer.PushStackElement();
+	}
+
+	private static string ReadText(string path, out System.Text.Encoding encoding) {
+		try {
+			using StreamReader reader = new(path, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+			string text = reader.ReadToEnd();
+			encoding = reader.CurrentEncoding;
+			return text;
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
+			encoding = new System.Text.UTF8Encoding(false);
+			return string.Empty;
+		}
+	}
+
 	public void GoTo(string path, int line, int column) {
 		History.Observe();
 		History.MarkJump();
@@ -749,7 +1135,11 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 			if (_recentlyClosed.Count > MaxRecentlyClosed) _recentlyClosed.RemoveAt(0);
 		}
 
+		if (ReferenceEquals(_documents[index], _preview)) _preview = null;
+
 		_documents.RemoveAt(index);
+		if (_diffEditors.Remove(_views[index], out DiffEditor? closedDiff)) closedDiff.Detach();
+
 		_views.RemoveAt(index);
 		_panes.RemoveAt(index);
 
@@ -832,6 +1222,33 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		if (_documents.Count == 0) return;
 
 		Activate(((ActiveIndex + delta) % _documents.Count + _documents.Count) % _documents.Count);
+	}
+
+	public static string AutoSaveMode => Settings.Current.GetString("files.autoSave") ?? "off";
+
+	private Document? _lastFocused;
+
+	public void AutoSave(Document? only = null) {
+		for (int i = _documents.Count - 1; i >= 0; i--) {
+			if (i >= _documents.Count) continue;
+
+			Document document = _documents[i];
+
+			if (_panes[i] is not null || (only is not null && !ReferenceEquals(document, only) && !ReferenceEquals(document.Source, only)) || !document.IsDirty() || document.SourcePath is null) continue;
+
+			Save(document);
+		}
+	}
+
+	public void TrackFocusChange() {
+		Document? current = ActiveDocument;
+
+		if (ReferenceEquals(current, _lastFocused)) return;
+
+		Document? previous = _lastFocused;
+		_lastFocused = current;
+
+		if (previous is not null && AutoSaveMode == "onFocusChange" && _documents.Contains(previous)) AutoSave(previous);
 	}
 
 	public void SaveAll() {
@@ -929,6 +1346,16 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		if (ActiveView is not { } view) {
 			DrawEmptyState(painter, left, top, width, height);
 			return;
+		}
+
+		if (_diffEditors.TryGetValue(view, out DiffEditor? diff)) {
+			diff.SetInline(width < DiffEditor.InlineBreakpoint * _scale);
+
+			if (!diff.Inline) {
+				view.Scale = _scale;
+				diff.Render(painter, left, top, width, height, _scale);
+				return;
+			}
 		}
 
 		float textWidth = Math.Max(0f, width - (ShowMinimap ? Minimap.Width(_scale) : 0f));

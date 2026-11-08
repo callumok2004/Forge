@@ -2,6 +2,7 @@
 #define DirName "Forge Dev"
 #define ExeBasename "Forge"
 #define RegValueName "ForgeDev"
+#define UrlProtocol "forge-dev"
 #define AppUserId "ForgeDev.Forge"
 #define AppxPackageName "ForgeDev.ForgeDev"
 #define AppxPackage "forge_dev_shell.appx"
@@ -87,6 +88,10 @@ Root: HKCU; Subkey: "Software\Classes\Drive\shell\{#RegValueName}\command"; Valu
 Root: HKCU; Subkey: "Software\Classes\Applications\{#ExeBasename}.exe"; ValueType: none; ValueName: ""; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\Applications\{#ExeBasename}.exe\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#ExeBasename}.exe"
 Root: HKCU; Subkey: "Software\Classes\Applications\{#ExeBasename}.exe\shell\open\command"; ValueType: expandsz; ValueName: ""; ValueData: """{app}\{#ExeBasename}.exe"" ""%1"""
+Root: HKCU; Subkey: "Software\Classes\{#UrlProtocol}"; ValueType: string; ValueName: ""; ValueData: "URL:{#UrlProtocol}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\{#UrlProtocol}"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\{#UrlProtocol}\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#ExeBasename}.exe"
+Root: HKCU; Subkey: "Software\Classes\{#UrlProtocol}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#ExeBasename}.exe"" ""--open-url"" ""--"" ""%1"""
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{code:AddToPath|{app}}"; Tasks: addtopath; Check: NeedsAddToPath(ExpandConstant('{app}'))
 
 [Code]

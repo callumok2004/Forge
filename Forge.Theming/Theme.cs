@@ -129,6 +129,9 @@ public static class Theme
 	public static readonly Color WidgetBorder = Color.Parse("#1e2738");
 
 	public static readonly Color InputBackground = Color.Parse("#121826");
+	public static readonly Color DropdownBackground = Color.Parse("#10151e");
+	public static readonly Color DropdownBorder = Color.Parse("#1f2735");
+	public static readonly Color DropdownForeground = Color.Parse("#c9d1dc");
 	public static readonly Color InputForeground = Color.Parse("#e6ebf2");
 	public static readonly Color InputBorder = Color.Parse("#1f2735");
 	public static readonly Color InputPlaceholderForeground = Color.Parse("#5b6678");
@@ -168,6 +171,9 @@ public static class Theme
 	public static readonly Color GitIgnoredForeground = Color.Parse("#4a5568");
 	public static readonly Color GitAddedForeground = Color.Parse("#3fd8a0");
 	public static readonly Color GitDeletedForeground = Color.Parse("#ff8a8a");
+	public static readonly Color GitModifiedSecondaryForeground = Color.Parse("#7f5f13");
+	public static readonly Color GitAddedSecondaryForeground = Color.Parse("#187452");
+	public static readonly Color GitDeletedSecondaryForeground = Color.Parse("#ec0000");
 	public static readonly Color GitRenamedForeground = Color.Parse("#73c991");
 	public static readonly Color GitConflictForeground = Color.Parse("#ff8a8a");
 
@@ -194,5 +200,25 @@ public static class Theme
 
 	public static readonly Color InputOptionActiveBackground = Color.Parse("#1f5bff33");
 	public static readonly Color InputOptionActiveBorder = Color.Parse("#1f5bff");
+	public static readonly Color InputOptionActiveForeground = Color.Parse("#e6ebf2");
+	public static readonly Color InputOptionHoverBackground = Color.Parse("#5a5d5e80");
+	public static readonly Color SearchResultsInfoForeground = Color.Parse("#c9d1dca6");
+	public static readonly Color FindMatchHighlightBackground = Color.Parse("#e3b34226");
+	public static readonly Color FindMatchBackground = Color.Parse("#e3b34155");
+	public static readonly Color FindRangeHighlightBackground = Color.Parse("#3a3d4166");
 	public static readonly Color TextLinkForeground = Color.Parse("#5aa8ff");
+	public static readonly Color TextLinkActiveForeground = Color.Parse("#8cc4ff");
+	public static readonly Color TextPreformatForeground = Color.Parse("#9aa7bb");
+	public static readonly Color TextPreformatBackground = Color.Parse("#1a2232");
+	public static readonly Color SettingsHeaderForeground = Color.Parse("#e6ebf2");
+	public static readonly Color SettingsModifiedItemIndicator = Color.Parse("#e3b341");
+	public static readonly Color SettingsRowHoverBackground = Color.Parse("#121a28").WithAlpha(0.3f);
+	public static readonly Color SettingsFocusedRowBackground = Color.Parse("#121a28").WithAlpha(0.6f);
+	public static readonly Color CheckboxBackground = Color.Parse("#10151e");
+	public static readonly Color CheckboxBorder = Color.Parse("#263149");
+	public static readonly Color CheckboxForeground = Color.Parse("#e6ebf2");
+	public static readonly Color WidgetShadow = Color.Parse("#00000099");
+	public static readonly Color EditorWidgetBackground = Color.Parse("#121722");
+	public static readonly Color EditorWidgetBorder = Color.Parse("#1e2738");
+	public static readonly Color EditorWidgetForeground = Color.Parse("#c9d1dc");
 }

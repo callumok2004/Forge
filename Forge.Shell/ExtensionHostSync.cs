@@ -333,10 +333,18 @@ public sealed class ExtensionHostSync
 		}),
 		"env/openExternal" => Task.FromResult<JsonNode?>(OpenExternal(parameters?["target"]?.GetValue<string>())),
 		"terminal/processId" => Task.FromResult<JsonNode?>(null),
-		"workspace/updateConfiguration" => Task.FromResult<JsonNode?>(true),
+		"workspace/updateConfiguration" => Task.FromResult<JsonNode?>(UpdateConfiguration(parameters)),
 		"window/showInputBox" => Task.FromResult<JsonNode?>(null),
 		_ => null,
 	};
+
+	private JsonNode? UpdateConfiguration(JsonNode? parameters) {
+		if (parameters?["key"]?.GetValue<string>() is not { Length: > 0 } key) return false;
+
+		JsonNode? value = parameters["value"]?.DeepClone();
+		_post(() => Forge.Core.Settings.Current.SetValue(key, value));
+		return true;
+	}
 
 	private static JsonNode? OpenExternal(string? target) {
 		if (string.IsNullOrWhiteSpace(target)) return false;
@@ -414,8 +422,7 @@ public sealed class ExtensionHostSync
 		Document? document;
 
 		if (Scheme(modified) == "file") {
-			_workbench.OpenFile(FsPath(modified));
-			document = FindDocument(modified);
+			document = _workbench.OpenDiffTab(FsPath(modified), originalKey, title, preview: parameters["preview"]?.GetValue<bool>() ?? true);
 		}
 		else {
 			document = OpenVirtual(modified, parameters["modifiedText"]?.GetValue<string>() ?? string.Empty, title);
@@ -423,28 +430,7 @@ public sealed class ExtensionHostSync
 
 		if (document is null) return null;
 
-		document.DiffOriginalUri = originalKey;
-		document.DiffOriginalText = originalText;
-
-		int index = _workbench.IndexOf(document);
-
-		if (index >= 0) {
-			TextView view = _workbench.ViewAt(index);
-			view.DiffBase = originalText;
-
-			if (LineDiff.Compute(originalText, document.Buffer.GetText()) is [var first, ..]) {
-				TextSnapshot snapshot = view.Snapshot;
-				int line = Math.Clamp(first.ModifiedStart, 0, Math.Max(0, snapshot.LineCount - 1));
-				view.MoveTo(snapshot.GetLineSpan(line).Start, extend: false);
-
-				float lineHeight = view.LastViewportHeight > 0f ? view.LastLineHeight : previousLineHeight;
-				float viewport = view.LastViewportHeight > 0f ? view.LastViewportHeight : previousViewport;
-
-				if (lineHeight > 0f && viewport > 0f) view.RevealLineInCenter(line, lineHeight, viewport);
-				else _workbench.RevealCaret?.Invoke();
-			}
-		}
-
+		_workbench.ShowDiff(document, originalKey, originalText, previousLineHeight, previousViewport);
 		_stateSignature = 0;
 		return true;
 	}

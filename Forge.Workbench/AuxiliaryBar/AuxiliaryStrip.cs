@@ -54,7 +54,7 @@ public sealed class AuxiliaryStrip : Panel
 
 		foreach (WebviewViewEntry view in _bar.Views) {
 			string viewId = view.ViewId;
-			ActionButton button = new() {
+			ContainerButton button = new(viewId) {
 				Name = viewId,
 				Icon = Codicon.Extensions,
 				VectorIcon = IconFor(view),
@@ -71,8 +71,89 @@ public sealed class AuxiliaryStrip : Panel
 			AddChild(button);
 		}
 
+		List<string> natural = [.. _buttons.Select(static entry => entry.ViewId)];
+		_buttons.Sort((left, right) => Rank(left.ViewId, natural).CompareTo(Rank(right.ViewId, natural)));
+
+		foreach ((ActionButton button, _) in _buttons) RemoveChild(button);
+
+		foreach ((ActionButton button, _) in _buttons) AddChild(button);
+
 		Sync();
 		InvalidateLayout();
+	}
+
+	private readonly List<string> _customOrder = [];
+
+	public Action<IReadOnlyList<string>>? OrderChanged { get; set; }
+
+	public void SetCustomOrder(IEnumerable<string>? order) {
+		_customOrder.Clear();
+
+		if (order is not null) _customOrder.AddRange(order);
+
+		Rebuild();
+	}
+
+	private int Rank(string id, List<string> natural) {
+		int index = _customOrder.IndexOf(id);
+		return index >= 0 ? index : 10000 + natural.IndexOf(id);
+	}
+
+	public bool Contains(string id) => _buttons.Exists(entry => entry.ViewId == id);
+
+	public bool ContainsPoint(float absoluteX, float absoluteY) {
+		(float x, float y) = GetAbsPos();
+		return Visible && absoluteX >= x && absoluteX < x + Wide && absoluteY >= y && absoluteY < y + Tall;
+	}
+
+	public int? DropIndex {
+		get;
+		set {
+			if (field == value) return;
+
+			field = value;
+			Repaint();
+		}
+	}
+
+	public int DropIndexAt(float absoluteY) {
+		for (int i = 0; i < _buttons.Count; i++) {
+			ActionButton button = _buttons[i].Button;
+			(_, float top) = button.GetAbsPos();
+
+			if (absoluteY < top + (button.Tall / 2f)) return i;
+		}
+
+		return _buttons.Count;
+	}
+
+	public void MoveEntry(string id, int index) {
+		int current = _buttons.FindIndex(entry => entry.ViewId == id);
+
+		if (current < 0) return;
+
+		List<string> order = [.. _buttons.Select(static entry => entry.ViewId)];
+		order.RemoveAt(current);
+		order.Insert(Math.Clamp(current < index ? index - 1 : index, 0, order.Count), id);
+
+		_customOrder.Clear();
+		_customOrder.AddRange(order);
+		Rebuild();
+		OrderChanged?.Invoke(_customOrder);
+	}
+
+	public override void PostChildPaint(IPainter painter) {
+		base.PostChildPaint(painter);
+
+		if (DropIndex is not { } index || _buttons.Count == 0) return;
+
+		float scale = Scale;
+		float thickness = 2f * scale;
+		float gap = ActionGap * scale;
+		ActionButton reference = _buttons[Math.Min(index, _buttons.Count - 1)].Button;
+		float y = index < _buttons.Count ? reference.ScreenY - (gap / 2f) : reference.ScreenY + reference.Tall + (gap / 2f);
+
+		painter.FillRectangle(reference.ScreenX, y - (thickness / 2f), reference.Wide, thickness, Theme.ActivityBarForeground);
 	}
 
 	public void SetBadge(string id, int count) {

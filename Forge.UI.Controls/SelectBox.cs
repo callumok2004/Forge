@@ -6,8 +6,10 @@ namespace Forge.UI.Controls;
 
 public sealed class SelectBox : Panel
 {
-	private const float PaddingX = 6f;
-	private const float ChevronSlot = 18f;
+	private const float PaddingX = 8f;
+	private const float ChevronSlot = 23f;
+	private const float ChevronSize = 16f;
+	private const float ChevronInset = 4f;
 
 	private readonly Menu _menu = new();
 	private string[] _options;
@@ -23,7 +25,7 @@ public sealed class SelectBox : Panel
 		};
 	}
 
-	public float FontSize { get; init; } = 11f;
+	public float FontSize { get; init; } = Metrics.FontSizeBody;
 
 	public int Selected {
 		get;
@@ -104,16 +106,17 @@ public sealed class SelectBox : Panel
 
 	public override void Paint(IPainter painter) {
 		float scale = Scale;
-		float radius = 3f * scale;
+		float radius = Metrics.RadiusSmall * scale;
 		ITextFont font = painter.GetUi(FontSize);
 		bool active = _menu.IsOpen;
 
-		painter.FillRoundedRectangle(ScreenX, ScreenY, Wide, Tall, radius, Theme.InputBackground);
-		painter.StrokeRoundedRectangle(ScreenX, ScreenY, Wide, Tall, radius, Metrics.StrokeThickness * scale, active ? Theme.FocusBorder : IsCursorOver ? Theme.InputBorder.WithAlpha(1f) : Theme.InputBorder);
+		painter.FillRoundedRectangle(ScreenX, ScreenY, Wide, Tall, radius, Theme.DropdownBackground);
+		float stroke = Metrics.StrokeThickness * scale;
+		painter.StrokeRoundedRectangle(ScreenX + (stroke / 2f), ScreenY + (stroke / 2f), Wide - stroke, Tall - stroke, radius, stroke, active || HasFocus ? Theme.FocusBorder : Theme.DropdownBorder);
 
 		painter.PushClip(ScreenX, ScreenY, MathF.Max(0f, Wide - (ChevronSlot * scale)), Tall);
-		painter.DrawText(font, Text, ScreenX + (PaddingX * scale), ScreenY + ((Tall - font.GetLineHeight()) / 2f) + font.GetBaseline(), Enabled ? Theme.InputForeground : Theme.DisabledForeground);
+		painter.DrawText(font, Text, ScreenX + (PaddingX * scale), ScreenY + ((Tall - font.GetLineHeight()) / 2f) + font.GetBaseline(), Enabled ? Theme.DropdownForeground : Theme.DisabledForeground);
 		painter.PopClip();
-		painter.DrawChevron(ScreenX + Wide - (ChevronSlot * scale / 2f), ScreenY + (Tall / 2f), 7f * scale, true, Enabled ? Theme.InputForeground : Theme.DisabledForeground);
+		painter.DrawIcon(Codicon.ChevronDown, ScreenX + Wide - ((ChevronInset + (ChevronSize / 2f)) * scale), ScreenY + (Tall / 2f), ChevronSize * scale, Enabled ? Theme.DropdownForeground : Theme.DisabledForeground);
 	}
 }

@@ -7,12 +7,12 @@ namespace Forge.Render;
 public sealed class FontSet : IFontSet, IDisposable
 {
 	private readonly DWrite.IDWriteFactory _factory;
-	private readonly string[] _codeFamily;
-	private readonly string[] _uiFamily;
-	private readonly float _codeSize;
-	private readonly float _uiSize;
+	private string[] _codeFamily;
+	private string[] _uiFamily;
+	private float _codeSize;
+	private float _uiSize;
 	private readonly float _labelSize;
-	private readonly float _lineHeight;
+	private float _lineHeight;
 	private readonly BundledFonts _bundled;
 
 	private bool _disposed;
@@ -76,6 +76,18 @@ public sealed class FontSet : IFontSet, IDisposable
 
 	public ITextFont GetUi(float size, bool strong = false) => Sized(false, size, strong);
 
+	private readonly Dictionary<int, TextFont> _italic = [];
+
+	public ITextFont GetUiItalic(float size) {
+		int pixels = Math.Max(1, (int)MathF.Round(size * Scale));
+
+		if (_italic.TryGetValue(pixels, out TextFont? font)) return font;
+
+		font = new TextFont(_factory, _bundled.Collection, _uiFamily, pixels, TextWeight.Regular, 0f, italic: true);
+		_italic[pixels] = font;
+		return font;
+	}
+
 	public ITextFont GetMono(float size, bool strong = false) => Sized(true, size, strong);
 
 	private readonly Dictionary<(string[] Families, int Pixels), TextFont> _families = [];
@@ -103,7 +115,10 @@ public sealed class FontSet : IFontSet, IDisposable
 	private void ClearSized() {
 		foreach (TextFont font in _sized.Values) font.Dispose();
 
+		foreach (TextFont font in _italic.Values) font.Dispose();
+
 		_sized.Clear();
+		_italic.Clear();
 	}
 
 	public float CodeZoom { get; private set; } = 1f;
@@ -130,6 +145,24 @@ public sealed class FontSet : IFontSet, IDisposable
 	public bool Rescale(float scale) {
 		if (MathF.Abs(scale - Scale) < 0.001f) return false;
 
+		Rebuild(scale);
+		return true;
+	}
+
+	public bool Configure(string[] codeFamily, float codeSize, float lineHeight, string[] uiFamily, float uiSize) {
+		if (codeFamily.AsSpan().SequenceEqual(_codeFamily) && uiFamily.AsSpan().SequenceEqual(_uiFamily) && codeSize == _codeSize && lineHeight == _lineHeight && uiSize == _uiSize) return false;
+
+		_codeFamily = codeFamily;
+		_uiFamily = uiFamily;
+		_codeSize = codeSize;
+		_lineHeight = lineHeight;
+		_uiSize = uiSize;
+
+		Rebuild(Scale);
+		return true;
+	}
+
+	private void Rebuild(float scale) {
 		TextFont oldCode = Code;
 		TextFont oldCodeStrong = CodeStrong;
 		TextFont oldCodeSmall = CodeSmall;
@@ -151,8 +184,6 @@ public sealed class FontSet : IFontSet, IDisposable
 		oldUiStrong.Dispose();
 		oldUiSmall.Dispose();
 		oldUiDescription.Dispose();
-
-		return true;
 	}
 
 	private void BuildCode(float scale) {

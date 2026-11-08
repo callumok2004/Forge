@@ -199,19 +199,59 @@ public sealed class WorkbenchViews : IWorkbenchViews, IViewDragTarget
 	}
 
 	public void DragMoved(float x, float y) {
-		_overlay.Highlight = TargetAt(x, y)?.Item2;
+		(_, float height) = WindowSize();
+
+		AuxiliaryStrip strip = _workbench.Auxiliary.Strip;
+		bool container = _dragging is { } dragged && _containers.ContainsKey(dragged);
+
+		if (container && Contains(_workbench.ActivityBarRect(height), x, y)) {
+			_workbench.ActivityBar.DropIndex = _workbench.ActivityBar.DropIndexAt(y);
+			strip.DropIndex = null;
+			_overlay.Highlight = null;
+		}
+		else if (strip.ContainsPoint(x, y) && (container || strip.Contains(_dragging!))) {
+			strip.DropIndex = strip.DropIndexAt(y);
+			_workbench.ActivityBar.DropIndex = null;
+			_overlay.Highlight = null;
+		}
+		else {
+			_workbench.ActivityBar.DropIndex = null;
+			strip.DropIndex = null;
+			_overlay.Highlight = container ? TargetAt(x, y)?.Item2 : null;
+		}
+
 		_overlay.Repaint();
 	}
 
 	public void DragEnded(float x, float y, bool cancelled) {
 		string? id = _dragging;
-		ViewLocation? target = cancelled ? null : TargetAt(x, y)?.Item1;
+		int? dropIndex = cancelled ? null : _workbench.ActivityBar.DropIndex;
+		int? stripIndex = cancelled ? null : _workbench.Auxiliary.Strip.DropIndex;
+		ViewLocation? target = cancelled || dropIndex is not null || stripIndex is not null ? null : TargetAt(x, y)?.Item1;
+
+		_workbench.Auxiliary.Strip.DropIndex = null;
+
+		if (id is not null && stripIndex is { } auxiliaryIndex) {
+			if (!_workbench.Auxiliary.Strip.Contains(id)) Move(id, ViewLocation.Auxiliary);
+
+			_workbench.Auxiliary.Strip.MoveEntry(id, auxiliaryIndex);
+		}
 
 		_dragging = null;
 		_overlay.Highlight = null;
 		_overlay.Visible = false;
+		_workbench.ActivityBar.DropIndex = null;
 
-		if (id is not null && target is { } location) Move(id, location);
+		if (stripIndex is not null) {
+		}
+		else if (id is not null && dropIndex is { } index) {
+			if (!_workbench.ActivityBar.Contains(id)) Move(id, ViewLocation.Sidebar);
+
+			_workbench.ActivityBar.MoveEntry(id, index);
+		}
+		else if (id is not null && target is { } location) {
+			Move(id, location);
+		}
 
 		Refresh();
 	}

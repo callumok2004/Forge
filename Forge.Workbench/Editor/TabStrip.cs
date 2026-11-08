@@ -24,9 +24,11 @@ public sealed class TabStrip : Panel
 
 	public Action<int>? Closed { get; set; }
 
+	public Action<int>? Pinned { get; set; }
+
 	public Action<int, float, float>? ContextMenu { get; set; }
 
-	public void Sync(IReadOnlyList<IDocument> documents, int activeIndex, Func<int, Codicon?>? iconOf = null) {
+	public void Sync(IReadOnlyList<IDocument> documents, int activeIndex, Func<int, Codicon?>? iconOf = null, int previewIndex = -1) {
 		while (_tabs.Count < documents.Count) {
 			EditorTab tab = new(this);
 			_tabs.Add(tab);
@@ -39,7 +41,7 @@ public sealed class TabStrip : Panel
 			InvalidateLayout();
 		}
 
-		for (int i = 0; i < documents.Count; i++) _tabs[i].Bind(documents[i], i, i == activeIndex, iconOf?.Invoke(i));
+		for (int i = 0; i < documents.Count; i++) _tabs[i].Bind(documents[i], i, i == activeIndex, iconOf?.Invoke(i), i == previewIndex);
 
 		if (activeIndex == _active) return;
 

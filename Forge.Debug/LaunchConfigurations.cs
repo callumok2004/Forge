@@ -19,7 +19,7 @@ public sealed class LaunchConfigurations
 	public bool IsEmpty => _configurations.Count == 0 && _compounds.Count == 0;
 
 	public static string FileFor(string workspaceFolder) =>
-		System.IO.Path.Combine(workspaceFolder, ".vscode", "launch.json");
+		Forge.Core.WorkspaceConfig.PathFor(workspaceFolder, "launch.json");
 
 	public static LaunchConfigurations Load(string workspaceFolder) {
 		LaunchConfigurations launch = new();

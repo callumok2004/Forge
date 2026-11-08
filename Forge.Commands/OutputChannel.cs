@@ -34,6 +34,16 @@ public sealed class OutputChannel(string name) : IOutputChannel
 		_appended?.Invoke(this);
 	}
 
+	public void AppendRaw(string line) {
+		lock (_sync) {
+			_lines.Enqueue(line);
+
+			while (_lines.Count > MaxLines) _lines.Dequeue();
+		}
+
+		_appended?.Invoke(this);
+	}
+
 	public void Clear() {
 		lock (_sync) _lines.Clear();
 
