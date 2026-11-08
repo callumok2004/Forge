@@ -106,9 +106,16 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 		if (!_views.TryGetValue(id, out View? view) || view is not { Wanted: true, Controller: { } controller }) return;
 
 		try {
-			if (kind == WebviewMouse.LeftDown) controller.MoveFocus(CoreWebView2MoveFocusReason.Programmatic);
+			if (kind == WebviewMouse.LeftDown) {
+				controller.MoveFocus(CoreWebView2MoveFocusReason.Programmatic);
+				_leftDown = true;
+			}
+			else if (kind == WebviewMouse.LeftUp) _leftDown = false;
 
-			controller.SendMouseInput(Kind(kind), kind == WebviewMouse.LeftDown ? CoreWebView2MouseEventVirtualKeys.LeftButton : CoreWebView2MouseEventVirtualKeys.None, (uint)delta, new Point(x, y));
+			if (kind == WebviewMouse.Leave && _leftDown) return;
+
+			CoreWebView2MouseEventVirtualKeys keys = _leftDown ? CoreWebView2MouseEventVirtualKeys.LeftButton : CoreWebView2MouseEventVirtualKeys.None;
+			controller.SendMouseInput(Kind(kind), keys, kind == WebviewMouse.Wheel ? (uint)delta : 0u, new Point(x, y));
 		}
 		catch (Exception exception) when (exception is COMException or InvalidOperationException) {
 		}
@@ -134,6 +141,8 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 	}
 
 	private readonly Dictionary<string, View> _views = new(StringComparer.Ordinal);
+
+	private bool _leftDown;
 
 	private CoreWebView2Environment? _environment;
 	private bool _creating;

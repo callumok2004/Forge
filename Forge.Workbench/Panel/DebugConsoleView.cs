@@ -99,10 +99,139 @@ public sealed class DebugConsoleView : Panel
 			_ => InfoForeground,
 		};
 
-		lock (_sync) _pending.Add(new Entry(EntryKind.Output, text, color));
+		Entry entry;
+
+		lock (_sync) {
+			if (text.Contains('\u001b')) {
+				List<ColorSpan> spans = [];
+				string clean = ParseAnsi(text, spans, ref _ansiColor);
+				entry = new Entry(EntryKind.Output, clean, color) { Spans = spans };
+			}
+			else {
+				entry = new Entry(EntryKind.Output, text, color);
+
+				if (_ansiColor is { } carried && text.Length > 0) entry.Spans = [new ColorSpan(0, text.Length, carried)];
+			}
+
+			_pending.Add(entry);
+		}
 
 		Post?.Invoke(Flush);
 	}
+
+	private readonly record struct ColorSpan(int Start, int Length, Color Color);
+
+	private Color? _ansiColor;
+
+	private static readonly Color[] AnsiPalette = [
+		Color.Parse("#000000"), Color.Parse("#cd3131"), Color.Parse("#0dbc79"), Color.Parse("#e5e510"), Color.Parse("#2472c8"), Color.Parse("#bc3fbc"), Color.Parse("#11a8cd"), Color.Parse("#e5e5e5"),
+		Color.Parse("#666666"), Color.Parse("#f14c4c"), Color.Parse("#23d18b"), Color.Parse("#f5f543"), Color.Parse("#3b8eea"), Color.Parse("#d670d6"), Color.Parse("#29b8db"), Color.Parse("#e5e5e5"),
+	];
+
+	private static Color Ansi256(int index) {
+		if (index < 16) return AnsiPalette[index];
+
+		if (index < 232) {
+			index -= 16;
+			int r = index / 36;
+			int g = (index / 6) % 6;
+			int b = index % 6;
+			return Color.FromBytes((byte)(r == 0 ? 0 : 55 + (r * 40)), (byte)(g == 0 ? 0 : 55 + (g * 40)), (byte)(b == 0 ? 0 : 55 + (b * 40)));
+		}
+
+		byte grey = (byte)(8 + ((index - 232) * 10));
+		return Color.FromBytes(grey, grey, grey);
+	}
+
+	private static string ParseAnsi(string text, List<ColorSpan> spans, ref Color? current) {
+		System.Text.StringBuilder clean = new(text.Length);
+		int spanStart = 0;
+		Color? spanColor = current;
+		int i = 0;
+
+		while (i < text.Length) {
+			char c = text[i];
+
+			if (c != '\u001b') {
+				clean.Append(c);
+				i++;
+				continue;
+			}
+
+			if (i + 1 < text.Length && text[i + 1] == ']') {
+				int end = i + 2;
+
+				while (end < text.Length && text[end] != '\u0007' && !(text[end] == '\u001b' && end + 1 < text.Length && text[end + 1] == '\\')) end++;
+
+				i = end < text.Length && text[end] == '\u0007' ? end + 1 : Math.Min(text.Length, end + 2);
+				continue;
+			}
+
+			if (i + 1 >= text.Length || text[i + 1] != '[') {
+				i = Math.Min(text.Length, i + 2);
+				continue;
+			}
+
+			int final = i + 2;
+
+			while (final < text.Length && text[final] is not (>= '@' and <= '~')) final++;
+
+			if (final >= text.Length) break;
+
+			if (text[final] == 'm') {
+				Color? next = current;
+				string[] parameters = text[(i + 2)..final].Split(';');
+
+				for (int p = 0; p < parameters.Length; p++) {
+					int code = int.TryParse(parameters[p], out int parsed) ? parsed : 0;
+
+					switch (code) {
+						case 0 or 39:
+							next = null;
+							break;
+
+						case >= 30 and <= 37:
+							next = AnsiPalette[code - 30];
+							break;
+
+						case >= 90 and <= 97:
+							next = AnsiPalette[code - 90 + 8];
+							break;
+
+						case 38 when p + 1 < parameters.Length && parameters[p + 1] == "5" && p + 2 < parameters.Length:
+							next = Ansi256(Math.Clamp(int.TryParse(parameters[p + 2], out int index) ? index : 0, 0, 255));
+							p += 2;
+							break;
+
+						case 38 when p + 1 < parameters.Length && parameters[p + 1] == "2" && p + 4 < parameters.Length:
+							next = Color.FromBytes(Byte(parameters[p + 2]), Byte(parameters[p + 3]), Byte(parameters[p + 4]));
+							p += 4;
+							break;
+
+						case 48 when p + 1 < parameters.Length:
+							p += parameters[p + 1] == "2" ? 4 : 2;
+							break;
+					}
+				}
+
+				if (!Nullable.Equals(next, current)) {
+					if (spanColor is { } previous && clean.Length > spanStart) spans.Add(new ColorSpan(spanStart, clean.Length - spanStart, previous));
+
+					spanStart = clean.Length;
+					spanColor = next;
+					current = next;
+				}
+			}
+
+			i = final + 1;
+		}
+
+		if (spanColor is { } last && clean.Length > spanStart) spans.Add(new ColorSpan(spanStart, clean.Length - spanStart, last));
+
+		return clean.ToString();
+	}
+
+	private static byte Byte(string value) => (byte)Math.Clamp(int.TryParse(value, out int parsed) ? parsed : 0, 0, 255);
 
 	public void Clear() {
 		lock (_sync) _pending.Clear();
@@ -133,6 +262,12 @@ public sealed class DebugConsoleView : Panel
 
 			foreach (Entry entry in _pending) {
 				if (entry.Kind == EntryKind.Output && _entries.Count > 0 && _entries[^1] is { Kind: EntryKind.Output, Open: true } last && last.Color.Equals(entry.Color)) {
+					if (entry.Spans is { } incoming) {
+						last.Spans ??= [];
+
+						foreach (ColorSpan span in incoming) last.Spans.Add(span with { Start = span.Start + last.Text.Length });
+					}
+
 					last.Text += entry.Text;
 					from = Math.Min(from, _entries.Count - 1);
 				}
@@ -548,10 +683,34 @@ public sealed class DebugConsoleView : Panel
 
 			if (nameEnd > 0) painter.DrawText(font, text[..nameEnd], left, top + baselineOffset, NameForeground);
 
+			if (line.Kind == LineKind.Output && line.Source.Spans is { Count: > 0 } spans) {
+				DrawSpans(painter, font, text, line.Start + offset, spans, line.Color, left, top + baselineOffset, cell);
+				continue;
+			}
+
 			painter.DrawText(font, text[nameEnd..], left + (nameEnd * cell), top + baselineOffset, line.Color);
 		}
 
 		painter.PopClip();
+	}
+
+	private static void DrawSpans(IPainter painter, ITextFont font, ReadOnlySpan<char> text, int textStart, List<ColorSpan> spans, Color fallback, float left, float baseline, float cell) {
+		int at = 0;
+		int textEnd = textStart + text.Length;
+
+		foreach (ColorSpan span in spans) {
+			int from = Math.Max(span.Start, textStart);
+			int to = Math.Min(span.Start + span.Length, textEnd);
+
+			if (to <= from) continue;
+
+			if (from - textStart > at) painter.DrawText(font, text[at..(from - textStart)], left + (at * cell), baseline, fallback);
+
+			painter.DrawText(font, text[(from - textStart)..(to - textStart)], left + ((from - textStart) * cell), baseline, span.Color);
+			at = to - textStart;
+		}
+
+		if (at < text.Length) painter.DrawText(font, text[at..], left + (at * cell), baseline, fallback);
 	}
 
 	private enum EntryKind
@@ -588,6 +747,8 @@ public sealed class DebugConsoleView : Panel
 		public bool Expanded { get; set; }
 
 		public List<Entry>? Children { get; set; }
+
+		public List<ColorSpan>? Spans { get; set; }
 
 		public string? Label { get; set; }
 

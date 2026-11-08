@@ -41,6 +41,7 @@ public sealed class DapConnection : IDisposable
 		_process.EnableRaisingEvents = true;
 
 		_process.Exited += (_, _) => {
+			_exited = true;
 			if (_disposed) return;
 
 			Fail($"The debug adapter exited with code {_process.ExitCode}.");
@@ -64,7 +65,9 @@ public sealed class DapConnection : IDisposable
 
 	public Func<string, JsonNode?, JsonNode?>? RequestHandler { get; set; }
 
-	public bool IsRunning => !_disposed && (_process is null || !_process.HasExited);
+	private volatile bool _exited;
+
+	public bool IsRunning => !_disposed && !_exited;
 
 	public async Task<JsonNode?> SendAsync(string command, JsonNode? arguments,
 		CancellationToken cancellationToken = default) {

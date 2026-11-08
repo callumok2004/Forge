@@ -109,6 +109,8 @@ public sealed partial class RoslynLanguageClient : IDisposable
 		["position"] = LspJson.Position(line, column),
 	};
 
+	public event Action<int>? Crashed;
+
 	public void Start(ServerLaunch launch, string logDirectory, string? solutionPath, IReadOnlyList<string> projectPaths, DotnetSettings settings) {
 		Stop();
 		SetState(LanguageServerState.Starting, "Starting...");
@@ -168,6 +170,13 @@ public sealed partial class RoslynLanguageClient : IDisposable
 			JsonRpcConnection connection = new(startInfo, negotiateTransport: !arguments.Contains("--stdio"));
 			connection.Log += message => Log?.Invoke(message);
 			connection.Notification += OnNotification;
+			connection.Exited += code => {
+				if (!ReferenceEquals(_connection, connection)) return;
+
+				Documents.Reset();
+				SetState(LanguageServerState.Failed, "Crashed");
+				Crashed?.Invoke(code);
+			};
 			connection.RequestHandler = (method, parameters) => method switch {
 				"workspace/configuration" => LanguageServerOptions.Resolve(parameters, Settings),
 				_ => Workspace.OnServerRequest(method),
@@ -300,7 +309,7 @@ public sealed partial class RoslynLanguageClient : IDisposable
 				CodeLenses.Invalidate();
 				ProjectsLoaded?.Invoke();
 
-				if (_connection?.ProcessId is { } processId) ServerHeapTrim.Schedule(processId, Log);
+				if (_connection?.ProcessId is { } processId) ServerHeapTrim.Schedule(processId);
 
 				break;
 
@@ -336,8 +345,14 @@ public sealed partial class RoslynLanguageClient : IDisposable
 
 	public static string ToUri(string path) {
 		StringBuilder builder = new("file:///", path.Length + 16);
+		int start = 0;
 
-		foreach (char character in path) {
+		if (path is [>= 'a' and <= 'z' or >= 'A' and <= 'Z', ':', ..]) {
+			builder.Append(char.ToUpperInvariant(path[0]));
+			start = 1;
+		}
+
+		foreach (char character in path.AsSpan(start)) {
 			_ = character switch {
 				'\\' => builder.Append('/'),
 				'%' => builder.Append("%25"),

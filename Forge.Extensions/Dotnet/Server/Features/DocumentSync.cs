@@ -10,7 +10,19 @@ public sealed class DocumentSync(RoslynLanguageClient client)
 
 	private bool _ready;
 
+	private static string Normalize(string path) {
+		try {
+			string full = Path.GetFullPath(path.Replace('/', Path.DirectorySeparatorChar));
+			return full is [>= 'a' and <= 'z', ':', ..] ? char.ToUpperInvariant(full[0]) + full[1..] : full;
+		}
+		catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException) {
+			return path;
+		}
+	}
+
 	public bool IsOpen(string path) {
+		path = Normalize(path);
+
 		lock (_sync) return _ready && _versions.ContainsKey(path);
 	}
 
@@ -19,20 +31,35 @@ public sealed class DocumentSync(RoslynLanguageClient client)
 	}
 
 	public void Open(string path, string text) {
+		path = Normalize(path);
+
 		if (client.Generated.UriFor(path) is not null) return;
 
+		bool alreadyOpen;
+
 		lock (_sync) {
-			_texts[path] = text;
+			alreadyOpen = _ready && _versions.ContainsKey(path);
 
-			if (!_ready) return;
+			if (!alreadyOpen) {
+				_texts[path] = text;
 
-			_versions[path] = 1;
+				if (!_ready) return;
+
+				_versions[path] = 1;
+			}
+		}
+
+		if (alreadyOpen) {
+			Change(path, text);
+			return;
 		}
 
 		SendOpen(path, text);
 	}
 
 	public void Change(string path, string text) {
+		path = Normalize(path);
+
 		if (client.Generated.UriFor(path) is not null) return;
 
 		int version;
@@ -69,7 +96,7 @@ public sealed class DocumentSync(RoslynLanguageClient client)
 
 		client.Notify("textDocument/didChange", new JsonObject {
 			["textDocument"] = new JsonObject {
-				["uri"] = RoslynLanguageClient.ToUri(path),
+				["uri"] = UriOf(path),
 				["version"] = version,
 			},
 			["contentChanges"] = new JsonArray(new JsonObject {
@@ -83,6 +110,8 @@ public sealed class DocumentSync(RoslynLanguageClient client)
 	}
 
 	public void Close(string path) {
+		path = Normalize(path);
+
 		bool wasOpen;
 
 		lock (_sync) {
@@ -90,38 +119,27 @@ public sealed class DocumentSync(RoslynLanguageClient client)
 			wasOpen = _versions.Remove(path) && _ready;
 		}
 
-		if (wasOpen) client.Notify("textDocument/didClose", new JsonObject { ["textDocument"] = new JsonObject { ["uri"] = RoslynLanguageClient.ToUri(path) } });
-	}
-
-	public void Reopen(string path) {
-		string? text;
-
-		lock (_sync) {
-			if (!_ready || !_versions.ContainsKey(path) || !_texts.TryGetValue(path, out text)) return;
-
-			_versions[path] = 1;
-		}
-
-		client.Notify("textDocument/didClose", new JsonObject { ["textDocument"] = new JsonObject { ["uri"] = RoslynLanguageClient.ToUri(path) } });
-		SendOpen(path, text);
+		if (wasOpen) SendClose(path);
 	}
 
 	public void Save(string path) {
-		if (IsOpen(path)) client.Notify("textDocument/didSave", new JsonObject { ["textDocument"] = new JsonObject { ["uri"] = RoslynLanguageClient.ToUri(path) } });
+		path = Normalize(path);
+
+		if (IsOpen(path)) client.Notify("textDocument/didSave", new JsonObject { ["textDocument"] = new JsonObject { ["uri"] = UriOf(path) } });
 	}
 
 	internal void Ready() {
-		List<(string Path, string Text)> open;
-
 		lock (_sync) {
+			if (_ready) return;
+
 			_ready = true;
 			_versions.Clear();
-			open = [.. _texts.Select(static pair => (pair.Key, pair.Value))];
 
-			foreach ((string path, _) in open) _versions[path] = 1;
+			foreach ((string path, string text) in _texts) {
+				_versions[path] = 1;
+				SendOpen(path, text);
+			}
 		}
-
-		foreach ((string path, string text) in open) SendOpen(path, text);
 	}
 
 	internal void Reset() {
@@ -129,16 +147,48 @@ public sealed class DocumentSync(RoslynLanguageClient client)
 			_ready = false;
 			_versions.Clear();
 		}
+
+		lock (_wire) _serverOpen.Clear();
 	}
 
-	private void SendOpen(string path, string text) => client.Notify("textDocument/didOpen", new JsonObject {
-		["textDocument"] = new JsonObject {
-			["uri"] = RoslynLanguageClient.ToUri(path),
-			["languageId"] = "csharp",
-			["version"] = 1,
-			["text"] = text,
-		},
-	});
+	private readonly Dictionary<string, string> _serverOpen = [with(StringComparer.OrdinalIgnoreCase)];
+
+	private string UriOf(string path) {
+		lock (_wire) return _serverOpen.TryGetValue(path, out string? uri) ? uri : RoslynLanguageClient.ToUri(path);
+	}
+
+	private readonly Lock _wire = new();
+	private int _resync = 1000;
+
+	private void SendOpen(string path, string text) {
+		lock (_wire) {
+			if (_serverOpen.TryGetValue(path, out string? existing)) {
+				string uri = existing;
+				client.Notify("textDocument/didChange", new JsonObject {
+					["textDocument"] = new JsonObject { ["uri"] = uri, ["version"] = Interlocked.Increment(ref _resync) },
+					["contentChanges"] = new JsonArray(new JsonObject { ["text"] = text }),
+				});
+				return;
+			}
+
+			string opened = RoslynLanguageClient.ToUri(path);
+			_serverOpen[path] = opened;
+			client.Notify("textDocument/didOpen", new JsonObject {
+				["textDocument"] = new JsonObject {
+					["uri"] = opened,
+					["languageId"] = "csharp",
+					["version"] = 1,
+					["text"] = text,
+				},
+			});
+		}
+	}
+
+	private void SendClose(string path) {
+		lock (_wire) {
+			if (_serverOpen.Remove(path, out string? uri)) client.Notify("textDocument/didClose", new JsonObject { ["textDocument"] = new JsonObject { ["uri"] = uri } });
+		}
+	}
 
 	private static JsonObject PositionOf(string text, int offset) {
 		ReadOnlySpan<char> before = text.AsSpan(0, Math.Min(offset, text.Length));

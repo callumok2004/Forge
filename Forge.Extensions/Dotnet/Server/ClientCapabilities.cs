@@ -82,7 +82,7 @@ internal static class ClientCapabilities
 			},
 			["configuration"] = true,
 			["workspaceFolders"] = true,
-			["didChangeWatchedFiles"] = new JsonObject { ["dynamicRegistration"] = true, ["relativePatternSupport"] = true },
+			["didChangeWatchedFiles"] = new JsonObject { ["dynamicRegistration"] = false },
 			["diagnostics"] = new JsonObject { ["refreshSupport"] = true },
 			["semanticTokens"] = new JsonObject { ["refreshSupport"] = true },
 			["codeLens"] = new JsonObject { ["refreshSupport"] = true },

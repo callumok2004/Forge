@@ -1106,8 +1106,9 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			ApplyZoom();
 		};
 
-		window.Events.MouseHorizontalWheel += (delta, _, _) => {
-			workbench.ActiveView?.ScrollByHorizontalWheel(delta, painter.GetCode().GetCellWidth());
+		window.Events.MouseHorizontalWheel += (delta, x, _) => {
+			TextView? target = workbench.ActiveDiff is { } diff && diff.IsInOriginal(x) ? diff.Original : workbench.ActiveView;
+			target?.ScrollByHorizontalWheel(delta, painter.GetCode().GetCellWidth());
 			RefreshEditor();
 		};
 

@@ -46,11 +46,14 @@ public sealed class JsonRpcConnection : IDisposable
 		_process.EnableRaisingEvents = true;
 
 		_process.Exited += (_, _) => {
+			_exited = true;
+
 			if (_disposed) return;
 
 			int code = _process.ExitCode;
 			Log?.Invoke($"The language server exited with code {code}.");
 			FailPending($"The language server exited with code {code}.");
+			Exited?.Invoke(code);
 		};
 
 		ThreadPool.UnsafeQueueUserWorkItem(_ => ReadLoop(), null);
@@ -81,13 +84,17 @@ public sealed class JsonRpcConnection : IDisposable
 
 	public event Action<string>? Log;
 
+	public event Action<int>? Exited;
+
 	public event Action<string, JsonNode?>? Notification;
 
 	public Func<string, JsonNode?, JsonNode?>? RequestHandler { get; set; }
 
 	public Func<string, JsonNode?, Task<JsonNode?>?>? AsyncRequestHandler { get; set; }
 
-	public bool IsRunning => !_disposed && !_process.HasExited;
+	private volatile bool _exited;
+
+	public bool IsRunning => !_disposed && !_exited;
 
 	public int ProcessId => _process.Id;
 

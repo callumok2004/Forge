@@ -384,7 +384,10 @@ public sealed class EditorContent : Panel
 
 		ITextFont font = Code;
 
-		if ((modifiers & KeyModifiers.Shift) != 0) view.ScrollByHorizontalWheel(-delta, font.GetCellWidth());
+		if ((modifiers & KeyModifiers.Shift) != 0) {
+			TextView horizontal = _workbench.ActiveDiff is { } diff && diff.IsInOriginal(Absolute(x, y).Item1) ? diff.Original : view;
+			horizontal.ScrollByHorizontalWheel(-delta, font.GetCellWidth());
+		}
 		else view.ScrollByWheel(delta, font.GetLineHeight(), Tall);
 
 		Changed?.Invoke();

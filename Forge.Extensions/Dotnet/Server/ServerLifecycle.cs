@@ -116,11 +116,36 @@ public sealed class ServerLifecycle(RoslynLanguageClient server, SolutionWorkspa
 
 		CheckForUpdate(host);
 
+		_launch = launch;
 		server.Start(launch, Path.Combine(settings.StorageDirectory, "logs"), workspace.Solution, workspace.Projects, settings);
+	}
+
+	private const int MaxRestarts = 5;
+	private static readonly TimeSpan RestartWindow = TimeSpan.FromMinutes(3);
+
+	private readonly Queue<DateTime> _restarts = [];
+	private ServerLaunch? _launch;
+
+	private void OnCrashed(ICommandHost host) {
+		DateTime now = DateTime.UtcNow;
+
+		while (_restarts.Count > 0 && now - _restarts.Peek() > RestartWindow) _restarts.Dequeue();
+
+		if (_restarts.Count >= MaxRestarts || _launch is not { } launch) {
+			output.Log(host, $"The language server crashed {MaxRestarts} times in the last {RestartWindow.TotalMinutes} minutes. It will not be restarted.");
+			host.ShowMessage(MessageSeverity.Error, $"The C# language server crashed {MaxRestarts} times in the last {RestartWindow.TotalMinutes} minutes. The server will not be restarted.", []);
+			return;
+		}
+
+		_restarts.Enqueue(now);
+		output.Log(host, "Restarting the language server...");
+		Start(host, launch);
 	}
 
 	private void Attach(ICommandHost host) {
 		_attached = true;
+
+		server.Crashed += _ => ThreadPool.UnsafeQueueUserWorkItem(_ => OnCrashed(host), null);
 
 		server.Log += message => output.Log(host, message);
 
