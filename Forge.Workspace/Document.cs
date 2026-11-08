@@ -104,6 +104,12 @@ public sealed class Document : IDocument
 		return true;
 	}
 
+	public void Moved(string path) {
+		Path = path;
+		Name = System.IO.Path.GetFileName(path);
+		DiskStamp = Stamp(path);
+	}
+
 	public bool SaveAs(string path) {
 		string temporary = path + ".forge-tmp";
 

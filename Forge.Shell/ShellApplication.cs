@@ -138,12 +138,16 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		workbench.BranchName = GitWorkspaceInfo.ReadBranchName(rootPath);
 		workbench.TitleBar.BranchName = workbench.BranchName;
 
-		workbench.Repository = GitRepository.Open(rootPath);
-		workbench.Sidebar.Repository = workbench.Repository;
-		workbench.Sidebar.SourceControl.SetRoot(workbench.Repository?.GetRootPath() ?? rootPath);
+		AttachRepository();
 		workbench.Sidebar.SourceControl.LoadState(UserData.SourceControlStatePath);
 
-		if (workbench.Repository is { } repository) {
+		void AttachRepository() {
+			workbench.Repository = GitRepository.Open(rootPath);
+			workbench.Sidebar.Repository = workbench.Repository;
+			workbench.Sidebar.SourceControl.SetRoot(workbench.Repository?.GetRootPath() ?? rootPath);
+
+			if (workbench.Repository is not { } repository) return;
+
 			repository.OnChanged(() => {
 				workbench.BranchName = repository.GetBranch() ?? workbench.BranchName;
 				workbench.TitleBar.BranchName = workbench.BranchName;
@@ -322,6 +326,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		DebugCommands.Register(Registry, debugger);
 
+		ViewPaneContainer.SavedStates = memory.ViewPanes;
 		WorkbenchViews views = new(workbench, Post) { Refresh = window.Invalidate, SavedLocations = memory.ViewLocations };
 		workbench.ActivityBar.SetCustomOrder(memory.ActivityOrder);
 		workbench.ActivityBar.OrderChanged = order => memory.ActivityOrder = [.. order];
@@ -392,6 +397,9 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		using WorkspaceWatcher watcher = new(rootPath, (directories, git) => {
 			if (git && workbench.Repository is { } watched) watched.Refresh();
+			else if (git) Post(() => {
+				if (workbench.Repository is null) AttachRepository();
+			});
 
 			if (directories.Count > 0) Post(() => {
 				workbench.Sidebar.Explorer.Reload(directories);
@@ -465,7 +473,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			],
 		});
 		views.AddView(new ViewDescriptor("workbench.view.search.view", "Search", Sidebar.SearchId, () => workbench.Sidebar.Search) { TitleControls = () => [.. workbench.Sidebar.Search.HeaderActions] });
-		views.AddView(new ViewDescriptor("workbench.scm", "Source Control", Sidebar.SourceControlId, () => workbench.Sidebar.SourceControl) { TitleControls = () => [.. workbench.Sidebar.SourceControl.HeaderActions] });
+		views.AddView(new ViewDescriptor("workbench.scm", "Changes", Sidebar.SourceControlId, () => workbench.Sidebar.SourceControl, 0) { TitleControls = () => [.. workbench.Sidebar.SourceControl.HeaderActions] });
+		views.AddView(new ViewDescriptor("workbench.scm.history", "Graph", Sidebar.SourceControlId, () => workbench.Sidebar.Graph, 2) { Actions = [new ViewAction("workbench.scm.history.refresh", Codicon.Refresh, "Refresh")] });
 		views.AddView(new ViewDescriptor("workbench.debug.variablesView", "Run and Debug", Sidebar.RunId, () => workbench.Sidebar.Debug));
 		views.ShowContainer(Sidebar.ExplorerId);
 	}
@@ -726,6 +735,33 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		};
 		workbench.Sidebar.Explorer.FilePinned = path => {
 			workbench.OpenFile(path, preview: false);
+			Refresh();
+		};
+		ExplorerView explorer = workbench.Sidebar.Explorer;
+		explorer.RootPath = workbench.RootPath;
+		explorer.RevealRequested = path => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe") { ArgumentList = { "/select," + path }, UseShellExecute = false })?.Dispose();
+		explorer.TerminalRequested = folder => {
+			workbench.Panel.CreateTerminal(Forge.Terminal.TerminalProfiles.Default(workbench.Panel.Profiles, workbench.Panel.DefaultProfile), folder, null, show: true);
+
+			workbench.PanelFocused = true;
+			Refresh();
+		};
+		explorer.FindInFolderRequested = folder => {
+			workbench.Views?.ShowContainer(Sidebar.SearchId);
+			workbench.ShowSidebar = true;
+			workbench.Sidebar.Search.FocusFolder(System.IO.Path.GetRelativePath(workbench.RootPath ?? folder, folder));
+			Refresh();
+		};
+		explorer.CompareRequested = (original, modified) => {
+			workbench.CompareFiles(original, modified);
+			Refresh();
+		};
+		explorer.Renamed = (from, to) => {
+			workbench.PathMoved(from, to);
+			Refresh();
+		};
+		explorer.Deleted = path => {
+			workbench.PathDeleted(path);
 			Refresh();
 		};
 		workbench.Tabs.Pinned = index => {

@@ -102,7 +102,7 @@ public sealed class GitRepository : IGitRepository
 
 	public bool Discard(string fullPath, bool untracked) => Done(untracked ? GitProcess.Run(_rootPath, "clean", "-f", "--", fullPath) : GitProcess.Run(_rootPath, "restore", "--", fullPath));
 
-	public bool Commit(string message) => message.Trim().Length > 0 && Done(GitProcess.Run(_rootPath, "commit", "-m", message));
+	public bool Commit(string message) => message.Trim().Length > 0 && Done(GitProcess.RunUntimed(_rootPath, "commit", "-m", message));
 
 	private bool Done(string? output) {
 		if (output is null) return false;

@@ -70,7 +70,11 @@ public static class GitProcess
 		}
 	}
 
-	public static string? Run(string workingDirectory, params string[] arguments) {
+	public static string? Run(string workingDirectory, params string[] arguments) => Execute(workingDirectory, Timeout, arguments);
+
+	public static string? RunUntimed(string workingDirectory, params string[] arguments) => Execute(workingDirectory, System.Threading.Timeout.InfiniteTimeSpan, arguments);
+
+	private static string? Execute(string workingDirectory, TimeSpan timeout, string[] arguments) {
 		ProcessStartInfo start = new() {
 			FileName = "git",
 			WorkingDirectory = workingDirectory,
@@ -99,7 +103,7 @@ public static class GitProcess
 			Task<string> error = process.StandardError.ReadToEndAsync();
 			string output = process.StandardOutput.ReadToEnd();
 
-			if (!process.WaitForExit(Timeout)) {
+			if (!process.WaitForExit(timeout)) {
 				process.Kill(entireProcessTree: true);
 				return null;
 			}

@@ -439,6 +439,8 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 
 		view.Loaded = false;
 
+		if (view.Controller is { IsVisible: true } visible) visible.IsVisible = false;
+
 		try {
 			File.WriteAllText(Path.Combine(PageDirectory(id), "index.html"), WithTheme(view.Html, view.Overrides));
 		}

@@ -65,6 +65,7 @@ public interface IPainter
 	void DrawVectorIcon(IVectorIcon icon, float centreX, float centreY, float size, Color? tint = null);
 	void DrawImage(IImage image, float centreX, float centreY, float size);
 	void DrawImage(IImage image, float x, float y, float width, float height, bool pixelated);
+	void DrawPixels(PixelBuffer pixels, float x, float y);
 
 	bool DrawFileIcon(ReadOnlySpan<char> fileName, float centreX, float centreY, float size);
 	bool DrawFolderIcon(ReadOnlySpan<char> folderName, bool expanded, float centreX, float centreY, float size);

@@ -53,28 +53,57 @@ public sealed class SolutionWorkspace
 		Projects = [.. projects];
 	}
 
-	private static void Walk(string directory, List<string> solutions, List<string> projects) {
-		if (solutions.Count >= MaxSolutionCandidates && projects.Count >= MaxAutoLoad) return;
+	private static readonly EnumerationOptions WalkOptions = new() { IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.System, RecurseSubdirectories = false };
 
-		try {
-			foreach (string file in Directory.EnumerateFiles(directory)) {
-				string extension = Path.GetExtension(file);
+	private static void Walk(string root, List<string> solutions, List<string> projects) {
+		List<string> level = [root];
+		List<string> next = [];
 
-				if (Array.IndexOf(SolutionExtensions, extension.ToLowerInvariant()) >= 0) {
-					if (solutions.Count < MaxSolutionCandidates) solutions.Add(file);
+		while (level.Count > 0) {
+			foreach (string directory in level) {
+				try {
+					foreach (string file in Directory.EnumerateFiles(directory, "*", WalkOptions)) {
+						ReadOnlySpan<char> extension = Path.GetExtension(file.AsSpan());
+
+						if (IsAny(extension, SolutionExtensions)) {
+							if (solutions.Count < MaxSolutionCandidates) solutions.Add(file);
+						}
+						else if (IsAny(extension, ProjectExtensions) && projects.Count < MaxAutoLoad) projects.Add(file);
+					}
+
+					foreach (string child in Directory.EnumerateDirectories(directory, "*", WalkOptions)) {
+						ReadOnlySpan<char> name = Path.GetFileName(child.AsSpan());
+
+						if (!IsExcluded(name)) next.Add(child);
+					}
 				}
-				else if (Array.IndexOf(ProjectExtensions, extension.ToLowerInvariant()) >= 0 &&
-					projects.Count < MaxAutoLoad) projects.Add(file);
+				catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
+				}
 			}
 
-			foreach (string child in Directory.EnumerateDirectories(directory)) {
-				string name = Path.GetFileName(child);
+			if (solutions.Count > 0 || projects.Count >= MaxAutoLoad) return;
 
-				if (Array.IndexOf(Excluded, name) < 0) Walk(child, solutions, projects);
-			}
+			(level, next) = (next, level);
+			next.Clear();
 		}
-		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
+	}
+
+	private static bool IsAny(ReadOnlySpan<char> extension, string[] candidates) {
+		foreach (string candidate in candidates) {
+			if (extension.Equals(candidate, StringComparison.OrdinalIgnoreCase)) return true;
 		}
+
+		return false;
+	}
+
+	private static bool IsExcluded(ReadOnlySpan<char> name) {
+		if (name.Length > 0 && name[0] == '.') return true;
+
+		foreach (string excluded in Excluded) {
+			if (name.Equals(excluded, StringComparison.OrdinalIgnoreCase)) return true;
+		}
+
+		return false;
 	}
 
 	private static int Rank(string left, string right) {

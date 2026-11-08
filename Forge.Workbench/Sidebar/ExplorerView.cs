@@ -9,7 +9,7 @@ using Forge.UI.Controls;
 
 namespace Forge.Workbench;
 
-public sealed class ExplorerView : Panel
+public sealed partial class ExplorerView : Panel
 {
 	private readonly List<FileNode> _visible = [];
 	private readonly ListPanel _list;
@@ -99,10 +99,12 @@ public sealed class ExplorerView : Panel
 	public ExplorerView() {
 		Name = "Explorer";
 		Dock = DockType.Fill;
+		ContextKey = FocusContext;
 		MouseInputEnabled = false;
 
-		_list = new ListPanel { Name = "ExplorerTree", Dock = DockType.Fill, RowHeight = Metrics.TreeRowHeight, PaddingRows = 1, RowPainter = PaintRow, Activated = Activate, DoubleActivated = Pin };
+		_list = new ListPanel { Name = "ExplorerTree", Dock = DockType.Fill, RowHeight = Metrics.TreeRowHeight, PaddingRows = 1, RowPainter = PaintRow, Activated = Activate, DoubleActivated = Pin, ContextRequested = OpenContextMenu };
 		AddChild(_list);
+		InitializeActions();
 	}
 
 	public IGitRepository? Repository { get; set; }
@@ -177,6 +179,7 @@ public sealed class ExplorerView : Panel
 
 	private void Rebuild() {
 		_tree?.Flatten(_visible);
+		InsertPlaceholder();
 		_list.SetCount(_visible.Count);
 		SyncSelection(reveal: false);
 	}
@@ -216,6 +219,12 @@ public sealed class ExplorerView : Panel
 
 	private void PaintRow(IPainter painter, int row, float left, float top, float width, float height, bool selected) {
 		FileNode node = _visible[row];
+
+		if (ReferenceEquals(node, _placeholder)) {
+			PaintPlaceholder(painter, node, left, top, height);
+			return;
+		}
+
 		ITextFont font = painter.GetUi();
 		float scale = Scale;
 		float indent = (Metrics.Space8 * scale) + (node.Depth * Metrics.Space12 * scale);
@@ -231,6 +240,8 @@ public sealed class ExplorerView : Panel
 			_ => GitStatusColor.Of(status),
 		};
 		Color color = decoration ?? (selected ? Theme.ListActiveSelectionForeground : Theme.SidebarFileForeground);
+
+		if (_cut.Contains(node.FullPath)) color = color.WithAlpha(0.5f);
 
 		float twistieCentre = left + indent + (iconSize / 2f);
 		float iconX = left + indent + iconSize + (iconSize / 2f);

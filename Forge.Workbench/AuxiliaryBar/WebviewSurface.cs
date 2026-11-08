@@ -44,9 +44,23 @@ public sealed class WebviewSurface : Panel
 	}
 
 	public override void Paint(IPainter painter) {
-		if (_bar.ShownViewId is null) return;
+		if (_bar.ShownViewId is not { } id) return;
 
 		PixelRect content = _bar.ContentBounds;
+
+		if (!_bar.Webviews.IsShowing(id)) {
+			painter.FillRectangle(content.Left, content.Top, content.Width, content.Height, Forge.Theming.Theme.SidebarBackground);
+			SetThinking(true);
+			return;
+		}
+
 		painter.ClearRectangle(content.Left, content.Top, content.Width, content.Height);
+	}
+
+	public override void OnThink(float deltaSeconds) {
+		if (_bar.ShownViewId is not { } id || _bar.Webviews.IsShowing(id)) {
+			SetThinking(false);
+			Repaint();
+		}
 	}
 }

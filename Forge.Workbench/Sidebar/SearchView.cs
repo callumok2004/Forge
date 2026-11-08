@@ -169,6 +169,14 @@ public sealed class SearchView : Panel
 		Repaint();
 	}
 
+	public void FocusFolder(string relative) {
+		_detailsVisible = true;
+		_include.SetText("./" + relative.Replace('\\', '/'));
+		InvalidateLayout();
+		Focus(null);
+		QueueSearch();
+	}
+
 	public void Focus(string? seed) {
 		if (seed is { Length: > 0 }) _find.SetText(seed);
 

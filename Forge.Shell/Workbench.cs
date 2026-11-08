@@ -767,6 +767,30 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		ShowDiff(document, GitUri(relative, "~"), GitText(root, ":" + relative), previousLineHeight, previousViewport);
 	}
 
+	public void OpenCommitChange(GitCommit commit, GitCommitChange change) => AsPreview(true, () => {
+		if (Repository is not { } repository) return false;
+
+		string root = repository.GetRootPath();
+		string relative = System.IO.Path.GetRelativePath(root, change.Path).Replace('\\', '/');
+		string originalRelative = change.OriginalPath is { } previous ? System.IO.Path.GetRelativePath(root, previous).Replace('\\', '/') : relative;
+		string parent = commit.Parents.Length > 0 ? commit.Parents[0] : string.Empty;
+		string shortParent = parent.Length > 7 ? parent[..7] : parent;
+		string title = System.IO.Path.GetFileName(change.Path) + " (" + (shortParent.Length > 0 ? shortParent : commit.ShortId + "^") + " ↔ " + commit.ShortId + ")";
+		string uri = GitUri(relative, commit.Id);
+		float previousLineHeight = ActiveView?.LastLineHeight ?? 0f;
+		float previousViewport = ActiveView?.LastViewportHeight ?? 0f;
+
+		if (FindVirtual(uri) is not { } document) document = Document.Virtual(uri, title, change.Status == GitFileStatus.Deleted ? string.Empty : GitText(root, commit.Id + ":" + relative));
+
+		OpenVirtual(document);
+		document.Buffer.ReadOnly = true;
+		ViewAt(_documents.IndexOf(document)).Highlighter.SetLanguage(Forge.Syntax.Languages.ForPath(change.Path));
+
+		string before = parent.Length == 0 || change.Status == GitFileStatus.Added ? string.Empty : GitText(root, parent + ":" + originalRelative);
+		ShowDiff(document, GitUri(originalRelative, parent), before, previousLineHeight, previousViewport);
+		return true;
+	});
+
 	public Document? OpenDiffTab(string path, string originalKey, string title, bool preview) => AsPreview(preview, () => OpenDiffTab(path, originalKey, title));
 
 	public Document? OpenDiffTab(string path, string originalKey, string title) {
@@ -1163,6 +1187,46 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	public void CloseActive() => Close(ActiveIndex);
 
+	public void PathMoved(string from, string to) {
+		string prefix = from.TrimEnd(System.IO.Path.DirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;
+
+		foreach (Document document in _documents) {
+			if (document.Path is not { } path) continue;
+
+			if (path.Equals(from, StringComparison.OrdinalIgnoreCase)) document.Moved(to);
+			else if (path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) document.Moved(System.IO.Path.Combine(to, path[prefix.Length..]));
+		}
+
+		Tabs.Repaint();
+	}
+
+	public void PathDeleted(string deleted) {
+		string prefix = deleted.TrimEnd(System.IO.Path.DirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;
+
+		for (int i = _documents.Count - 1; i >= 0; i--) {
+			if (_documents[i].Path is { } path && !_documents[i].IsDirty() && (path.Equals(deleted, StringComparison.OrdinalIgnoreCase) || path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))) Close(i);
+		}
+	}
+
+	public void CompareFiles(string original, string modified) {
+		string name = System.IO.Path.GetFileName(original) + " ↔ " + System.IO.Path.GetFileName(modified);
+		float previousLineHeight = ActiveView?.LastLineHeight ?? 0f;
+		float previousViewport = ActiveView?.LastViewportHeight ?? 0f;
+
+		if (OpenDiffTab(modified, "compare:" + original, name, false) is not { } document) return;
+
+		string text;
+
+		try {
+			text = File.ReadAllText(original);
+		}
+		catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
+			return;
+		}
+
+		ShowDiff(document, "file:" + original, text, previousLineHeight, previousViewport);
+	}
+
 	private const int MaxRecentlyClosed = 20;
 
 	private readonly List<string> _recentlyClosed = [];
@@ -1325,6 +1389,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		StatusBar.Warnings = Panel.WarningCount;
 		StatusBar.Sync(ActiveView, BranchName);
 		Sidebar.SourceControl.SyncIfStale();
+		Sidebar.Graph.SyncIfStale();
 
 		int changes = Repository is { } counted ? counted.GetStaged().Count + counted.GetUnstaged().Count + counted.GetMerge().Count : 0;
 

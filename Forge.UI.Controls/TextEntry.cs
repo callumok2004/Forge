@@ -60,6 +60,54 @@ public sealed class TextEntry : Panel
 
 	public float FontSize { get; init; }
 
+	public bool Multiline { get; init; }
+
+	public int MaxVisibleLines { get; init; } = 10;
+
+	private int _firstLine;
+
+	public int LineCount => Text.Count('\n') + 1;
+
+	public int VisibleLines => Math.Clamp(LineCount, 1, MaxVisibleLines);
+
+	public float GetLineHeight() => FontOf(Ui!.GetFonts()).GetLineHeight();
+
+	private int LineStart(int offset) => Text[..offset].LastIndexOf('\n') + 1;
+
+	private int LineEnd(int offset) {
+		int index = Text[offset..].IndexOf('\n');
+		return index < 0 ? _length : offset + index;
+	}
+
+	private int LineOf(int offset) => Text[..offset].Count('\n');
+
+	private void MoveVertical(int direction) {
+		int start = LineStart(_caret);
+		int column = _caret - start;
+		int target;
+
+		if (direction < 0) {
+			if (start == 0) {
+				MoveCaret(0);
+				return;
+			}
+
+			target = LineStart(start - 1);
+		}
+		else {
+			int end = LineEnd(_caret);
+
+			if (end == _length) {
+				MoveCaret(_length);
+				return;
+			}
+
+			target = end + 1;
+		}
+
+		MoveCaret(Math.Min(target + column, LineEnd(target)));
+	}
+
 	private ITextFont FontOf(IFontSet fonts) => FontSize > 0f ? fonts.GetUi(FontSize) : fonts.GetUi();
 
 	public ReadOnlySpan<char> Text => _buffer.AsSpan(0, _length);
@@ -105,6 +153,20 @@ public sealed class TextEntry : Panel
 		bool control = (modifiers & KeyModifiers.Control) != 0;
 
 		switch (key) {
+			case VirtualKey.Return when Multiline && !control:
+				if (_allSelected) DeleteAll();
+
+				Insert(['\n']);
+				return true;
+
+			case VirtualKey.Up when Multiline:
+				MoveVertical(-1);
+				return true;
+
+			case VirtualKey.Down when Multiline:
+				MoveVertical(1);
+				return true;
+
 			case VirtualKey.Return when Submitted is not null:
 				Submitted();
 				return true;
@@ -131,11 +193,11 @@ public sealed class TextEntry : Panel
 				return true;
 
 			case VirtualKey.Home:
-				MoveCaret(0);
+				MoveCaret(Multiline && !control ? LineStart(_caret) : 0);
 				return true;
 
 			case VirtualKey.End:
-				MoveCaret(_length);
+				MoveCaret(Multiline && !control ? LineEnd(_caret) : _length);
 				return true;
 
 			case VirtualKey.A when control:
@@ -146,7 +208,7 @@ public sealed class TextEntry : Panel
 			case VirtualKey.V when control:
 				if (_allSelected) DeleteAll();
 
-				Insert(Clipboard.GetText().ReplaceLineEndings(" "));
+				Insert(Clipboard.GetText().ReplaceLineEndings(Multiline ? "\n" : " "));
 				return true;
 
 			case VirtualKey.Back or VirtualKey.Delete:
@@ -163,9 +225,20 @@ public sealed class TextEntry : Panel
 		ITextFont font = FontOf(Ui!.GetFonts());
 		float textLeft = Metrics.Space6 * Scale;
 		int caret = 0;
+		int limit = _length;
+
+		if (Multiline) {
+			float lineHeight = font.GetLineHeight();
+			int line = _firstLine + Math.Max(0, (int)((y - ((Tall - (VisibleLines * lineHeight)) / 2f)) / lineHeight));
+
+			for (int i = 0; i < line && caret < _length; i++) caret = LineEnd(caret) + (LineEnd(caret) < _length ? 1 : 0);
+
+			limit = LineEnd(caret);
+		}
+
 		float advance = textLeft;
 
-		while (caret < _length && advance + (font.GetAdvance(_buffer[caret]) / 2f) < x) advance += font.GetAdvance(_buffer[caret++]);
+		while (caret < limit && advance + (font.GetAdvance(_buffer[caret]) / 2f) < x) advance += font.GetAdvance(_buffer[caret++]);
 
 		MoveCaret(caret);
 		return true;
@@ -228,6 +301,12 @@ public sealed class TextEntry : Panel
 		painter.StrokeRoundedRectangle(ScreenX, ScreenY, Wide, Tall, radius, Metrics.StrokeThickness * scale, Invalid ? InvalidBorder : focused ? Theme.FocusBorder : Theme.InputBorder);
 
 		float textLeft = ScreenX + (Metrics.Space6 * scale);
+
+		if (Multiline) {
+			PaintLines(painter, font, textLeft, focused);
+			return;
+		}
+
 		float baseline = ScreenY + ((Tall - font.GetLineHeight()) / 2f) + font.GetBaseline();
 
 		painter.PushClip(textLeft, ScreenY, MathF.Max(0f, Wide - (Metrics.Space12 * scale) - (TextInset.Right * scale)), Tall);
@@ -238,6 +317,49 @@ public sealed class TextEntry : Panel
 		else painter.DrawText(font, Text, textLeft, baseline, Theme.InputForeground);
 
 		if (focused && _caretVisible) painter.FillRectangle(textLeft + font.Measure(Text[.._caret]), baseline - font.GetBaseline() + (2f * scale), Metrics.StrokeThickness * scale, font.GetLineHeight() - (4f * scale), Theme.CursorForeground);
+
+		painter.PopClip();
+	}
+
+	private void PaintLines(IPainter painter, ITextFont font, float textLeft, bool focused) {
+		float scale = Scale;
+		float lineHeight = font.GetLineHeight();
+		int visible = VisibleLines;
+		int caretLine = LineOf(_caret);
+
+		if (caretLine < _firstLine) _firstLine = caretLine;
+		else if (caretLine >= _firstLine + visible) _firstLine = caretLine - visible + 1;
+
+		_firstLine = Math.Clamp(_firstLine, 0, Math.Max(0, LineCount - visible));
+
+		float top = ScreenY + ((Tall - (visible * lineHeight)) / 2f);
+
+		painter.PushClip(textLeft, ScreenY, MathF.Max(0f, Wide - (Metrics.Space12 * scale) - (TextInset.Right * scale)), Tall);
+
+		if (_length == 0) painter.DrawText(font, Placeholder, textLeft, top + font.GetBaseline(), Theme.InputPlaceholderForeground);
+
+		int start = 0;
+		int line = 0;
+
+		while (true) {
+			int end = LineEnd(start);
+
+			if (line >= _firstLine && line < _firstLine + visible) {
+				float y = top + ((line - _firstLine) * lineHeight);
+				ReadOnlySpan<char> text = Text[start..end];
+
+				if (_allSelected) painter.FillRectangle(textLeft, y, MathF.Max(font.Measure(text), font.GetAdvance(' ')), lineHeight, Theme.SelectionBackground);
+
+				if (text.Length > 0) painter.DrawText(font, text, textLeft, y + font.GetBaseline(), Theme.InputForeground);
+
+				if (focused && _caretVisible && line == caretLine) painter.FillRectangle(textLeft + font.Measure(Text[start.._caret]), y + (2f * scale), Metrics.StrokeThickness * scale, lineHeight - (4f * scale), Theme.CursorForeground);
+			}
+
+			if (end >= _length) break;
+
+			start = end + 1;
+			line++;
+		}
 
 		painter.PopClip();
 	}

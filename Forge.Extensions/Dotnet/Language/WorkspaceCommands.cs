@@ -21,7 +21,7 @@ public sealed class WorkspaceCommands(RoslynLanguageClient server, DiagnosticsCo
 		server.Workspace.ApplyEdit = host.ApplyWorkspaceEditAsync;
 		server.Workspace.RestoreProgress += line => output.Log(host, $"[.NET Restore] {line}");
 		server.Workspace.Toast += (type, message, actions) => ShowToast(host, type, message, actions);
-		server.Workspace.DiagnosticsRefreshRequested += () => RefreshActive(host);
+		server.Workspace.DiagnosticsRefreshRequested += diagnostics.RefreshOpen;
 		server.Workspace.SemanticTokensRefreshRequested += () => RefreshActive(host);
 	}
 

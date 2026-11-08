@@ -43,6 +43,21 @@ public sealed class DiagnosticsCoordinator
 		});
 	}
 
+	public void RefreshOpen() {
+		foreach (string path in _server.Documents.OpenPaths()) Refresh(path);
+	}
+
+	public void Clear(string path) {
+		lock (_sync) {
+			if (!_diagnostics.Remove(path)) return;
+		}
+
+		if (_host is not { } host) return;
+
+		host.ReportProblems(Owner, false, All());
+		host.Refresh();
+	}
+
 	private void OnPublished(string file, IReadOnlyList<ServerDiagnostic> diagnostics) {
 		lock (_sync) {
 			if (diagnostics.Count == 0) _diagnostics.Remove(file);

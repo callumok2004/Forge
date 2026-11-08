@@ -68,11 +68,53 @@ public sealed class EditorContent : Panel
 
 	private bool InOriginal => _workbench.ActiveDiff is { OriginalFocused: true };
 
+	private TextView? _scrollbarView;
+
+	private IEnumerable<TextView> ScrollbarViews() {
+		if (_workbench.ActiveDiff is { } diff) {
+			yield return diff.Original;
+			yield return diff.Modified;
+		}
+		else if (_workbench.ActiveView is { } view) yield return view;
+	}
+
 	public override void OnCursorMoved(float x, float y) {
 		if (_workbench.ActiveView is not { } view) return;
 
+		(float barX, float barY) = Absolute(x, y);
+
+		if (_scrollbarView is { } dragging) {
+			dragging.DragScrollbar(barX, barY);
+
+			if (_workbench.ActiveDiff is { } synced && ReferenceEquals(dragging, synced.Original)) synced.Modified.SetScrollY(dragging.ScrollY);
+
+			Changed?.Invoke();
+			Repaint();
+			return;
+		}
+
+		bool overScrollbar = false;
+
+		foreach (TextView candidate in ScrollbarViews()) {
+			if (candidate.HoverScrollbar(barX, barY)) Repaint();
+
+			overScrollbar |= candidate.ScrollbarHovered != TextView.ScrollbarPart.None;
+		}
+
+		if (overScrollbar && !_selecting) {
+			Cursor = CursorCode.Arrow;
+			return;
+		}
+
 		if (_workbench.ActiveDiff is { } diff && !_selecting) {
 			(float diffX, float diffY) = Absolute(x, y);
+
+			if (diff.SashDragging) {
+				diff.DragSash(diffX);
+				Cursor = CursorCode.SizeWestEast;
+				Repaint();
+				return;
+			}
 
 			if (diff.Hover(diffX, diffY)) Repaint();
 
@@ -183,8 +225,30 @@ public sealed class EditorContent : Panel
 			return true;
 		}
 
+		(float barX, float barY) = Absolute(x, y);
+
+		foreach (TextView candidate in ScrollbarViews()) {
+			if (!candidate.BeginScrollbarDrag(barX, barY)) continue;
+
+			_scrollbarView = candidate;
+
+			if (_workbench.ActiveDiff is { } synced && ReferenceEquals(candidate, synced.Original)) synced.Modified.SetScrollY(candidate.ScrollY);
+
+			Ui?.SetMouseCapture(this);
+			Changed?.Invoke();
+			Repaint();
+			return true;
+		}
+
 		if (_workbench.ActiveDiff is { } diff) {
 			(float diffX, float diffY) = Absolute(x, y);
+
+			if (diff.IsOnSash(diffX, diffY)) {
+				diff.SashDragging = true;
+				Ui?.SetMouseCapture(this);
+				Repaint();
+				return true;
+			}
 
 			if (diff.Press(Code, diffX, diffY, clicks, Tall)) {
 				Repaint();
@@ -258,6 +322,21 @@ public sealed class EditorContent : Panel
 	public override void OnMouseCaptureLost() => StopSelecting();
 
 	private void StopSelecting() {
+		if (_scrollbarView is { } dragging) {
+			dragging.EndScrollbarDrag();
+			_scrollbarView = null;
+			Repaint();
+
+			if (ReferenceEquals(Ui?.GetMouseCapture(), this)) Ui!.SetMouseCapture(null);
+		}
+
+		if (_workbench.ActiveDiff is { SashDragging: true } diff) {
+			diff.SashDragging = false;
+			Repaint();
+
+			if (ReferenceEquals(Ui?.GetMouseCapture(), this)) Ui!.SetMouseCapture(null);
+		}
+
 		if (!_selecting) return;
 
 		_selecting = false;

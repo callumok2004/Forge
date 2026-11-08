@@ -139,9 +139,20 @@ public static class LineDiff
 
 		if (text.IsEmpty) return hashes;
 
-		foreach (ReadOnlySpan<char> line in text.EnumerateLines()) hashes[count++] = string.GetHashCode(line.TrimEnd('\r'));
+		ReadOnlySpan<char> remaining = text;
 
-		if (count > 0 && text.Length > 0 && text[^1] == '\n') count--;
+		while (true) {
+			int end = remaining.IndexOf('\n');
+
+			if (end < 0) {
+				if (!remaining.IsEmpty) hashes[count++] = string.GetHashCode(remaining.TrimEnd('\r'));
+
+				break;
+			}
+
+			hashes[count++] = string.GetHashCode(remaining[..end].TrimEnd('\r'));
+			remaining = remaining[(end + 1)..];
+		}
 
 		return hashes;
 	}

@@ -296,7 +296,8 @@ public sealed class DiffEditor
 		float overview = OverviewWidth * scale;
 		float gutter = GutterWidth * scale;
 		float available = Math.Max(0f, width - overview);
-		float sash = MathF.Round(available / 2f);
+		float sash = MathF.Round(Math.Clamp(available * SplitRatio, Math.Min(MinimumSide * scale, available / 2f), Math.Max(available - (MinimumSide * scale), available / 2f)));
+		_available = available;
 
 		_x = x;
 		_y = y;
@@ -327,6 +328,8 @@ public sealed class DiffEditor
 		DrawMoves(painter, lineHeight, x + sash, available - sash);
 		DrawGutter(painter, gutter, lineHeight);
 		DrawOverview(painter, overview, lineHeight);
+
+		if (SashHovered || SashDragging) painter.FillRectangle(x + _originalWidth - (SashSize * scale / 2f), y, SashSize * scale, height, Theme.FocusBorder);
 	}
 
 	private void DrawZones(IPainter painter, TextView view, float x, float y, float width, float height, float lineHeight, bool labels) {
@@ -628,7 +631,30 @@ public sealed class DiffEditor
 	private BarPart _hoverPart;
 	private ITextFont? _font;
 
-	public CursorCode? Cursor => _hoverPart switch {
+	private const float MinimumSide = 100f;
+
+	private const float SashSize = 4f;
+
+	private float _available;
+
+	public float SplitRatio { get; set; } = 0.5f;
+
+	public bool SashHovered { get; private set; }
+
+	public bool SashDragging { get; set; }
+
+	public bool IsOnSash(float absoluteX, float absoluteY) {
+		float sash = _x + _originalWidth;
+		return absoluteY >= _y && absoluteY < _y + _height && Math.Abs(absoluteX - sash) <= SashSize * _scale / 2f;
+	}
+
+	public void DragSash(float absoluteX) {
+		if (_available <= 0f) return;
+
+		SplitRatio = Math.Clamp((absoluteX - _x + (GutterWidth * _scale)) / _available, 0f, 1f);
+	}
+
+	public CursorCode? Cursor => SashHovered ? CursorCode.SizeWestEast : _hoverPart switch {
 		BarPart.Unfold => CursorCode.Hand,
 		BarPart.Top or BarPart.Bottom => CursorCode.SizeNorthSouth,
 		BarPart.Text => CursorCode.Arrow,
@@ -673,6 +699,12 @@ public sealed class DiffEditor
 	public bool Hover(float absoluteX, float absoluteY) {
 		bool hovered = absoluteX >= _gutterLeft && absoluteX < _gutterLeft + (GutterWidth * _scale) && absoluteY >= _y && absoluteY < _y + _height;
 		bool changed = hovered != GutterHovered || (hovered && _mouse != (absoluteX, absoluteY));
+		bool sash = IsOnSash(absoluteX, absoluteY);
+
+		if (sash != SashHovered) {
+			SashHovered = sash;
+			changed = true;
+		}
 
 		GutterHovered = hovered;
 		_mouse = hovered ? (absoluteX, absoluteY) : (-1f, -1f);

@@ -35,6 +35,12 @@ public sealed class ViewPaneContainer : Panel
 		if (_panes.Exists(pane => pane.Descriptor.Id == descriptor.Id)) return;
 
 		Pane pane = new(this, descriptor);
+
+		if (SavedStates.TryGetValue(descriptor.Id, out Forge.Core.ViewPaneState? saved)) {
+			pane.Weight = saved.Weight > 0f ? saved.Weight : 1f;
+			pane.Collapsed = saved.Collapsed;
+		}
+
 		int index = _panes.FindIndex(existing => existing.Descriptor.Order > descriptor.Order);
 
 		if (index < 0) _panes.Add(pane);
@@ -70,24 +76,37 @@ public sealed class ViewPaneContainer : Panel
 		if (_panes.Find(pane => pane.Descriptor.Id == viewId) is not { } pane) return;
 
 		pane.Collapsed = !pane.Collapsed;
+		Remember(pane);
 		InvalidateLayout();
 		Repaint();
 	}
+
+	public static Dictionary<string, Forge.Core.ViewPaneState> SavedStates { get; set; } = [];
+
+	private static void Remember(Pane pane) => SavedStates[pane.Descriptor.Id] = new Forge.Core.ViewPaneState(pane.Weight, pane.Collapsed);
 
 	public void SyncActions() {
 		foreach (Pane pane in _panes) pane.SyncVisibility();
 	}
 
+	public const float MinimumBodySize = 120f;
+
+	private readonly List<PaneSash> _sashes = [];
+
 	public override void PerformLayout() {
 		float scale = Scale;
 		float header = ShowHeaders ? HeaderHeight * scale : 0f;
-		int expanded = 0;
+		List<Pane> open = [];
 
 		foreach (Pane pane in _panes) {
-			if (!pane.Collapsed || !ShowHeaders) expanded++;
+			if (!pane.Collapsed || !ShowHeaders) open.Add(pane);
 		}
 
-		float bodyHeight = expanded == 0 ? 0f : MathF.Max(0f, (Tall - (header * _panes.Count)) / expanded);
+		float available = MathF.Max(0f, Tall - (header * _panes.Count));
+		float weights = 0f;
+
+		foreach (Pane pane in open) weights += pane.Weight;
+
 		float y = 0f;
 
 		foreach (Pane pane in _panes) {
@@ -99,13 +118,115 @@ public sealed class ViewPaneContainer : Panel
 				y += header;
 			}
 
-			bool open = !ShowHeaders || !pane.Collapsed;
-			pane.Body.Visible = open;
+			bool visible = open.Contains(pane);
+			pane.Body.Visible = visible;
 
-			if (!open) continue;
+			if (!visible) continue;
 
-			pane.Body.SetBounds(0f, y, Wide, bodyHeight);
-			y += bodyHeight;
+			float body = weights <= 0f ? 0f : MathF.Round(available * pane.Weight / weights);
+			pane.Body.SetBounds(0f, y, Wide, body);
+			y += body;
+		}
+
+		LayoutSashes(open, scale);
+	}
+
+	private void LayoutSashes(List<Pane> open, float scale) {
+		int needed = ShowHeaders ? Math.Max(0, open.Count - 1) : 0;
+
+		while (_sashes.Count < needed) {
+			PaneSash sash = new(this);
+			_sashes.Add(sash);
+			AddChild(sash);
+		}
+
+		for (int i = 0; i < _sashes.Count; i++) {
+			PaneSash sash = _sashes[i];
+			sash.Visible = i < needed;
+
+			if (!sash.Visible) continue;
+
+			sash.Above = open[i];
+			sash.Below = open[i + 1];
+
+			float boundary = open[i + 1].Header.Y;
+			float size = PaneSash.Size * scale;
+			sash.SetBounds(0f, boundary - (size / 2f), Wide, size);
+			sash.MoveToFront();
+		}
+	}
+
+	private void Resize(Pane above, Pane below, float delta) {
+		float scale = Scale;
+		float total = above.Body.Tall + below.Body.Tall;
+		float minimum = Math.Min(MinimumBodySize * scale, total / 2f);
+		float top = Math.Clamp(above.Body.Tall + delta, minimum, total - minimum);
+		float weight = above.Weight + below.Weight;
+
+		above.Weight = total <= 0f ? weight / 2f : weight * (top / total);
+		below.Weight = weight - above.Weight;
+		Remember(above);
+		Remember(below);
+		InvalidateLayout();
+		Repaint();
+	}
+
+	private sealed class PaneSash : Panel
+	{
+		public const float Size = 4f;
+
+		private readonly ViewPaneContainer _owner;
+		private float _grab;
+		private float _start;
+		private bool _dragging;
+
+		public PaneSash(ViewPaneContainer owner) {
+			_owner = owner;
+			Name = "PaneSash";
+			Cursor = CursorCode.SizeNorthSouth;
+		}
+
+		public Pane? Above { get; set; }
+
+		public Pane? Below { get; set; }
+
+		public override void OnCursorEntered() => Repaint();
+
+		public override void OnCursorExited() => Repaint();
+
+		public override bool OnMousePressed(MouseButton button, float x, float y) {
+			if (button != MouseButton.Left) return false;
+
+			_dragging = true;
+			_grab = GetAbsPos().Y + y;
+			_start = Above?.Body.Tall ?? 0f;
+			Ui?.SetMouseCapture(this);
+			Repaint();
+			return true;
+		}
+
+		public override void OnCursorMoved(float x, float y) {
+			if (!_dragging || Above is null || Below is null) return;
+
+			_owner.Resize(Above, Below, _start + (GetAbsPos().Y + y - _grab) - Above.Body.Tall);
+		}
+
+		public override bool OnMouseReleased(MouseButton button, float x, float y) {
+			_dragging = false;
+
+			if (ReferenceEquals(Ui?.GetMouseCapture(), this)) Ui!.SetMouseCapture(null);
+
+			Repaint();
+			return true;
+		}
+
+		public override void OnMouseCaptureLost() {
+			_dragging = false;
+			Repaint();
+		}
+
+		public override void Paint(IPainter painter) {
+			if (_dragging || IsCursorOver) painter.FillRectangle(ScreenX, ScreenY, Wide, Tall, Theme.FocusBorder);
 		}
 	}
 
@@ -145,6 +266,8 @@ public sealed class ViewPaneContainer : Panel
 		public List<Func<bool>?> Visibility { get; } = [];
 
 		public bool Collapsed { get; set; }
+
+		public float Weight { get; set; } = 1f;
 
 		public void SyncVisibility() {
 			for (int i = 0; i < Controls.Count; i++) {

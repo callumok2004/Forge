@@ -29,35 +29,45 @@ public sealed class FileIndex(string rootPath) : IFileIndex
 
 	public void Cancel() => _cancellation.Cancel();
 
+	private static readonly EnumerationOptions ScanOptions = new() { IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint, RecurseSubdirectories = false };
+
 	private void Scan() {
 		List<string> found = [];
-		ConcurrentQueue<string> pending = new();
+		List<string> directories = [];
+		Queue<string> pending = new();
 		pending.Enqueue(_rootPath);
 
-		int sincePublish = 0;
+		int rootLength = _rootPath.TrimEnd(Path.DirectorySeparatorChar).Length + 1;
+		int publishAt = 2000;
 
 		while (pending.TryDequeue(out string? directory)) {
 			if (_cancellation.IsCancellationRequested) return;
 
+			directories.Clear();
+
 			try {
-				foreach (string child in Directory.EnumerateDirectories(directory)) {
-					if (!FileTree.IsIgnored(Path.GetFileName(child))) pending.Enqueue(child);
-				}
+				System.IO.Enumeration.FileSystemEnumerable<string?> entries = new(directory, (ref System.IO.Enumeration.FileSystemEntry entry) => {
+					if (entry.IsDirectory) {
+						if (!FileTree.IsIgnored(entry.FileName)) directories.Add(entry.ToFullPath());
 
-				foreach (string file in Directory.EnumerateFiles(directory)) {
-					found.Add(Path.GetRelativePath(_rootPath, file));
-					sincePublish++;
+						return null;
+					}
+
+					return string.Concat(entry.Directory[Math.Min(rootLength, entry.Directory.Length)..], entry.Directory.Length > rootLength ? "\\" : string.Empty, entry.FileName);
+				}, ScanOptions);
+
+				foreach (string? relative in entries) {
+					if (relative is not null) found.Add(relative);
 				}
 			}
-			catch (UnauthorizedAccessException) {
+			catch (Exception exception) when (exception is UnauthorizedAccessException or IOException) {
 				continue;
 			}
-			catch (IOException) {
-				continue;
-			}
 
-			if (sincePublish >= 2000) {
-				sincePublish = 0;
+			foreach (string child in directories) pending.Enqueue(child);
+
+			if (found.Count >= publishAt) {
+				publishAt = found.Count * 2;
 				Publish(found);
 			}
 		}

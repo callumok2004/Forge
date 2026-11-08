@@ -14,6 +14,10 @@ public sealed class DocumentSync(RoslynLanguageClient client)
 		lock (_sync) return _ready && _versions.ContainsKey(path);
 	}
 
+	public string[] OpenPaths() {
+		lock (_sync) return [.. _texts.Keys];
+	}
+
 	public void Open(string path, string text) {
 		if (client.Generated.UriFor(path) is not null) return;
 
@@ -87,6 +91,19 @@ public sealed class DocumentSync(RoslynLanguageClient client)
 		}
 
 		if (wasOpen) client.Notify("textDocument/didClose", new JsonObject { ["textDocument"] = new JsonObject { ["uri"] = RoslynLanguageClient.ToUri(path) } });
+	}
+
+	public void Reopen(string path) {
+		string? text;
+
+		lock (_sync) {
+			if (!_ready || !_versions.ContainsKey(path) || !_texts.TryGetValue(path, out text)) return;
+
+			_versions[path] = 1;
+		}
+
+		client.Notify("textDocument/didClose", new JsonObject { ["textDocument"] = new JsonObject { ["uri"] = RoslynLanguageClient.ToUri(path) } });
+		SendOpen(path, text);
 	}
 
 	public void Save(string path) {

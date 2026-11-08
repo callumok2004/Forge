@@ -37,6 +37,8 @@ public sealed class Sidebar : Panel, IViewPart
 
 	public SourceControlView SourceControl { get; } = new();
 
+	public ScmGraphView Graph { get; } = new();
+
 	public SearchView Search { get; } = new();
 
 	public DebugView Debug { get; } = new();
@@ -60,6 +62,7 @@ public sealed class Sidebar : Panel, IViewPart
 			field = value;
 			Explorer.Repository = value;
 			SourceControl.Repository = value;
+			Graph.Repository = value;
 			Repaint();
 		}
 	}

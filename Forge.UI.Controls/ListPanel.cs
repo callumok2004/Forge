@@ -130,7 +130,29 @@ public sealed class ListPanel : Panel
 		Hovered?.Invoke(-1);
 	}
 
+	public Action<int, float, float>? ContextRequested { get; set; }
+
+	public float RowTop(int row) => (row - _first) * RowHeight * Scale;
+
+	public void Reveal(int row) {
+		if (row < _first) _first = row;
+		else if (row >= _first + VisibleRows) _first = row - VisibleRows + 1;
+
+		_first = Math.Clamp(_first, 0, MaxFirst);
+		Repaint();
+	}
+
 	public override bool OnMousePressed(MouseButton button, float x, float y) {
+		if (button == MouseButton.Right) {
+			int row = RowAt(y);
+
+			if (row >= 0) Select(row, reveal: false);
+
+			_pressed = -1;
+			ContextRequested?.Invoke(row, x, y);
+			return true;
+		}
+
 		_pressed = RowAt(y);
 
 		if (_pressed >= 0) Select(_pressed);
@@ -139,6 +161,8 @@ public sealed class ListPanel : Panel
 	}
 
 	public override bool OnMouseReleased(MouseButton button, float x, float y) {
+		if (button == MouseButton.Right) return true;
+
 		int row = RowAt(y);
 
 		if (row >= 0 && row == _pressed) Activated?.Invoke(row);

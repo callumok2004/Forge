@@ -8,11 +8,14 @@ public sealed class WatchedFiles(RoslynLanguageClient client) : IDisposable
 	private const int Changed = 2;
 	private const int Deleted = 3;
 	private const int CoalesceMilliseconds = 150;
-	private const int ReloadMilliseconds = 500;
+	private const int ReloadMilliseconds = 3000;
+	private const int RetryMilliseconds = 8000;
 
 	private static readonly string[] Extensions = [".cs", ".csproj", ".props", ".targets", ".sln", ".slnx", ".slnf", ".editorconfig"];
 
 	private readonly Dictionary<string, int> _pending = [with(StringComparer.OrdinalIgnoreCase)];
+	private readonly HashSet<string> _created = [with(StringComparer.OrdinalIgnoreCase)];
+	private readonly HashSet<string> _retry = [with(StringComparer.OrdinalIgnoreCase)];
 	private readonly Lock _sync = new();
 
 	private FileSystemWatcher? _watcher;
@@ -62,7 +65,11 @@ public sealed class WatchedFiles(RoslynLanguageClient client) : IDisposable
 
 		_flush?.Change(CoalesceMilliseconds, Timeout.Infinite);
 
-		if (kind != Changed && path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)) _reload?.Change(ReloadMilliseconds, Timeout.Infinite);
+		if (kind != Created || !path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)) return;
+
+		lock (_sync) _created.Add(path);
+
+		_reload?.Change(ReloadMilliseconds, Timeout.Infinite);
 	}
 
 	private void Flush() {
@@ -78,7 +85,20 @@ public sealed class WatchedFiles(RoslynLanguageClient client) : IDisposable
 	}
 
 	private void Reopen() {
-		if (!client.OpenWorkspace()) return;
+		string[] created;
+		bool retry;
+
+		lock (_sync) {
+			created = [.. _created, .. _retry];
+			_retry.Clear();
+			_retry.UnionWith(_created);
+			_created.Clear();
+			retry = _retry.Count > 0;
+		}
+
+		foreach (string path in created) client.Documents.Reopen(path);
+
+		if (retry) _reload?.Change(RetryMilliseconds, Timeout.Infinite);
 
 		client.Contexts.Invalidate();
 		ProjectsReopened?.Invoke();

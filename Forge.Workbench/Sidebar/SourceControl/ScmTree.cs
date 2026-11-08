@@ -44,7 +44,7 @@ public sealed class ScmTree : Panel
 		Name = "ScmTree";
 		Dock = DockType.Fill;
 
-		_input = new TextEntry { Name = "ScmInput", ContextKey = ContextKeys.ScmInputFocused };
+		_input = new TextEntry { Name = "ScmInput", Multiline = true, TextChanged = InvalidateInput, ContextKey = ContextKeys.ScmInputFocused };
 		_commit = new SplitButton { Name = "ScmCommit", Command = "git.commit", DropdownMenu = static () => ApplicationMenu.Build(GitMenus.Commit) };
 
 		AddChild(_input);
@@ -55,12 +55,24 @@ public sealed class ScmTree : Panel
 
 	public string Message => _input.GetString();
 
+	private int _inputLines = 1;
+
+	private void InvalidateInput() {
+		if (_input.VisibleLines == _inputLines) return;
+
+		_inputLines = _input.VisibleLines;
+		InvalidateLayout();
+		Repaint();
+	}
+
 	public void Invalidate() {
 		_stale = true;
 		InvalidateLayout();
 	}
 
-	private float HeaderHeight => (InputRowHeight + ButtonRowHeight) * Scale;
+	private float InputExtra => (_input.VisibleLines - 1) * _input.GetLineHeight();
+
+	private float HeaderHeight => ((InputRowHeight + ButtonRowHeight) * Scale) + InputExtra;
 
 	private void EnsureRows() {
 		if (!_stale) return;
@@ -82,10 +94,10 @@ public sealed class ScmTree : Panel
 		Span<char> buffer = stackalloc char[96];
 		int written = Write(buffer, "$(check) Commit");
 		_commit.SetText(buffer[..written]);
-		_commit.Enabled = repository.GetStaged().Count > 0 || repository.GetUnstaged().Count > 0;
+		_commit.Enabled = !_view.Committing && (repository.GetStaged().Count > 0 || repository.GetUnstaged().Count > 0);
 
 		string branch = repository.GetBranch() ?? "HEAD";
-		written = Write(buffer, "Message (Ctrl+Enter to commit on '");
+		written = Write(buffer, "Message (commit on '");
 		written += Write(buffer[written..], branch.AsSpan(0, Math.Min(branch.Length, buffer.Length - written - 2)));
 		written += Write(buffer[written..], "')");
 		_input.Placeholder = new string(buffer[..written]);
@@ -203,8 +215,10 @@ public sealed class ScmTree : Panel
 		float left = (Indent + WidgetPadding) * scale;
 		float width = Math.Max(0f, Wide - left - (ContentPaddingRight * scale));
 
-		_input.SetBounds(left, ((InputRowHeight - InputHeight) / 2f * scale) - _scrollY, width, InputHeight * scale);
-		_commit.SetBounds(left, ((InputRowHeight + ((ButtonRowHeight - ButtonHeight) / 2f)) * scale) - _scrollY, width, ButtonHeight * scale);
+		float extra = InputExtra;
+
+		_input.SetBounds(left, ((InputRowHeight - InputHeight) / 2f * scale) - _scrollY, width, (InputHeight * scale) + extra);
+		_commit.SetBounds(left, ((InputRowHeight + ((ButtonRowHeight - ButtonHeight) / 2f)) * scale) + extra - _scrollY, width, ButtonHeight * scale);
 	}
 
 	public override bool OnMouseWheeled(int delta, float x, float y) {

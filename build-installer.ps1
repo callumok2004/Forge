@@ -96,6 +96,28 @@ if (-not $SkipAppx) {
 		Replace('@@Dll@@', $dllName) | Set-Content (Join-Path $stage 'AppxManifest.xml') -Encoding UTF8
 	Copy-Item "$assets\forge-dev-150.png", "$assets\forge-dev-44.png" "$stage\appx"
 
+	Add-Type -AssemblyName System.Drawing
+	$source = [System.Drawing.Image]::FromFile((Resolve-Path "$assets\forge-dev.png"))
+	foreach ($size in 16, 20, 24, 30, 32, 36, 40, 44, 48, 60, 64, 72, 80, 96, 256) {
+		foreach ($variant in "targetsize-$size", "targetsize-$($size)_altform-unplated", "targetsize-$($size)_altform-lightunplated") {
+			$bitmap = New-Object System.Drawing.Bitmap $size, $size
+			$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+			$graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+			$graphics.Clear([System.Drawing.Color]::Transparent)
+			$graphics.DrawImage($source, 0, 0, $size, $size)
+			$bitmap.Save("$stage\appx\forge-dev-44.$variant.png", [System.Drawing.Imaging.ImageFormat]::Png)
+			$graphics.Dispose()
+			$bitmap.Dispose()
+		}
+	}
+	$source.Dispose()
+
+	$priConfig = Join-Path $obj 'priconfig.xml'
+	& "$($sdkBin.FullName)\makepri.exe" createconfig /cf $priConfig /dq en-US /pv 10.0.0 /o | Out-Null
+	if ($LASTEXITCODE -ne 0) { throw 'makepri createconfig failed' }
+	& "$($sdkBin.FullName)\makepri.exe" new /pr $stage /cf $priConfig /mn (Join-Path $stage 'AppxManifest.xml') /of (Join-Path $stage 'resources.pri') /o | Out-Null
+	if ($LASTEXITCODE -ne 0) { throw 'makepri failed' }
+
 	$appx = Join-Path $obj $appxName
 	& "$($sdkBin.FullName)\makeappx.exe" pack /o /nv /d $stage /p $appx | Out-Null
 	if ($LASTEXITCODE -ne 0) { throw 'makeappx failed' }
@@ -105,6 +127,8 @@ if (-not $SkipAppx) {
 
 	New-Item -ItemType Directory -Path "$app\appx" | Out-Null
 	Copy-Item $appx, $dll, $cer, "$assets\forge-dev-150.png", "$assets\forge-dev-44.png" "$app\appx"
+	Copy-Item "$stage\appx\forge-dev-44.*.png" "$app\appx"
+	Copy-Item (Join-Path $stage 'resources.pri') $app
 	$hasAppx = $true
 }
 

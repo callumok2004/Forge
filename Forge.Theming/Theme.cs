@@ -137,6 +137,7 @@ public static class Theme
 	public static readonly Color InputPlaceholderForeground = Color.Parse("#5b6678");
 
 	public static readonly Color ButtonBackground = Color.Parse("#1f5bff");
+	public static readonly Color ProgressBarBackground = Color.Parse("#1f5bff");
 	public static readonly Color ButtonHoverBackground = Color.Parse("#3a70ff");
 	public static readonly Color ButtonForeground = Color.Parse("#ffffff");
 	public static readonly Color ButtonSecondaryBackground = Color.Parse("#232c3b");

@@ -67,6 +67,33 @@ public sealed class SourceControlView : Panel
 
 	public void ClearMessage() => Input.Clear();
 
+	private float _progress;
+
+	public bool Committing {
+		get;
+		set {
+			if (field == value) return;
+
+			field = value;
+			_progress = 0f;
+			SetThinking(value);
+			_section.Tree.Invalidate();
+			Repaint();
+		}
+	}
+
+	public override void OnThink(float deltaSeconds) {
+		_progress = (_progress + (deltaSeconds / 4f)) % 1f;
+		Repaint(0f, 0f, Wide, 2f * Scale);
+	}
+
+	public override void PostChildPaint(IPainter painter) {
+		if (!Committing) return;
+
+		float width = Wide * 0.02f;
+		painter.FillRectangle(ScreenX + (_progress * 50f * width), ScreenY, width, 2f * Scale, Theme.ProgressBarBackground);
+	}
+
 	public void Run(Func<IGitRepository, bool> command) => RunGit?.Invoke(command);
 
 	public void SetRoot(string rootPath) {

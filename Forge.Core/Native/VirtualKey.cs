@@ -22,4 +22,8 @@ public static class VirtualKey
 	public const uint V = 0x56;
 	public const uint Z = 0x5A;
 	public const uint F1 = 0x70;
+	public const uint F2 = 0x71;
+	public const uint F5 = 0x74;
+	public const uint F = 0x46;
+	public const uint X = 0x58;
 }

@@ -65,7 +65,7 @@ public static class GitCommands
 			});
 		});
 
-		Add("scm.acceptInput", "Commit", () => context.Run("git.commit"), "Ctrl+Enter", () => Panel.Ui?.HasContext(ContextKeys.ScmInputFocused) ?? false);
+		Add("scm.acceptInput", "Commit", () => context.Run("git.commit"));
 
 		registry.Register(new Command("workbench.scm.action.setTreeViewMode", "View as Tree", "Source Control", _ => view.TreeView = true));
 		registry.Register(new Command("workbench.scm.action.setListViewMode", "View as List", "Source Control", _ => view.TreeView = false));
@@ -75,6 +75,34 @@ public static class GitCommands
 			workbench.OpenFile(path);
 			context.Refresh();
 		};
+		ScmGraphView graph = workbench.Sidebar.Graph;
+		graph.Changed = context.Refresh;
+		graph.ChangesOpened = (title, from, to) => {
+			if (workbench.Repository is not { } repository) return;
+
+			string root = repository.GetRootPath();
+
+			ThreadPool.UnsafeQueueUserWorkItem(_ => {
+				IReadOnlyList<GitCommitChange> changes = GitHistoryReader.Changes(root, from, to);
+
+				workbench.Post(() => {
+					workbench.Views?.OpenEditor("commitDiff:" + from + ".." + to, () => new CommitDiffPane(root, title, from, to, changes, path => {
+						workbench.OpenFile(path);
+						context.Refresh();
+					}, context.Refresh));
+					context.Refresh();
+				});
+			}, null);
+		};
+		graph.ChangeOpened = (commit, change) => {
+			workbench.OpenCommitChange(commit, change);
+			context.Refresh();
+		};
+		registry.Register(new Command("workbench.scm.history.refresh", "Refresh", "Source Control", _ => {
+			graph.Refresh();
+			context.Refresh();
+		}));
+
 		view.ChangeOpened = (entry, staged) => {
 			workbench.OpenGitChange(entry.Path, entry.Status, staged);
 			context.Refresh();
@@ -97,17 +125,29 @@ public static class GitCommands
 			return;
 		}
 
+		if (view.Committing) return;
+
 		bool smart = all || (repository.GetStaged().Count == 0 && context.Settings.GetBoolean("git.enableSmartCommit") == true);
+		string root = repository.GetRootPath();
 
-		view.ClearMessage();
+		view.Committing = true;
 
-		Run(workbench, context, root => {
-			bool committed = smart ? GitProcess.Run(root, "commit", "-a", "-m", message) is not null : repository.Commit(message);
+		ThreadPool.UnsafeQueueUserWorkItem(_ => {
+			bool committed = smart ? GitProcess.RunUntimed(root, "commit", "-a", "-m", message) is not null : repository.Commit(message);
+
+			workbench.Post(() => {
+				view.Committing = false;
+
+				if (committed && view.Message == message) view.ClearMessage();
+
+				context.Refresh();
+			});
 
 			if (committed && then is not null) GitProcess.Run(root, then);
 
-			return committed;
-		});
+			repository.Refresh();
+			context.Refresh();
+		}, null);
 	}
 
 	private static void Run(Workbench workbench, ShellContext context, Func<string, bool> command) {

@@ -562,7 +562,8 @@ public sealed class TextView : ITextView
 	private const int LinesPerWheelNotch = 3;
 	private const int ColumnsPerWheelNotch = 6;
 	private const float CaretWidth = 2f;
-	private const float ScrollbarWidth = 10f;
+	private const float ScrollbarWidth = 14f;
+	private const float HorizontalScrollbarHeight = 12f;
 	private const float ScrollbarMinThumb = 28f;
 
 	private char[] _raw = new char[512];
@@ -1980,52 +1981,112 @@ public sealed class TextView : ITextView
 		}
 	}
 
+	public enum ScrollbarPart
+	{
+		None,
+		Vertical,
+		Horizontal,
+	}
+
+	private (float Left, float Top, float Width, float Height, float Thumb, float ThumbSize, float Max) _vertical;
+	private (float Left, float Top, float Width, float Height, float Thumb, float ThumbSize, float Max) _horizontal;
+	private ScrollbarPart _scrollbarDrag;
+	private float _scrollbarGrab;
+
+	public ScrollbarPart ScrollbarHovered { get; private set; }
+
+	public bool IsDraggingScrollbar => _scrollbarDrag != ScrollbarPart.None;
+
+	public ScrollbarPart ScrollbarAt(float absX, float absY) {
+		if (_vertical.Max > 0f && absX >= _vertical.Left && absX < _vertical.Left + _vertical.Width && absY >= _vertical.Top && absY < _vertical.Top + _vertical.Height) return ScrollbarPart.Vertical;
+
+		if (_horizontal.Max > 0f && absX >= _horizontal.Left && absX < _horizontal.Left + _horizontal.Width && absY >= _horizontal.Top && absY < _horizontal.Top + _horizontal.Height) return ScrollbarPart.Horizontal;
+
+		return ScrollbarPart.None;
+	}
+
+	public bool HoverScrollbar(float absX, float absY) {
+		ScrollbarPart part = ScrollbarAt(absX, absY);
+
+		if (part == ScrollbarHovered) return false;
+
+		ScrollbarHovered = part;
+		return true;
+	}
+
+	public bool BeginScrollbarDrag(float absX, float absY) {
+		ScrollbarPart part = ScrollbarAt(absX, absY);
+
+		if (part == ScrollbarPart.None) return false;
+
+		_scrollbarDrag = part;
+
+		if (part == ScrollbarPart.Vertical) {
+			bool onThumb = absY >= _vertical.Thumb && absY < _vertical.Thumb + _vertical.ThumbSize;
+			_scrollbarGrab = onThumb ? absY - _vertical.Thumb : _vertical.ThumbSize / 2f;
+		}
+		else {
+			bool onThumb = absX >= _horizontal.Thumb && absX < _horizontal.Thumb + _horizontal.ThumbSize;
+			_scrollbarGrab = onThumb ? absX - _horizontal.Thumb : _horizontal.ThumbSize / 2f;
+		}
+
+		DragScrollbar(absX, absY);
+		return true;
+	}
+
+	public void DragScrollbar(float absX, float absY) {
+		if (_scrollbarDrag == ScrollbarPart.Vertical) {
+			float range = Math.Max(1f, _vertical.Height - _vertical.ThumbSize);
+			float progress = Math.Clamp((absY - _scrollbarGrab - _vertical.Top) / range, 0f, 1f);
+			SetScrollY(progress * _vertical.Max);
+		}
+		else if (_scrollbarDrag == ScrollbarPart.Horizontal) {
+			float range = Math.Max(1f, _horizontal.Width - _horizontal.ThumbSize);
+			float progress = Math.Clamp((absX - _scrollbarGrab - _horizontal.Left) / range, 0f, 1f);
+			ScrollX = progress * _horizontal.Max;
+		}
+	}
+
+	public void EndScrollbarDrag() => _scrollbarDrag = ScrollbarPart.None;
+
+	private Color SliderColor(ScrollbarPart part) => _scrollbarDrag == part ? Theme.ScrollbarSliderActive : ScrollbarHovered == part ? Theme.ScrollbarSliderHover : Theme.ScrollbarSlider;
+
 	private void DrawScrollbar(IPainter painter, float x, float y, float width, float height, float lineHeight) {
 		float contentHeight = ScrollHeight(lineHeight, height);
-		if (contentHeight <= height) return;
 
-		float trackWidth = ScrollbarWidth;
+		if (contentHeight <= height) {
+			_vertical = default;
+			return;
+		}
+
+		float trackWidth = ScrollbarWidth * Scale;
 		float trackX = x + width - trackWidth;
-
-		float visibleFraction = height / contentHeight;
-		float thumbHeight = Math.Max(ScrollbarMinThumb, height * visibleFraction);
-
+		float thumbHeight = Math.Max(ScrollbarMinThumb * Scale, height * (height / contentHeight));
 		float maxScroll = Math.Max(1f, contentHeight - height);
 		float progress = Math.Clamp(ScrollY / maxScroll, 0f, 1f);
 		float thumbY = y + (progress * (height - thumbHeight));
 
-		painter.FillRoundedRectangle(
-			trackX + 2f,
-			thumbY + 2f,
-			trackWidth - 4f,
-			thumbHeight - 4f,
-			(trackWidth - 4f) / 2f,
-			Theme.ScrollbarSlider);
+		_vertical = (trackX, y, trackWidth, height, thumbY, thumbHeight, maxScroll);
+		painter.FillRectangle(trackX, thumbY, trackWidth, thumbHeight, SliderColor(ScrollbarPart.Vertical));
 	}
 
-	private void DrawHorizontalScrollbar(IPainter painter, float x, float y, float width, float height,
-		float gutterWidth) {
-		if (_contentWidth <= _textAreaWidth) return;
+	private void DrawHorizontalScrollbar(IPainter painter, float x, float y, float width, float height, float gutterWidth) {
+		if (_contentWidth <= _textAreaWidth) {
+			_horizontal = default;
+			return;
+		}
 
-		float trackHeight = ScrollbarWidth;
+		float trackHeight = HorizontalScrollbarHeight * Scale;
 		float trackLeft = x + gutterWidth;
-		float trackWidth = width - gutterWidth;
+		float trackWidth = width - gutterWidth - (ShowVerticalScrollbar && _vertical.Max > 0f ? _vertical.Width : 0f);
 		float trackY = y + height - trackHeight;
-
-		float visibleFraction = _textAreaWidth / _contentWidth;
-		float thumbWidth = Math.Max(ScrollbarMinThumb, trackWidth * visibleFraction);
-
+		float thumbWidth = Math.Max(ScrollbarMinThumb * Scale, trackWidth * (_textAreaWidth / _contentWidth));
 		float maxScroll = Math.Max(1f, _contentWidth - _textAreaWidth);
 		float progress = Math.Clamp(ScrollX / maxScroll, 0f, 1f);
 		float thumbX = trackLeft + (progress * (trackWidth - thumbWidth));
 
-		painter.FillRoundedRectangle(
-			thumbX + 2f,
-			trackY + 2f,
-			thumbWidth - 4f,
-			trackHeight - 4f,
-			(trackHeight - 4f) / 2f,
-			Theme.ScrollbarSlider);
+		_horizontal = (trackLeft, trackY, trackWidth, trackHeight, thumbX, thumbWidth, maxScroll);
+		painter.FillRectangle(thumbX, trackY, thumbWidth, trackHeight, SliderColor(ScrollbarPart.Horizontal));
 	}
 
 	public IReadOnlyList<FindMatch>? FindMatches { get; set; }

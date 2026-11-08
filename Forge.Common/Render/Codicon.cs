@@ -113,6 +113,11 @@ public enum Codicon : ushort
 	LayoutPanelOff = 0xEC01,
 	Sparkle = 0xEC10,
 	GitBranch = 0xEC6F,
+	Cloud = 0xEBAA,
+	DiffAdded = 0xEADC,
+	DiffModified = 0xEADE,
+	DiffRemoved = 0xEADF,
+	Tag = 0xEA66,
 
 	Vm = 0xEA7A,
 	Trash = 0xEA81,

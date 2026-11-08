@@ -53,6 +53,24 @@ public static class WorkbenchCommands
 		Add("workbench.action.lastEditorInGroup", "Open Last Editor in Group", "View", () => workbench.Activate(workbench.Documents.Count - 1), "Alt+0");
 		Add("workbench.action.files.saveAll", "Save All", "File", workbench.SaveAll, "Ctrl+K S");
 		Add("workbench.action.files.revert", "Revert File", "File", workbench.RevertActive);
+		ExplorerView explorer = workbench.Sidebar.Explorer;
+		bool ExplorerFocused() => !explorer.IsEditing && (Common.UI.Panel.Ui?.HasContext(ExplorerView.FocusContext) ?? false);
+
+		Add("explorer.newFile", "New File...", "File", explorer.NewFile);
+		Add("explorer.newFolder", "New Folder...", "File", explorer.NewFolder);
+		Add("revealFileInOS", "Reveal in File Explorer", "File", explorer.RevealInOS, "Shift+Alt+R", ExplorerFocused);
+		Add("openInIntegratedTerminal", "Open in Integrated Terminal", "File", explorer.OpenInTerminal);
+		Add("selectForCompare", "Select for Compare", "File", explorer.SelectForCompare);
+		Add("compareFiles", "Compare with Selected", "File", explorer.CompareWithSelected);
+		Add("filesExplorer.findInFolder", "Find in Folder...", "File", explorer.FindInFolder, "Shift+Alt+F", ExplorerFocused);
+		Add("filesExplorer.cut", "Cut", "File", explorer.Cut, "Ctrl+X", ExplorerFocused);
+		Add("filesExplorer.copy", "Copy", "File", explorer.Copy, "Ctrl+C", ExplorerFocused);
+		Add("filesExplorer.paste", "Paste", "File", explorer.Paste, "Ctrl+V", ExplorerFocused);
+		Add("copyFilePath", "Copy Path", "File", explorer.CopyPath, "Shift+Alt+C", ExplorerFocused);
+		Add("copyRelativeFilePath", "Copy Relative Path", "File", explorer.CopyRelativePath, "Ctrl+K Ctrl+Shift+C", ExplorerFocused);
+		Add("renameFile", "Rename...", "File", explorer.Rename, "F2", ExplorerFocused);
+		Add("deleteFile", "Delete", "File", explorer.Delete, "Delete", ExplorerFocused);
+
 		Add("workbench.files.action.collapseExplorerFolders", "Collapse Folders in Explorer", "File", workbench.Sidebar.Explorer.CollapseAll);
 		Add("workbench.files.action.refreshFilesExplorer", "Refresh Explorer", "File", () => {
 			if (workbench.RootPath is { } root) workbench.Sidebar.Explorer.Reload([root]);

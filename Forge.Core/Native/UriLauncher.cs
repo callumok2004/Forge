@@ -42,9 +42,23 @@ public static class UriLauncher
 	private static void Serve(Action<string> received) {
 		byte[] buffer = new byte[8192];
 
+		int failures = 0;
+
 		while (true) {
+			NamedPipeServerStream server;
+
 			try {
-				using NamedPipeServerStream server = new(PipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly);
+				server = new(PipeName, PipeDirection.In, NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly);
+				failures = 0;
+			}
+			catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
+				if (++failures >= 5) return;
+
+				Thread.Sleep(1000 * failures);
+				continue;
+			}
+
+			using (server) try {
 				server.WaitForConnection();
 
 				int length = 0;

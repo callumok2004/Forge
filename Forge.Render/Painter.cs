@@ -366,6 +366,27 @@ public sealed class Painter : IPainter, IDisposable
 		return geometry;
 	}
 
+	public unsafe void DrawPixels(PixelBuffer pixels, float x, float y) {
+		if (pixels.Width <= 0 || pixels.Height <= 0) return;
+
+		D2D.ID2D1Bitmap1? bitmap = pixels.NativeCache as D2D.ID2D1Bitmap1;
+
+		if (bitmap is null || (int)bitmap.PixelSize.Width != pixels.Width || (int)bitmap.PixelSize.Height != pixels.Height) {
+			bitmap?.Dispose();
+			bitmap = _context.CreateBitmap(new Vortice.Mathematics.SizeI(pixels.Width, pixels.Height), 0, 0, new D2D.BitmapProperties1(new Vortice.DCommon.PixelFormat(Vortice.DXGI.Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied), 96f, 96f));
+			pixels.NativeCache = bitmap;
+			pixels.NativeVersion = -1;
+		}
+
+		if (pixels.NativeVersion != pixels.Version) {
+			fixed (uint* source = pixels.Pixels) bitmap.CopyFromMemory((nint)source, (uint)(pixels.Width * 4));
+
+			pixels.NativeVersion = pixels.Version;
+		}
+
+		_context.DrawBitmap(bitmap, new Vortice.Mathematics.Rect(x, y, pixels.Width, pixels.Height), 1f, D2D.BitmapInterpolationMode.NearestNeighbor, new Vortice.Mathematics.Rect(0f, 0f, pixels.Width, pixels.Height));
+	}
+
 	public void DrawImage(Image image, float centreX, float centreY, float size) {
 		float half = size / 2f;
 

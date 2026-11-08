@@ -54,6 +54,8 @@ public sealed class WorkspaceMemory
 
 	public List<string> CollapsedSections { get; set; } = [];
 
+	public Dictionary<string, ViewPaneState> ViewPanes { get; set; } = [];
+
 	public static WorkspaceMemory Load(string root) {
 		string path = PathFor(root);
 
@@ -105,6 +107,8 @@ public sealed class WorkspaceMemory
 }
 
 public sealed record EditorViewState(int Anchor, int Caret, float ScrollTop);
+
+public sealed record ViewPaneState(float Weight, bool Collapsed);
 
 [JsonSourceGenerationOptions(WriteIndented = true)]
 [JsonSerializable(typeof(WorkspaceMemory))]
