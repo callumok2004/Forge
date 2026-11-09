@@ -35,7 +35,7 @@ public static class LanguageServerLocator
 			return ServerIn(directory, dotnetPath);
 		}
 
-		return ServerIn(Path.Combine(storageDirectory, "roslyn"), dotnetPath);
+		return ServerIn(Path.Combine(AppContext.BaseDirectory, "LanguageServer", "roslyn"), dotnetPath) ?? ServerIn(Path.Combine(storageDirectory, "roslyn"), dotnetPath);
 	}
 
 	private static ServerLaunch? ServerIn(string directory, string? dotnetPath) {

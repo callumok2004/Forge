@@ -91,13 +91,13 @@ public sealed partial class RoslynLanguageClient : IDisposable
 
 	internal JsonRpcConnection? Connection => _initialized && _connection is { IsRunning: true } connection ? connection : null;
 
-	internal async Task<JsonNode?> RequestAsync(string method, JsonObject parameters) {
+	internal async Task<JsonNode?> RequestAsync(string method, JsonObject parameters, CancellationToken cancellationToken = default) {
 		if (Connection is not { } connection) return null;
 
 		try {
-			return await connection.SendRequestAsync(method, parameters).ConfigureAwait(false);
+			return await connection.SendRequestAsync(method, parameters, cancellationToken).ConfigureAwait(false);
 		}
-		catch (Exception exception) when (exception is InvalidOperationException or IOException) {
+		catch (Exception exception) when (exception is InvalidOperationException or IOException or OperationCanceledException) {
 			return null;
 		}
 	}

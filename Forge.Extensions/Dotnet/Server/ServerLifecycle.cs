@@ -226,6 +226,7 @@ public sealed class ServerLifecycle(RoslynLanguageClient server, SolutionWorkspa
 
 			case DocumentEvent.Closed:
 				server.Documents.Close(path);
+				server.Diagnostics.Forget(path);
 				diagnostics.Clear(path);
 				break;
 		}

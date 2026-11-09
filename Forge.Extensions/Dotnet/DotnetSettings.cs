@@ -12,7 +12,7 @@ public sealed class DotnetSettings
 
 	public bool UseServerGC { get; private set; } = true;
 
-	public string SourceGeneratorExecution { get; private set; } = "automatic";
+	public string SourceGeneratorExecution { get; private set; } = "balanced";
 
 	public IReadOnlyDictionary<string, string> ServerEnvironment { get; private set; } = new Dictionary<string, string>();
 

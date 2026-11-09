@@ -120,7 +120,7 @@ public sealed class JsonRpcConnection : IDisposable
 		using CancellationTokenRegistration registration = cancellationToken.Register(() => {
 			lock (_sync) _pending.Remove(id);
 
-			completion.TrySetCanceled(cancellationToken);
+			if (completion.TrySetCanceled(cancellationToken) && IsRunning) SendNotification("$/cancelRequest", new JsonObject { ["id"] = id });
 		});
 
 		return await completion.Task.ConfigureAwait(false);

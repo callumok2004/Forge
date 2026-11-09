@@ -46,4 +46,27 @@
 			<None Include="@(NetCoreDbgFile)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="Debugger\netcoredbg\%(NetCoreDbgFile.RecursiveDir)%(NetCoreDbgFile.Filename)%(NetCoreDbgFile.Extension)" Visible="false" />
 		</ItemGroup>
 	</Target>
+
+	<PropertyGroup>
+		<RoslynRoot>$(MSBuildThisFileDirectory)..\native\roslyn\</RoslynRoot>
+		<RoslynServerProject>$(RoslynRoot)src\LanguageServer\Microsoft.CodeAnalysis.LanguageServer\Microsoft.CodeAnalysis.LanguageServer.csproj</RoslynServerProject>
+		<RoslynBin>$(RoslynRoot)bin\</RoslynBin>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<RoslynSource Include="$(RoslynRoot)src\LanguageServer\**\*.cs;$(RoslynRoot)src\Workspaces\**\*.cs;$(RoslynRoot)src\Features\**\*.cs;$(RoslynRoot)src\Compilers\Core\**\*.cs;$(RoslynRoot)src\Compilers\CSharp\Portable\**\*.cs;$(RoslynRoot)eng\targets\*.props;$(RoslynRoot)eng\targets\*.targets;$(RoslynRoot)*.props;$(RoslynRoot)*.targets;$(RoslynRoot)global.json;$(RoslynRoot)src\LanguageServer\**\*.csproj" Exclude="$(RoslynRoot)**\obj\**;$(RoslynRoot)**\bin\**;$(RoslynRoot)**\*Test*\**" />
+	</ItemGroup>
+
+	<Target Name="BuildRoslynServer" BeforeTargets="BeforeBuild" Condition="Exists('$(RoslynServerProject)')" Inputs="@(RoslynSource)" Outputs="$(RoslynBin)Microsoft.CodeAnalysis.LanguageServer.dll">
+		<Message Importance="high" Text="Building roslyn language server fork..." />
+		<Exec WorkingDirectory="$(RoslynRoot)" Command="dotnet publish &quot;$(RoslynServerProject)&quot; -c Release -o &quot;$(RoslynBin.TrimEnd('\'))&quot; -v:m -m -p:RunAnalyzers=false -p:TreatWarningsAsErrors=false -p:UsingToolXliff=false -p:EnableNgenOptimization=false" />
+		<Touch Files="$(RoslynBin)Microsoft.CodeAnalysis.LanguageServer.dll" />
+	</Target>
+
+	<Target Name="CopyRoslynServer" AfterTargets="BuildRoslynServer" BeforeTargets="AssignTargetPaths">
+		<ItemGroup>
+			<RoslynFile Include="$(RoslynBin)**\*" />
+			<None Include="@(RoslynFile)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="LanguageServer\roslyn\%(RoslynFile.RecursiveDir)%(RoslynFile.Filename)%(RoslynFile.Extension)" Visible="false" />
+		</ItemGroup>
+	</Target>
 </Project>

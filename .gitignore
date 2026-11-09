@@ -88,3 +88,6 @@ local.settings.json
 third-party/
 
 TODO.md
+.vscode/launch.json
+.vscode/settings.json
+.vscode/tasks.json

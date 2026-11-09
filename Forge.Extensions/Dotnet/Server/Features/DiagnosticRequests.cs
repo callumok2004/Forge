@@ -7,6 +7,8 @@ namespace Forge.Extensions.Dotnet.Server.Features;
 public sealed class DiagnosticRequests(RoslynLanguageClient client)
 {
 	private readonly Dictionary<string, JsonArray> _raw = [with(StringComparer.OrdinalIgnoreCase)];
+	private readonly Dictionary<string, string> _resultIds = [with(StringComparer.OrdinalIgnoreCase)];
+	private readonly Dictionary<string, CancellationTokenSource> _inflight = [with(StringComparer.OrdinalIgnoreCase)];
 	private readonly Lock _sync = new();
 
 	public event Action<string, IReadOnlyList<ServerDiagnostic>>? Published;
@@ -37,13 +39,48 @@ public sealed class DiagnosticRequests(RoslynLanguageClient client)
 	public async Task PullAsync(string path) {
 		if (!client.Documents.IsOpen(path)) return;
 
-		JsonNode? result = await client.RequestAsync("textDocument/diagnostic", new JsonObject {
-			["textDocument"] = client.Contexts.Identifier(path),
-		}).ConfigureAwait(false);
+		CancellationTokenSource current = new();
+		string? previousResultId;
+
+		lock (_sync) {
+			if (_inflight.Remove(path, out CancellationTokenSource? superseded)) superseded.Cancel();
+
+			_inflight[path] = current;
+			_resultIds.TryGetValue(path, out previousResultId);
+		}
+
+		JsonObject parameters = new() { ["textDocument"] = client.Contexts.Identifier(path) };
+
+		if (previousResultId is not null) parameters["previousResultId"] = previousResultId;
+
+		JsonNode? result;
+
+		try {
+			result = await client.RequestAsync("textDocument/diagnostic", parameters, current.Token).ConfigureAwait(false);
+		}
+		finally {
+			lock (_sync) {
+				if (_inflight.TryGetValue(path, out CancellationTokenSource? active) && active == current) _inflight.Remove(path);
+			}
+
+			current.Dispose();
+		}
+
+		if (result?["resultId"]?.GetValue<string>() is { } resultId) {
+			lock (_sync) _resultIds[path] = resultId;
+		}
 
 		if (result?["kind"]?.GetValue<string>() == "unchanged" || result?["items"] is not JsonArray items) return;
 
 		Published?.Invoke(path, Store(path, items));
+	}
+
+	internal void Forget(string path) {
+		lock (_sync) {
+			_resultIds.Remove(path);
+
+			if (_inflight.Remove(path, out CancellationTokenSource? pending)) pending.Cancel();
+		}
 	}
 
 	internal void OnPublished(JsonNode? parameters) {
