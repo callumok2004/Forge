@@ -208,7 +208,7 @@ public sealed partial class GrammarTokenizer(Grammar grammar)
 		GrammarRule? bestRule = null;
 		Match? best = null;
 
-		List<GrammarRule> candidates = Flatten(state.Rule?.Patterns ?? Grammar.Patterns);
+		List<GrammarRule> candidates = Candidates(state.Rule?.Patterns ?? Grammar.Patterns, state.Scopes);
 
 		foreach (GrammarRule candidate in candidates) {
 			TieredRegex? regex = candidate.MatchRegex ?? candidate.BeginRegex;
@@ -227,6 +227,46 @@ public sealed partial class GrammarTokenizer(Grammar grammar)
 		}
 
 		return (bestRule, best);
+	}
+
+	private IReadOnlyList<string>? _maskScopes;
+	private long _mask;
+	private readonly Dictionary<(IReadOnlyList<GrammarRule>, long), List<GrammarRule>> _injected = [];
+
+	private List<GrammarRule> Candidates(IReadOnlyList<GrammarRule> rules, IReadOnlyList<string> scopes) {
+		IReadOnlyList<(ScopeSelector Selector, GrammarRule Rule)> injections = Grammar.Injections;
+
+		if (injections.Count == 0) return Flatten(rules);
+
+		if (!ReferenceEquals(_maskScopes, scopes)) {
+			long mask = 0;
+
+			for (int i = 0; i < injections.Count && i < 32; i++) {
+				if (injections[i].Selector.Matches(Grammar.ScopeName, scopes, out int priority)) mask |= (priority < 0 ? 1L : 1L << 32) << i;
+			}
+
+			_maskScopes = scopes;
+			_mask = mask;
+		}
+
+		if (_mask == 0) return Flatten(rules);
+
+		if (_injected.TryGetValue((rules, _mask), out List<GrammarRule>? cached)) return cached;
+
+		List<GrammarRule> combined = [];
+
+		for (int i = 0; i < injections.Count && i < 32; i++) {
+			if ((_mask & (1L << i)) != 0) combined.AddRange(Flatten(injections[i].Rule.Patterns));
+		}
+
+		combined.AddRange(Flatten(rules));
+
+		for (int i = 0; i < injections.Count && i < 32; i++) {
+			if ((_mask & (1L << (32 + i))) != 0) combined.AddRange(Flatten(injections[i].Rule.Patterns));
+		}
+
+		_injected[(rules, _mask)] = combined;
+		return combined;
 	}
 
 	private List<GrammarRule> Flatten(IReadOnlyList<GrammarRule> rules) {

@@ -20,6 +20,7 @@ public static class GrammarIndex
 
 	private static Dictionary<string, GrammarEntry>? _byExtension;
 	private static Dictionary<string, GrammarEntry>? _byId;
+	private static Dictionary<string, GrammarEntry>? _byScope;
 
 	public static string Directory => Path.Combine(AppContext.BaseDirectory, "Grammars");
 
@@ -43,6 +44,12 @@ public static class GrammarIndex
 		return _byId!.GetValueOrDefault(id);
 	}
 
+	public static GrammarEntry? ForScope(string scope) {
+		Load();
+
+		return _byScope!.GetValueOrDefault(scope);
+	}
+
 	public static IEnumerable<GrammarEntry> All() {
 		Load();
 
@@ -57,8 +64,13 @@ public static class GrammarIndex
 
 			Dictionary<string, GrammarEntry> byExtension = [with(StringComparer.OrdinalIgnoreCase)];
 			Dictionary<string, GrammarEntry> byId = [with(StringComparer.OrdinalIgnoreCase)];
+			Dictionary<string, GrammarEntry> byScope = [with(StringComparer.Ordinal)];
 
-			foreach (GrammarEntry entry in Read()) {
+			foreach ((GrammarEntry entry, bool embedded) in Read()) {
+				if (entry.ScopeName.Length > 0) byScope.TryAdd(entry.ScopeName, entry);
+
+				if (embedded) continue;
+
 				byId[entry.Id] = entry;
 
 				foreach (string extension in entry.Extensions) byExtension.TryAdd(extension, entry);
@@ -66,13 +78,14 @@ public static class GrammarIndex
 				foreach (string name in entry.FileNames) byExtension.TryAdd(name, entry);
 			}
 
+			_byScope = byScope;
 			_byId = byId;
 			_byExtension = byExtension;
 		}
 	}
 
-	private static List<GrammarEntry> Read() {
-		List<GrammarEntry> entries = [];
+	private static List<(GrammarEntry, bool)> Read() {
+		List<(GrammarEntry, bool)> entries = [];
 
 		try {
 			string path = Path.Combine(Directory, "grammars.json");
@@ -85,7 +98,7 @@ public static class GrammarIndex
 			foreach (JsonElement element in document.RootElement.EnumerateArray()) {
 				if (Text(element, "id") is not { } id || Text(element, "file") is not { } file) continue;
 
-				entries.Add(new GrammarEntry(
+				entries.Add((new GrammarEntry(
 					id,
 					Text(element, "name") ?? id,
 					Text(element, "scopeName") ?? string.Empty,
@@ -94,7 +107,7 @@ public static class GrammarIndex
 					Strings(element, "filenames"),
 					Text(element, "lineComment"),
 					Text(element, "blockCommentStart"),
-					Text(element, "blockCommentEnd")));
+					Text(element, "blockCommentEnd")), element.TryGetProperty("embedded", out JsonElement embedded) && embedded.ValueKind == JsonValueKind.True));
 			}
 		}
 		catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException) {

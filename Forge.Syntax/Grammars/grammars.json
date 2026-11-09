@@ -594,7 +594,10 @@
 			".phtml",
 			".ctp"
 		],
-		"filenames": []
+		"filenames": [],
+		"lineComment": "//",
+		"blockCommentStart": "/*",
+		"blockCommentEnd": "*/"
 	},
 	{
 		"id": "powershell",
@@ -1019,5 +1022,19 @@
 		],
 		"filenames": [],
 		"lineComment": "#"
+	},
+	{
+		"id": "php-source",
+		"name": "PHP Source",
+		"scopeName": "source.php",
+		"file": "php-source.tmLanguage.json",
+		"embedded": true
+	},
+	{
+		"id": "html-basic",
+		"name": "HTML Basic",
+		"scopeName": "text.html.basic",
+		"file": "html-basic.tmLanguage.json",
+		"embedded": true
 	}
 ]

@@ -33,6 +33,8 @@ public sealed class GrammarRule
 
 	public Dictionary<int, GrammarRule>? EndCaptureRules { get; init; }
 
+	public Grammar? Owner { get; internal set; }
+
 	private TieredRegex? _match;
 	private TieredRegex? _begin;
 	private TieredRegex? _end;
@@ -64,12 +66,14 @@ public sealed class Grammar
 {
 	private readonly Dictionary<string, GrammarRule> _repository;
 
-	private Grammar(string scopeName, List<GrammarRule> patterns,
-		Dictionary<string, GrammarRule> repository) {
+	private Grammar(string scopeName, List<GrammarRule> patterns, Dictionary<string, GrammarRule> repository, List<(ScopeSelector, GrammarRule)> injections) {
 		ScopeName = scopeName;
 		Patterns = patterns;
 		_repository = repository;
+		Injections = injections;
 	}
+
+	public IReadOnlyList<(ScopeSelector Selector, GrammarRule Rule)> Injections { get; }
 
 	public string ScopeName { get; }
 
@@ -78,16 +82,25 @@ public sealed class Grammar
 	public IReadOnlyList<GrammarRule> Resolve(GrammarRule rule) {
 		if (rule.Include is not { Length: > 0 } include) return rule.Patterns;
 
-		if (include is "$self" or "$base") return Patterns;
+		Grammar owner = rule.Owner ?? this;
 
-		if (include[0] == '#') {
-			return _repository.TryGetValue(include[1..], out GrammarRule? found)
-				? [found]
-				: [];
-		}
+		if (include == "$self") return owner.Patterns;
 
-		return [];
+		if (include == "$base") return Patterns;
+
+		if (include[0] == '#') return owner.Repository(include.AsSpan(1));
+
+		int hash = include.IndexOf('#');
+		string scope = hash < 0 ? include : include[..hash];
+		Grammar? external = scope == owner.ScopeName ? owner : Grammars.ForScope(scope);
+
+		if (external is null) return [];
+
+		return hash < 0 ? external.Patterns : external.Repository(include.AsSpan(hash + 1));
 	}
+
+	private IReadOnlyList<GrammarRule> Repository(ReadOnlySpan<char> name) =>
+		_repository.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(name, out GrammarRule? found) ? [found] : [];
 
 	public static Grammar? Load(string path) {
 		try {
@@ -99,16 +112,28 @@ public sealed class Grammar
 			if (root.ValueKind != JsonValueKind.Object) return null;
 
 			Dictionary<string, GrammarRule> repository = [with(StringComparer.Ordinal)];
+			List<GrammarRule> all = [];
 
 			if (root.TryGetProperty("repository", out JsonElement entries) &&
 				entries.ValueKind == JsonValueKind.Object) {
 				foreach (JsonProperty entry in entries.EnumerateObject()) {
-					if (ReadRule(entry.Value) is { } rule) repository[entry.Name] = rule;
+					if (ReadRule(entry.Value, all) is { } rule) repository[entry.Name] = rule;
 				}
 			}
 
-			return new Grammar(Text(root, "scopeName") ?? string.Empty, ReadPatterns(root, "patterns"),
-				repository);
+			List<(ScopeSelector, GrammarRule)> injections = [];
+
+			if (root.TryGetProperty("injections", out JsonElement injected) && injected.ValueKind == JsonValueKind.Object) {
+				foreach (JsonProperty entry in injected.EnumerateObject()) {
+					if (ReadRule(entry.Value, all) is { } rule) injections.Add((ScopeSelector.Parse(entry.Name), rule));
+				}
+			}
+
+			Grammar grammar = new(Text(root, "scopeName") ?? string.Empty, ReadPatterns(root, "patterns", all), repository, injections);
+
+			foreach (GrammarRule rule in all) rule.Owner = grammar;
+
+			return grammar;
 		}
 		catch (Exception exception) when (exception is IOException or JsonException
 			or UnauthorizedAccessException) {
@@ -121,32 +146,32 @@ public sealed class Grammar
 			? value.GetString()
 			: null;
 
-	private static List<GrammarRule> ReadPatterns(in JsonElement element, string name) {
+	private static List<GrammarRule> ReadPatterns(in JsonElement element, string name, List<GrammarRule> all) {
 		List<GrammarRule> rules = [];
 
 		if (!element.TryGetProperty(name, out JsonElement array) ||
 			array.ValueKind != JsonValueKind.Array) return rules;
 
 		foreach (JsonElement entry in array.EnumerateArray()) {
-			if (ReadRule(entry) is { } rule) rules.Add(rule);
+			if (ReadRule(entry, all) is { } rule) rules.Add(rule);
 		}
 
 		return rules;
 	}
 
-	private static GrammarRule? ReadRule(in JsonElement entry) {
+	private static GrammarRule? ReadRule(in JsonElement entry, List<GrammarRule> all) {
 		if (entry.ValueKind != JsonValueKind.Object) return null;
 
 		(Dictionary<int, string>? captures, Dictionary<int, GrammarRule>? captureRules) =
-			ReadCaptures(entry, "captures");
+			ReadCaptures(entry, "captures", all);
 
 		(Dictionary<int, string>? beginCaptures, Dictionary<int, GrammarRule>? beginCaptureRules) =
-			ReadCaptures(entry, "beginCaptures");
+			ReadCaptures(entry, "beginCaptures", all);
 
 		(Dictionary<int, string>? endCaptures, Dictionary<int, GrammarRule>? endCaptureRules) =
-			ReadCaptures(entry, "endCaptures");
+			ReadCaptures(entry, "endCaptures", all);
 
-		return new GrammarRule {
+		GrammarRule rule = new() {
 			Name = Text(entry, "name"),
 			ContentName = Text(entry, "contentName"),
 			Match = Text(entry, "match"),
@@ -160,12 +185,15 @@ public sealed class Grammar
 			BeginCaptureRules = beginCaptureRules ?? (beginCaptures is null ? captureRules : null),
 			EndCaptures = endCaptures ?? (endCaptureRules is null ? captures : null),
 			EndCaptureRules = endCaptureRules ?? (endCaptures is null ? captureRules : null),
-			Patterns = ReadPatterns(entry, "patterns"),
+			Patterns = ReadPatterns(entry, "patterns", all),
 		};
+
+		all.Add(rule);
+		return rule;
 	}
 
 	private static (Dictionary<int, string>?, Dictionary<int, GrammarRule>?) ReadCaptures(
-		in JsonElement owner, string name) {
+		in JsonElement owner, string name, List<GrammarRule> all) {
 		if (!owner.TryGetProperty(name, out JsonElement entries) ||
 			entries.ValueKind != JsonValueKind.Object) return (null, null);
 
@@ -179,7 +207,7 @@ public sealed class Grammar
 			if (Text(entry.Value, "name") is { Length: > 0 } scope) (names ??= [])[group] = scope;
 
 			if (entry.Value.TryGetProperty("patterns", out JsonElement patterns) &&
-				patterns.ValueKind == JsonValueKind.Array) (rules ??= [])[group] = ReadRule(entry.Value)!;
+				patterns.ValueKind == JsonValueKind.Array) (rules ??= [])[group] = ReadRule(entry.Value, all)!;
 		}
 
 		return (names, rules);

@@ -4,8 +4,10 @@ namespace Forge.Tests;
 
 public class TextMateTests
 {
-	private static List<(string Text, string Scope)> Tokenize(params string[] lines) {
-		GrammarTokenizer tokenizer = new(Grammars.ForId("source.cs") ?? Grammars.ForId("csharp") ?? throw new InvalidOperationException("no C# grammar"));
+	private static List<(string Text, string Scope)> Tokenize(params string[] lines) => TokenizeWith("csharp", lines);
+
+	private static List<(string Text, string Scope)> TokenizeWith(string id, params string[] lines) {
+		GrammarTokenizer tokenizer = new(Grammars.ForId(id) ?? throw new InvalidOperationException($"no {id} grammar"));
 		GrammarState state = GrammarState.Root;
 		List<(string, string)> result = [];
 		List<ScopedToken> tokens = [];
@@ -18,6 +20,24 @@ public class TextMateTests
 		}
 
 		return result;
+	}
+
+	[Fact]
+	public void PhpCodeIsHighlightedThroughEmbeddedGrammar() {
+		List<(string Text, string Scope)> tokens = TokenizeWith("php", "<?php", "function greet($name) { return \"hi\"; }", "?>", "<div class=\"x\"><?= $name ?></div>");
+
+		Assert.Contains(tokens, token => token.Text == "function" && token.Scope.StartsWith("storage.type.function", StringComparison.Ordinal));
+		Assert.Contains(tokens, token => token.Text == "name" && token.Scope.StartsWith("variable.other.php", StringComparison.Ordinal));
+		Assert.Contains(tokens, token => token.Text == "div" && token.Scope.StartsWith("entity.name.tag", StringComparison.Ordinal));
+		Assert.Contains(tokens, token => token.Text == "<?=" && token.Scope.StartsWith("punctuation.section.embedded.begin.php", StringComparison.Ordinal));
+	}
+
+	[Fact]
+	public void HtmlTagsAreHighlighted() {
+		List<(string Text, string Scope)> tokens = TokenizeWith("html", "<p id=\"a\">text</p>");
+
+		Assert.Contains(tokens, token => token.Text == "p" && token.Scope.StartsWith("entity.name.tag", StringComparison.Ordinal));
+		Assert.Contains(tokens, token => token.Text == "id" && token.Scope.StartsWith("entity.other.attribute-name", StringComparison.Ordinal));
 	}
 
 	[Fact]

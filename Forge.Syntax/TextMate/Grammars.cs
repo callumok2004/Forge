@@ -16,9 +16,11 @@ public static class Grammars
 	public static Grammar? For(LanguageDefinition language) =>
 		language.GrammarId is { } id ? ForId(id) : null;
 
-	public static Grammar? ForId(string id) {
-		if (GrammarIndex.ForId(id) is not { } entry) return null;
+	public static Grammar? ForId(string id) => GrammarIndex.ForId(id) is { } entry ? Load(entry) : null;
 
+	public static Grammar? ForScope(string scope) => GrammarIndex.ForScope(scope) is { } entry ? Load(entry) : null;
+
+	private static Grammar? Load(GrammarEntry entry) {
 		lock (Sync) {
 			if (Loaded.TryGetValue(entry.File, out Grammar? cached)) return cached;
 

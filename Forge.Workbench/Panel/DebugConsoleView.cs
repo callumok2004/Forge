@@ -769,7 +769,7 @@ public sealed class DebugConsoleView : Panel
 		public ConsoleInput(DebugConsoleView owner) {
 			_owner = owner;
 			Name = "DebugConsoleInput";
-			Entry = new TextEntry { Name = "DebugConsoleEntry", Dock = DockType.Fill, FontSize = FontSize, Submitted = Submit };
+			Entry = new TextEntry { Name = "DebugConsoleEntry", Dock = DockType.Fill, FontSize = FontSize, Submitted = Submit, FocusLost = static () => { } };
 			AddChild(Entry);
 		}
 

@@ -58,6 +58,8 @@ public sealed class TextEntry : Panel
 
 	public Action? Submitted { get; set; }
 
+	public Action? FocusLost { get; set; }
+
 	public float FontSize { get; init; }
 
 	public bool Multiline { get; init; }
@@ -133,7 +135,7 @@ public sealed class TextEntry : Panel
 
 	public override void OnKillFocus(Panel? newFocus) {
 		RemoveTickSignal();
-		Submitted?.Invoke();
+		(FocusLost ?? Submitted)?.Invoke();
 		Repaint();
 	}
 
@@ -241,6 +243,14 @@ public sealed class TextEntry : Panel
 		while (caret < limit && advance + (font.GetAdvance(_buffer[caret]) / 2f) < x) advance += font.GetAdvance(_buffer[caret++]);
 
 		MoveCaret(caret);
+		return true;
+	}
+
+	public override bool OnMouseDoublePressed(MouseButton button, float x, float y) {
+		if (button != MouseButton.Left) return OnMousePressed(button, x, y);
+
+		RequestFocus();
+		SelectAll();
 		return true;
 	}
 

@@ -108,10 +108,10 @@ public sealed class SearchView : Panel
 		Dock = DockType.Fill;
 		MouseInputEnabled = true;
 
-		_find = new TextEntry { Name = "SearchInput", Placeholder = "Search", FontSize = Metrics.FontSizeBody, TextChanged = QueueSearch, Submitted = SearchNow };
+		_find = new TextEntry { Name = "SearchInput", Placeholder = "Search", FontSize = Metrics.FontSizeBody, TextChanged = QueueSearch, Submitted = SearchNow, FocusLost = SearchIfPending };
 		_replace = new TextEntry { Name = "ReplaceInput", Placeholder = "Replace", FontSize = Metrics.FontSizeBody, Visible = false, TextChanged = ReplaceChanged };
-		_include = new TextEntry { Name = "IncludeInput", Placeholder = "e.g. *.ts, src/**/include", FontSize = Metrics.FontSizeBody, Visible = false, TextChanged = QueueSearch, Submitted = SearchNow };
-		_exclude = new TextEntry { Name = "ExcludeInput", Placeholder = "e.g. *.ts, src/**/exclude", FontSize = Metrics.FontSizeBody, Visible = false, TextChanged = QueueSearch, Submitted = SearchNow };
+		_include = new TextEntry { Name = "IncludeInput", Placeholder = "e.g. *.ts, src/**/include", FontSize = Metrics.FontSizeBody, Visible = false, TextChanged = QueueSearch, Submitted = SearchNow, FocusLost = SearchIfPending };
+		_exclude = new TextEntry { Name = "ExcludeInput", Placeholder = "e.g. *.ts, src/**/exclude", FontSize = Metrics.FontSizeBody, Visible = false, TextChanged = QueueSearch, Submitted = SearchNow, FocusLost = SearchIfPending };
 
 		_matchCase = Toggle(_find, Codicon.CaseSensitive, "Match Case");
 		_wholeWord = Toggle(_find, Codicon.WholeWord, "Match Whole Word");
@@ -203,6 +203,10 @@ public sealed class SearchView : Panel
 	private void ReplaceChanged() {
 		_replaceAll.Enabled = _replace.Text.Length > 0 || _results.Count > 0;
 		Repaint();
+	}
+
+	private void SearchIfPending() {
+		if (_pending) SearchNow();
 	}
 
 	public void SearchNow() {

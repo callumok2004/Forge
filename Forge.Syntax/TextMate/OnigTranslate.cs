@@ -31,6 +31,12 @@ public static class OnigTranslate
 						i++;
 						continue;
 
+					case 'x' when i + 2 < pattern.Length && pattern[i + 2] == '{' && pattern.IndexOf('}', i + 3) is var end and > 0 &&
+						int.TryParse(pattern.AsSpan(i + 3, end - i - 3), System.Globalization.NumberStyles.HexNumber, null, out int code):
+						builder.Append(@"\u").Append(Math.Min(code, 0xFFFF).ToString("X4"));
+						i = end;
+						continue;
+
 					default:
 						builder.Append(c).Append(next);
 						i++;
