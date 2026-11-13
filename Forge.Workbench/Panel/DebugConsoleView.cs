@@ -271,6 +271,11 @@ public sealed class DebugConsoleView : Panel
 					last.Text += entry.Text;
 					from = Math.Min(from, _entries.Count - 1);
 				}
+				else if (entry.Kind == EntryKind.Output && _entries.Count > 0 && _entries[^1] is { Kind: EntryKind.Output, Open: false } previous && previous.Color.Equals(entry.Color) && previous.Text == entry.Text && SameSpans(previous.Spans, entry.Spans)) {
+					previous.Count++;
+					from = Math.Min(from, _entries.Count - 1);
+					continue;
+				}
 				else _entries.Add(entry);
 
 				if (entry.Kind == EntryKind.Output) _entries[^1].Open = !_entries[^1].Text.EndsWith('\n');
@@ -287,6 +292,8 @@ public sealed class DebugConsoleView : Panel
 
 		Repaint();
 	}
+
+	private static bool SameSpans(List<ColorSpan>? left, List<ColorSpan>? right) => (left is null || left.Count == 0) ? right is null || right.Count == 0 : right is not null && left.SequenceEqual(right);
 
 	private void Invalidate(int entry) {
 		_rebuildFrom = _linesDirty ? Math.Min(_rebuildFrom, entry) : entry;
@@ -497,6 +504,11 @@ public sealed class DebugConsoleView : Panel
 
 		if (button != MouseButton.Left) return true;
 
+		if (ShowJump && JumpBounds is var (jumpX, jumpY, jumpSize) && x >= jumpX && x < jumpX + jumpSize && y >= jumpY && y < jumpY + jumpSize) {
+			JumpToBottom();
+			return true;
+		}
+
 		int row = (int)MathF.Floor((y - FilterBand + _scrollY) / _rowHeight);
 
 		if ((uint)row < (uint)_rows.Count && _rows[row].Start == 0 && _lines[_rows[row].Line].Expandable is { } entry && x < TextLeft(_lines[_rows[row].Line])) {
@@ -525,15 +537,22 @@ public sealed class DebugConsoleView : Panel
 		if (line < 0) return true;
 
 		ReadOnlySpan<char> text = _lines[line].Text;
-		int start = Math.Min(column, text.Length);
-		int end = start;
-
-		while (start > 0 && (char.IsLetterOrDigit(text[start - 1]) || text[start - 1] == '_')) start--;
-
-		while (end < text.Length && (char.IsLetterOrDigit(text[end]) || text[end] == '_')) end++;
-
+		(int start, int end) = WordRange.At(text, column, WordRange.EditorSeparators);
 		_anchor = (line, start);
 		_focus = (line, end);
+		Repaint();
+		return true;
+	}
+
+	public override bool OnMouseTriplePressed(MouseButton button, float x, float y) {
+		if (button != MouseButton.Left) return false;
+
+		(int line, _) = PositionAt(x, y);
+
+		if (line < 0) return true;
+
+		_anchor = (line, 0);
+		_focus = line + 1 < _lines.Count ? (line + 1, 0) : (line, _lines[line].Length);
 		Repaint();
 		return true;
 	}
@@ -678,6 +697,15 @@ public sealed class DebugConsoleView : Panel
 				else if (line.Expandable is { } expandable) painter.DrawIcon(expandable.Expanded ? Codicon.ChevronDown : Codicon.ChevronRight, glyph, top + (_rowHeight / 2f), Metrics.IconSize * scale, Theme.EditorForeground);
 			}
 
+			if (offset == 0 && line.Start == 0 && line.Kind == LineKind.Output && line.Source.Count > 1) {
+				string count = line.Source.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+				float badgeWidth = (count.Length * cell) + (8f * scale);
+				float badgeHeight = _rowHeight - (4f * scale);
+				float badgeX = ScreenX + Wide - (PaddingLeft * scale) - badgeWidth;
+				painter.FillRoundedRectangle(badgeX, top + (2f * scale), badgeWidth, badgeHeight, badgeHeight / 2f, Theme.BadgeBackground);
+				painter.DrawText(font, count, badgeX + (4f * scale), top + baselineOffset, Theme.BadgeForeground);
+			}
+
 			ReadOnlySpan<char> text = line.Text.Slice(offset, length);
 			int nameEnd = Math.Clamp(line.NameLength - offset, 0, length);
 
@@ -691,7 +719,29 @@ public sealed class DebugConsoleView : Panel
 			painter.DrawText(font, text[nameEnd..], left + (nameEnd * cell), top + baselineOffset, line.Color);
 		}
 
+		if (ShowJump) {
+			(float x, float y, float size) = JumpBounds;
+			painter.FillRoundedRectangle(ScreenX + x, ScreenY + y, size, size, 4f * scale, Theme.ButtonSecondaryBackground);
+			painter.DrawIcon(Codicon.ArrowDown, ScreenX + x + (size / 2f), ScreenY + y + (size / 2f), Metrics.IconSize * scale, Theme.ButtonSecondaryForeground);
+		}
+
 		painter.PopClip();
+	}
+
+	private bool ShowJump => !_stickToBottom && MaxScroll > 0f;
+
+	private (float X, float Y, float Size) JumpBounds {
+		get {
+			float size = 26f * Scale;
+			float margin = 10f * Scale;
+			return (Wide - size - margin - (PaddingLeft * Scale), FilterBand + ContentHeight - size - margin, size);
+		}
+	}
+
+	private void JumpToBottom() {
+		_stickToBottom = true;
+		_scrollY = MaxScroll;
+		Repaint();
 	}
 
 	private static void DrawSpans(IPainter painter, ITextFont font, ReadOnlySpan<char> text, int textStart, List<ColorSpan> spans, Color fallback, float left, float baseline, float cell) {
@@ -755,6 +805,8 @@ public sealed class DebugConsoleView : Panel
 		public Entry? Root { get; init; }
 
 		public int Index { get; set; }
+
+		public int Count { get; set; } = 1;
 	}
 
 	private readonly record struct Line(Entry Source, int Start, int Length, Color Color, int Depth, Entry? Expandable, LineKind Kind, int NameLength = 0)

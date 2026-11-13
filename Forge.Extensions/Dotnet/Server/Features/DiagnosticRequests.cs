@@ -13,6 +13,8 @@ public sealed class DiagnosticRequests(RoslynLanguageClient client)
 
 	public event Action<string, IReadOnlyList<ServerDiagnostic>>? Published;
 
+	public Func<ProjectContext, Task<IReadOnlySet<string>>>? DefinesFor { get; set; }
+
 	internal JsonArray Overlapping(string path, int startLine, int endLine) {
 		JsonArray result = [];
 
@@ -49,6 +51,23 @@ public sealed class DiagnosticRequests(RoslynLanguageClient client)
 			_resultIds.TryGetValue(path, out previousResultId);
 		}
 
+		if (DefinesFor is { } definesFor && client.Contexts.For(path) is { } contexts && contexts.All.Count(static context => !context.IsMiscellaneous) > 1) {
+			try {
+				await PullContextsAsync(path, contexts, definesFor, current.Token).ConfigureAwait(false);
+			}
+			finally {
+				lock (_sync) {
+					if (_inflight.TryGetValue(path, out CancellationTokenSource? active) && active == current) _inflight.Remove(path);
+
+					_resultIds.Remove(path);
+				}
+
+				current.Dispose();
+			}
+
+			return;
+		}
+
 		JsonObject parameters = new() { ["textDocument"] = client.Contexts.Identifier(path) };
 
 		if (previousResultId is not null) parameters["previousResultId"] = previousResultId;
@@ -73,6 +92,43 @@ public sealed class DiagnosticRequests(RoslynLanguageClient client)
 		if (result?["kind"]?.GetValue<string>() == "unchanged" || result?["items"] is not JsonArray items) return;
 
 		Published?.Invoke(path, Store(path, items));
+	}
+
+	private async Task PullContextsAsync(string path, ProjectContexts contexts, Func<ProjectContext, Task<IReadOnlySet<string>>> definesFor, CancellationToken cancellation) {
+		string? current = contexts.Current?.Id;
+		JsonArray merged = [];
+		HashSet<string> seen = [with(StringComparer.Ordinal)];
+
+		foreach (ProjectContext context in contexts.All) {
+			if (context.IsMiscellaneous) continue;
+
+			JsonObject parameters = new() { ["textDocument"] = client.Contexts.Identifier(path, context) };
+			JsonNode? result = await client.RequestAsync("textDocument/diagnostic", parameters, cancellation).ConfigureAwait(false);
+
+			if (cancellation.IsCancellationRequested) return;
+
+			if (result?["items"] is not JsonArray items) continue;
+
+			IReadOnlySet<string> defined = await definesFor(context).ConfigureAwait(false);
+			string? text = client.Documents.Text(path);
+
+			foreach (JsonNode? entry in items) {
+				if (entry is null) continue;
+
+				int line = LspJson.Line(entry["range"]?["start"]) - 1;
+				bool compiled = defined.Count == 0 || text is null ? context.Id == current : Language.Preprocessor.IsActiveAt(text, line, defined);
+
+				if (!compiled) continue;
+
+				string key = $"{entry["range"]?.ToJsonString()}|{entry["severity"]}|{entry["code"]}|{entry["message"]}";
+
+				if (seen.Add(key)) merged.Add(entry.DeepClone());
+			}
+		}
+
+		if (cancellation.IsCancellationRequested) return;
+
+		Published?.Invoke(path, Store(path, merged));
 	}
 
 	internal void Forget(string path) {
@@ -103,7 +159,7 @@ public sealed class DiagnosticRequests(RoslynLanguageClient client)
 			string message = entry["message"]?.GetValue<string>() ?? string.Empty;
 			string? code = entry["code"]?.ToString();
 
-			results.Add(new ServerDiagnostic(path, LspJson.Line(start), LspJson.Column(start), message, severity switch { 1 => DiagnosticSeverity.Error, 2 => DiagnosticSeverity.Warning, _ => DiagnosticSeverity.Info }, code is { Length: > 0 } ? code : null));
+			results.Add(new ServerDiagnostic(path, LspJson.Line(start), LspJson.Column(start), message, severity switch { 1 => DiagnosticSeverity.Error, 2 => DiagnosticSeverity.Warning, _ => DiagnosticSeverity.Info }, code is { Length: > 0 } ? code : null, LspJson.Line(entry["range"]?["end"]), LspJson.Column(entry["range"]?["end"])));
 		}
 
 		return results;

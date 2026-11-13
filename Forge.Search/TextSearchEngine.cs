@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Win32.SafeHandles;
@@ -30,6 +31,7 @@ public static class TextSearchEngine
 
 	private const int MaxFileBytes = 64 * 1024 * 1024;
 	private const int BinaryProbe = 8000;
+	private const int PooledBytes = 256 * 1024;
 	private const string WordSeparators = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
 
 	private static readonly string SeparatorClass = string.Concat(WordSeparators.Select(static character => "\\" + character));
@@ -114,9 +116,11 @@ public static class TextSearchEngine
 
 	private static IEnumerable<string> Split(string patterns) => patterns.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-	private static FileSearchResult? SearchFile(string path, string relative, Regex regex, string? literal, StringComparison comparison, List<TextMatch> matches) {
+	private static unsafe FileSearchResult? SearchFile(string path, string relative, Regex regex, string? literal, StringComparison comparison, List<TextMatch> matches) {
 		byte[]? bytes = null;
 		char[]? chars = null;
+		byte* nativeBytes = null;
+		char* nativeChars = null;
 
 		try {
 			using SafeFileHandle handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.SequentialScan);
@@ -124,25 +128,34 @@ public static class TextSearchEngine
 
 			if (length == 0 || length > MaxFileBytes) return null;
 
-			bytes = ArrayPool<byte>.Shared.Rent((int)length);
+			Span<byte> buffer;
+
+			if (length <= PooledBytes) buffer = bytes = ArrayPool<byte>.Shared.Rent((int)length);
+			else buffer = new Span<byte>(nativeBytes = (byte*)NativeMemory.Alloc((nuint)length), (int)length);
+
 			int read = 0;
 
 			while (read < length) {
-				int count = RandomAccess.Read(handle, bytes.AsSpan(read, (int)length - read), read);
+				int count = RandomAccess.Read(handle, buffer[read..(int)length], read);
 
 				if (count <= 0) break;
 
 				read += count;
 			}
 
-			ReadOnlySpan<byte> data = bytes.AsSpan(0, read);
+			ReadOnlySpan<byte> data = buffer[..read];
 			Encoding encoding = Detect(ref data);
 
 			if (encoding == Encoding.UTF8 && data[..Math.Min(data.Length, BinaryProbe)].Contains((byte)0)) return null;
 
-			chars = ArrayPool<char>.Shared.Rent(encoding.GetMaxCharCount(data.Length));
-			int charCount = encoding.GetChars(data, chars);
-			ReadOnlySpan<char> text = chars.AsSpan(0, charCount);
+			int maxChars = encoding.GetMaxCharCount(data.Length);
+			Span<char> decoded;
+
+			if (length <= PooledBytes) decoded = chars = ArrayPool<char>.Shared.Rent(maxChars);
+			else decoded = new Span<char>(nativeChars = (char*)NativeMemory.Alloc((nuint)maxChars, sizeof(char)), maxChars);
+
+			int charCount = encoding.GetChars(data, decoded);
+			ReadOnlySpan<char> text = decoded[..charCount];
 
 			matches.Clear();
 
@@ -159,6 +172,8 @@ public static class TextSearchEngine
 		finally {
 			if (bytes is not null) ArrayPool<byte>.Shared.Return(bytes);
 			if (chars is not null) ArrayPool<char>.Shared.Return(chars);
+			NativeMemory.Free(nativeBytes);
+			NativeMemory.Free(nativeChars);
 		}
 	}
 

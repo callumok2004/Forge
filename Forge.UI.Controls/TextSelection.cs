@@ -91,19 +91,19 @@ public sealed class TextSelection
 
 		if (run < 0) return;
 
-		string text = _runs[run].Text;
-		int start = offset;
-		int end = offset;
-
-		while (start > 0 && IsWordCharacter(text[start - 1])) start--;
-
-		while (end < text.Length && IsWordCharacter(text[end])) end++;
-
+		(int start, int end) = Forge.Common.UI.WordRange.At(_runs[run].Text, offset, Forge.Common.UI.WordRange.EditorSeparators);
 		_anchor = (run, start);
 		_focus = (run, end);
 	}
 
-	private static bool IsWordCharacter(char c) => !char.IsWhiteSpace(c) && c is not ('.' or '(' or ')' or ',' or ':' or '\'' or '"');
+	public void SelectLine(float x, float y) {
+		(int run, _) = PositionAt(x, y);
+
+		if (run < 0) return;
+
+		_anchor = (run, 0);
+		_focus = (run, _runs[run].Text.Length);
+	}
 
 	public void SelectAll() {
 		int first = _runs.FindIndex(static run => run.Selectable);

@@ -498,7 +498,46 @@ public sealed class SearchView : Panel
 
 	private float HeaderBottom { get; set; }
 
-	private float ResultsTop => HeaderBottom + (HasMessage ? (MessageLineHeight + MessagePaddingBottom - 5f) * Scale : 0f);
+	private float ResultsTop => HeaderBottom + (HasMessage ? (((MessageLineHeight * MessageLineCount()) + MessagePaddingBottom - 5f) * Scale) : 0f);
+
+	private string MessageText {
+		get {
+			if (_error is not null) return _error;
+
+			if (_results.Count == 0) return _searching ? string.Empty : "No results found. Review your settings for configured exclusions and check your gitignore files.";
+
+			int files = _results.Count;
+			return $"{_matchCount} result{(_matchCount == 1 ? "" : "s")} in {files} file{(files == 1 ? "" : "s")}";
+		}
+	}
+
+	private float MessageWidth => Math.Max(0f, Wide - (MessagePaddingX * 2f * Scale));
+
+	private int MessageLineCount() {
+		if (Ui is null) return 1;
+
+		ITextFont font = Ui.GetFonts().GetUi();
+		ReadOnlySpan<char> text = MessageText;
+		int count = 0;
+
+		while (text.Length > 0) {
+			text = text[WrapLength(font, text, MessageWidth)..].TrimStart(' ');
+			count++;
+		}
+
+		return Math.Max(1, count);
+	}
+
+	private static int WrapLength(ITextFont font, ReadOnlySpan<char> text, float width) {
+		if (font.Measure(text) <= width) return text.Length;
+
+		int fit = 1;
+
+		while (fit < text.Length && font.Measure(text[..(fit + 1)]) <= width) fit++;
+
+		int space = text[..Math.Min(text.Length, fit + 1)].LastIndexOf(' ');
+		return space > 0 ? space : fit;
+	}
 
 	public override void PerformLayout() {
 		float scale = Scale;
@@ -919,21 +958,25 @@ public sealed class SearchView : Panel
 	private void PaintMessage(IPainter painter, float scale) {
 		if (!HasMessage) return;
 
-		string text;
-
-		if (_error is not null) text = _error;
-		else if (_results.Count == 0) text = _searching ? string.Empty : "No results found. Review your settings for configured exclusions and check your gitignore files.";
-		else {
-			int files = _results.Count;
-			text = $"{_matchCount} result{(_matchCount == 1 ? "" : "s")} in {files} file{(files == 1 ? "" : "s")}";
-		}
+		ReadOnlySpan<char> text = MessageText;
 
 		if (text.Length == 0) return;
 
 		ITextFont font = painter.GetUi();
+		float width = MessageWidth;
+		float line = MessageLineHeight * scale;
+		float left = ScreenX + (MessagePaddingX * scale);
 		float top = ScreenY + HeaderBottom - (5f * scale);
-		painter.PushClip(ScreenX + (MessagePaddingX * scale), top, Math.Max(0f, Wide - (MessagePaddingX * 2f * scale)), MessageLineHeight * scale);
-		painter.DrawText(font, text, ScreenX + (MessagePaddingX * scale), top + (((MessageLineHeight * scale) - font.GetLineHeight()) / 2f) + font.GetBaseline(), _error is not null ? Theme.ErrorForeground : Theme.SearchResultsInfoForeground);
+		Color color = _error is not null ? Theme.ErrorForeground : Theme.SearchResultsInfoForeground;
+		painter.PushClip(left, top, width, line * MessageLineCount());
+
+		while (text.Length > 0) {
+			int length = WrapLength(font, text, width);
+			painter.DrawText(font, text[..length], left, top + ((line - font.GetLineHeight()) / 2f) + font.GetBaseline(), color);
+			text = text[length..].TrimStart(' ');
+			top += line;
+		}
+
 		painter.PopClip();
 	}
 

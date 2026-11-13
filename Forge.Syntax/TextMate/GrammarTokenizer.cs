@@ -98,6 +98,7 @@ public sealed partial class GrammarTokenizer(Grammar grammar)
 		int position = from;
 		int steps = 0;
 		int anchor = -1;
+		GrammarState lineStart = state;
 
 		while (position <= line.Length && steps++ < MaxStepsPerLine) {
 			Match? endMatch = state.EndPattern is { } pattern && TieredRegex.For(pattern) is { } endRegex ? Search(endRegex, line, position, anchor, cache) : null;
@@ -136,7 +137,7 @@ public sealed partial class GrammarTokenizer(Grammar grammar)
 					continue;
 				}
 
-				if (popped.EnterPosition == position) {
+				if (popped.EnterPosition == position && EnteredSince(popped, lineStart)) {
 					Trace?.Invoke($"loop guard at {position}");
 					state = popped;
 					break;
@@ -187,6 +188,14 @@ public sealed partial class GrammarTokenizer(Grammar grammar)
 
 		Coalesce(map, outermost, into);
 		return state;
+	}
+
+	private static bool EnteredSince(GrammarState state, GrammarState lineStart) {
+		for (GrammarState? walk = lineStart; walk is not null; walk = walk.Parent) {
+			if (ReferenceEquals(walk, state)) return false;
+		}
+
+		return true;
 	}
 
 	private static readonly GrammarRule NoRule = new();

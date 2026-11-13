@@ -22,6 +22,7 @@ public sealed class EditorContent : Panel
 		Dock = DockType.Fill;
 		Cursor = CursorCode.IBeam;
 		KeyboardInputEnabled = true;
+		workbench.Minimap.RequestTick = () => SetThinking(true);
 	}
 
 	public Action? Typed { get; set; }
@@ -59,10 +60,14 @@ public sealed class EditorContent : Panel
 
 	private int OffsetAt(TextView view, float x, float y) {
 		(float absX, float absY) = Absolute(x, y);
-		return view.OffsetFromPoint(Code, absX, absY, _workbench.EditorLeft + DiffOffset, _workbench.EditorTop);
+		return view.OffsetFromPoint(Code, absX, absY, _workbench.EditorLeft + DiffOffset + _workbench.TextInset, _workbench.EditorTop);
 	}
 
 	private float DiffOffset => _workbench.ActiveDiff is { } diff && !diff.OriginalFocused ? diff.ModifiedLeft : 0f;
+
+	private float GutterOffset => DiffOffset + (_workbench.ActiveDiff is null ? _workbench.TextInset : 0f);
+
+	private bool _minimapDragging;
 
 	private TextView? Target => _workbench.FocusedView;
 
@@ -82,6 +87,24 @@ public sealed class EditorContent : Panel
 		if (_workbench.ActiveView is not { } view) return;
 
 		(float barX, float barY) = Absolute(x, y);
+		Minimap minimap = _workbench.Minimap;
+
+		if (_minimapDragging) {
+			minimap.Drag(view, barX, barY, Scale);
+			Changed?.Invoke();
+			Repaint();
+			return;
+		}
+
+		if (_workbench.ActiveDiff is null && minimap.Hover(barX, barY, Tall, Scale)) {
+			SetThinking(true);
+			Repaint();
+		}
+
+		if (_workbench.ActiveDiff is null && !_selecting && minimap.Contains(barX, barY, Tall)) {
+			Cursor = CursorCode.Arrow;
+			return;
+		}
 
 		if (_scrollbarView is { } dragging) {
 			dragging.DragScrollbar(barX, barY);
@@ -134,7 +157,7 @@ public sealed class EditorContent : Panel
 			}
 		}
 
-		float localX = x - DiffOffset;
+		float localX = x - GutterOffset;
 		bool inGlyphMargin = localX >= 0f && localX < TextView.GlyphMarginWidth;
 		(float lensX, float lensY) = Absolute(x, y);
 		int lens = _selecting ? -1 : view.CodeLensAt(lensX, lensY);
@@ -201,6 +224,12 @@ public sealed class EditorContent : Panel
 
 
 	public override void OnCursorExited() {
+		if (!_minimapDragging) {
+			_workbench.Minimap.Leave();
+			SetThinking(true);
+			Repaint();
+		}
+
 		_workbench.IntelliSense?.Navigation.Clear();
 		_workbench.IntelliSense?.PointerLeft();
 
@@ -226,6 +255,20 @@ public sealed class EditorContent : Panel
 		}
 
 		(float barX, float barY) = Absolute(x, y);
+
+		if (_workbench.ActiveDiff is null && _workbench.Minimap.Contains(barX, barY, Tall)) {
+			if (_workbench.Minimap.Press(view, barX, barY, Scale)) {
+				_minimapDragging = _workbench.Minimap.IsDragging;
+
+				if (_minimapDragging) Ui?.SetMouseCapture(this);
+
+				SetThinking(true);
+				Changed?.Invoke();
+				Repaint();
+			}
+
+			return true;
+		}
 
 		foreach (TextView candidate in ScrollbarViews()) {
 			if (!candidate.BeginScrollbarDrag(barX, barY)) continue;
@@ -294,7 +337,7 @@ public sealed class EditorContent : Panel
 			return true;
 		}
 
-		if (x - DiffOffset < TextView.GlyphMarginWidth) {
+		if (x - GutterOffset < TextView.GlyphMarginWidth) {
 			BreakpointToggled?.Invoke(view.Snapshot.GetLineAt(offset) + 1);
 			Pressed?.Invoke();
 			return true;
@@ -306,7 +349,7 @@ public sealed class EditorContent : Panel
 		_dragY = y;
 		Ui?.SetMouseCapture(this);
 
-		if (x - DiffOffset < view.GutterWidth(Code) || clicks >= 3) view.SelectLineAt(offset);
+		if (x - GutterOffset < view.GutterWidth(Code) || clicks >= 3) view.SelectLineAt(offset);
 		else if (clicks == 2) view.SelectWordAt(offset);
 		else view.MoveTo(offset, extend: (Ui!.GetModifiers() & KeyModifiers.Shift) != 0);
 
@@ -322,6 +365,15 @@ public sealed class EditorContent : Panel
 	public override void OnMouseCaptureLost() => StopSelecting();
 
 	private void StopSelecting() {
+		if (_minimapDragging) {
+			_minimapDragging = false;
+			_workbench.Minimap.EndDrag();
+			SetThinking(true);
+			Repaint();
+
+			if (ReferenceEquals(Ui?.GetMouseCapture(), this)) Ui!.SetMouseCapture(null);
+		}
+
 		if (_scrollbarView is { } dragging) {
 			dragging.EndScrollbarDrag();
 			_scrollbarView = null;
@@ -348,8 +400,16 @@ public sealed class EditorContent : Panel
 	public override void OnThink(float deltaSeconds) {
 		if (_linkActive && !LinkGesture) _workbench.IntelliSense?.Navigation.Clear();
 
+		Minimap minimap = _workbench.Minimap;
+		bool minimapTicking = minimap.WantsTick;
+
+		if (minimapTicking) {
+			minimap.Tick(deltaSeconds);
+			Repaint();
+		}
+
 		if (!_selecting || Target is not { } view) {
-			if (!_linkActive) SetThinking(false);
+			if (!_linkActive && !minimapTicking) SetThinking(false);
 
 			return;
 		}
@@ -390,11 +450,13 @@ public sealed class EditorContent : Panel
 		}
 		else view.ScrollByWheel(delta, font.GetLineHeight(), Tall);
 
+		if (_workbench.Minimap.WantsTick) SetThinking(true);
+
 		Changed?.Invoke();
 		return true;
 	}
 
-	private float TextWidth => Math.Max(0f, Wide - (_workbench.ShowMinimap ? Minimap.Width(Scale) : 0f));
+	private float TextWidth => _workbench.TextAreaWidth(Wide);
 
 	private static float Overshoot(float value, float low, float high) {
 		if (value < low) return -Math.Min(low - value, MaximumOvershoot);

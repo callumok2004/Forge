@@ -34,6 +34,30 @@ public sealed class Settings
 
 	public bool MinimapEnabled { get; private set; } = true;
 
+	public string MinimapAutohide { get; private set; } = "none";
+
+	public string MinimapSize { get; private set; } = "proportional";
+
+	public string MinimapSide { get; private set; } = "right";
+
+	public string MinimapShowSlider { get; private set; } = "mouseover";
+
+	public int MinimapScale { get; private set; } = 1;
+
+	public bool MinimapRenderCharacters { get; private set; } = true;
+
+	public int MinimapMaxColumn { get; private set; } = 120;
+
+	public bool MinimapShowRegionSectionHeaders { get; private set; } = true;
+
+	public bool MinimapShowMarkSectionHeaders { get; private set; } = true;
+
+	public string MinimapMarkSectionHeaderRegex { get; private set; } = @"\bMARK:\s*(?<separator>-?)\s*(?<label>.*)$";
+
+	public float MinimapSectionHeaderFontSize { get; private set; } = 9f;
+
+	public float MinimapSectionHeaderLetterSpacing { get; private set; } = 1f;
+
 	public bool MouseWheelZoom { get; private set; }
 
 	public string? DefaultTerminalProfile { get; private set; }
@@ -252,6 +276,18 @@ public sealed class Settings
 		EditorFontFamily = FontStack(root, "editor.fontFamily", defaults.EditorFontFamily);
 		UiFontFamily = FontStack(root, "window.uiFontFamily", defaults.UiFontFamily);
 		MinimapEnabled = Boolean(root, "editor.minimap.enabled", defaults.MinimapEnabled);
+		MinimapAutohide = Choice(root, "editor.minimap.autohide", defaults.MinimapAutohide, "none", "mouseover", "scroll");
+		MinimapSize = Choice(root, "editor.minimap.size", defaults.MinimapSize, "proportional", "fill", "fit");
+		MinimapSide = Choice(root, "editor.minimap.side", defaults.MinimapSide, "left", "right");
+		MinimapShowSlider = Choice(root, "editor.minimap.showSlider", defaults.MinimapShowSlider, "always", "mouseover");
+		MinimapScale = Math.Clamp((int)Number(root, "editor.minimap.scale", defaults.MinimapScale), 1, 3);
+		MinimapRenderCharacters = Boolean(root, "editor.minimap.renderCharacters", defaults.MinimapRenderCharacters);
+		MinimapMaxColumn = (int)Number(root, "editor.minimap.maxColumn", defaults.MinimapMaxColumn);
+		MinimapShowRegionSectionHeaders = Boolean(root, "editor.minimap.showRegionSectionHeaders", defaults.MinimapShowRegionSectionHeaders);
+		MinimapShowMarkSectionHeaders = Boolean(root, "editor.minimap.showMarkSectionHeaders", defaults.MinimapShowMarkSectionHeaders);
+		MinimapMarkSectionHeaderRegex = root["editor.minimap.markSectionHeaderRegex"] is JsonValue regex && regex.TryGetValue(out string? pattern) && IsValidRegex(pattern) ? pattern : defaults.MinimapMarkSectionHeaderRegex;
+		MinimapSectionHeaderFontSize = Number(root, "editor.minimap.sectionHeaderFontSize", defaults.MinimapSectionHeaderFontSize);
+		MinimapSectionHeaderLetterSpacing = Number(root, "editor.minimap.sectionHeaderLetterSpacing", defaults.MinimapSectionHeaderLetterSpacing);
 		MouseWheelZoom = Boolean(root, "editor.mouseWheelZoom", defaults.MouseWheelZoom);
 		SuggestDetailsVisible = Boolean(root, "editor.suggest.expandDocs", defaults.SuggestDetailsVisible);
 
@@ -283,6 +319,26 @@ public sealed class Settings
 
 	private static float Number(JsonObject root, string key, float fallback) =>
 		root[key] is JsonValue value && value.TryGetValue(out double number) ? (float)number : fallback;
+
+	private static string Choice(JsonObject root, string key, string fallback, params ReadOnlySpan<string> allowed) {
+		if (root[key] is not JsonValue value || !value.TryGetValue(out string? text)) return fallback;
+
+		foreach (string option in allowed) {
+			if (option == text) return option;
+		}
+
+		return fallback;
+	}
+
+	private static bool IsValidRegex(string pattern) {
+		try {
+			_ = new System.Text.RegularExpressions.Regex(pattern);
+			return true;
+		}
+		catch (ArgumentException) {
+			return false;
+		}
+	}
 
 	private static bool Boolean(JsonObject root, string key, bool fallback) =>
 		root[key] is JsonValue value && value.TryGetValue(out bool flag) ? flag : fallback;

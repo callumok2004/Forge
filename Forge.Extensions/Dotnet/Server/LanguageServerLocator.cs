@@ -4,7 +4,7 @@ using Forge.Extensions.Host;
 
 namespace Forge.Extensions.Dotnet.Server;
 
-public sealed record ServerLaunch(string Command, string[] Arguments, string ServerDirectory);
+public sealed record ServerLaunch(string Command, string[] Arguments, string ServerDirectory, bool Bundled = false);
 
 public static class LanguageServerLocator
 {
@@ -35,8 +35,10 @@ public static class LanguageServerLocator
 			return ServerIn(directory, dotnetPath);
 		}
 
-		return ServerIn(Path.Combine(AppContext.BaseDirectory, "LanguageServer", "roslyn"), dotnetPath) ?? ServerIn(Path.Combine(storageDirectory, "roslyn"), dotnetPath);
+		return ServerIn(BundledDirectory, dotnetPath) is { } bundled ? bundled with { Bundled = true } : ServerIn(Path.Combine(storageDirectory, "roslyn"), dotnetPath);
 	}
+
+	public static string BundledDirectory => Path.Combine(AppContext.BaseDirectory, "LanguageServer", "roslyn");
 
 	private static ServerLaunch? ServerIn(string directory, string? dotnetPath) {
 		string executable = Path.Combine(directory, $"{ServerName}.exe");

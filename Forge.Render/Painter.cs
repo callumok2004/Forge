@@ -366,7 +366,9 @@ public sealed class Painter : IPainter, IDisposable
 		return geometry;
 	}
 
-	public unsafe void DrawPixels(PixelBuffer pixels, float x, float y) {
+	public void DrawPixels(PixelBuffer pixels, float x, float y) => DrawPixels(pixels, x, y, pixels.Width, pixels.Height, 1f);
+
+	public unsafe void DrawPixels(PixelBuffer pixels, float x, float y, float width, float height, float opacity) {
 		if (pixels.Width <= 0 || pixels.Height <= 0) return;
 
 		D2D.ID2D1Bitmap1? bitmap = pixels.NativeCache as D2D.ID2D1Bitmap1;
@@ -384,7 +386,61 @@ public sealed class Painter : IPainter, IDisposable
 			pixels.NativeVersion = pixels.Version;
 		}
 
-		_context.DrawBitmap(bitmap, new Vortice.Mathematics.Rect(x, y, pixels.Width, pixels.Height), 1f, D2D.BitmapInterpolationMode.NearestNeighbor, new Vortice.Mathematics.Rect(0f, 0f, pixels.Width, pixels.Height));
+		_context.DrawBitmap(bitmap, new Vortice.Mathematics.Rect(x, y, width, height), opacity, D2D.BitmapInterpolationMode.NearestNeighbor, new Vortice.Mathematics.Rect(0f, 0f, pixels.Width, pixels.Height));
+	}
+
+	public unsafe byte[]? RasterizeGlyphs(string family, float size, ReadOnlySpan<char> characters, int cellWidth, int cellHeight) {
+		int width = cellWidth * characters.Length;
+
+		if (width <= 0 || cellHeight <= 0) return null;
+
+		try {
+			using Vortice.WIC.IWICImagingFactory wic = new();
+			using Vortice.WIC.IWICBitmap bitmap = wic.CreateBitmap((uint)width, (uint)cellHeight, Vortice.WIC.PixelFormat.Format32bppPBGRA, Vortice.WIC.BitmapCreateCacheOption.CacheOnLoad);
+			using D2D.ID2D1RenderTarget target = _factory.CreateWicBitmapRenderTarget(bitmap, new D2D.RenderTargetProperties(new Vortice.DCommon.PixelFormat(Vortice.DXGI.Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied)));
+			using DWrite.IDWriteTextFormat format = _dwrite.CreateTextFormat(family, DWrite.FontWeight.Bold, DWrite.FontStyle.Normal, DWrite.FontStretch.Normal, size);
+			using D2D.ID2D1SolidColorBrush brush = target.CreateSolidColorBrush(new Vortice.Mathematics.Color4(1f, 1f, 1f, 1f));
+
+			format.WordWrapping = DWrite.WordWrapping.NoWrap;
+			target.TextAntialiasMode = D2D.TextAntialiasMode.Grayscale;
+
+			using DWrite.IDWriteFontCollection collection = _dwrite.GetSystemFontCollection(false);
+			float baseline = cellHeight / 2f;
+
+			if (collection.FindFamilyName(family, out uint index)) {
+				using DWrite.IDWriteFontFamily fontFamily = collection.GetFontFamily(index);
+				using DWrite.IDWriteFont font = fontFamily.GetFirstMatchingFont(DWrite.FontWeight.Bold, DWrite.FontStretch.Normal, DWrite.FontStyle.Normal);
+				DWrite.FontMetrics metrics = font.Metrics;
+				float ascent = metrics.Ascent;
+				float descent = metrics.Descent;
+				baseline = (cellHeight / 2f) + (size * (ascent - descent) / (2f * (ascent + descent)));
+			}
+
+			target.BeginDraw();
+			target.Clear(new Vortice.Mathematics.Color4(0f, 0f, 0f, 0f));
+
+			for (int i = 0; i < characters.Length; i++) {
+				using DWrite.IDWriteTextLayout layout = _dwrite.CreateTextLayout(characters[i].ToString(), format, 1000f, 1000f);
+				float layoutBaseline = layout.LineMetrics is { Length: > 0 } lines ? lines[0].Baseline : size;
+				target.DrawTextLayout(new System.Numerics.Vector2(i * cellWidth, baseline - layoutBaseline), layout, brush, D2D.DrawTextOptions.None);
+			}
+
+			target.EndDraw();
+
+			byte[] coverage = new byte[width * cellHeight];
+			using Vortice.WIC.IWICBitmapLock bits = bitmap.Lock(Vortice.WIC.BitmapLockFlags.Read);
+			byte* data = (byte*)bits.Data.DataPointer;
+			int stride = (int)bits.Stride;
+
+			for (int y = 0; y < cellHeight; y++) {
+				for (int x = 0; x < width; x++) coverage[(y * width) + x] = data[(y * stride) + (x * 4) + 3];
+			}
+
+			return coverage;
+		}
+		catch (SharpGen.Runtime.SharpGenException) {
+			return null;
+		}
 	}
 
 	public void DrawImage(Image image, float centreX, float centreY, float size) {

@@ -26,6 +26,8 @@ public sealed class DebugService : IDebug, IDisposable
 
 	public event Action<string, string, int>? ProcessStarted;
 
+	public event Action<string>? SessionStarted;
+
 	public event Action<string>? SessionEnded;
 	private Action? _modelChanged;
 	private Action<DebugOutput>? _output;
@@ -195,6 +197,7 @@ public sealed class DebugService : IDebug, IDisposable
 		_sessionNoDebug = noDebug;
 		_focusedFrameId = -1;
 
+		SessionStarted?.Invoke(session.Id);
 		_ = StartSessionAsync(session);
 		_stateChanged?.Invoke();
 		return true;

@@ -126,8 +126,31 @@ public sealed partial class ExplorerView : Panel
 
 			field = value;
 			_selectedNode = null;
+			ExpandTo(value);
 			SyncSelection();
 		}
+	}
+
+	private readonly List<string> _ancestors = [];
+
+	private void ExpandTo(string? path) {
+		if (path is null || _tree is not { } tree) return;
+
+		string root = tree.GetRootPath();
+
+		if (!path.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return;
+
+		_ancestors.Clear();
+
+		for (string? directory = Path.GetDirectoryName(path); directory is not null && directory.Length > root.Length; directory = Path.GetDirectoryName(directory)) _ancestors.Add(directory);
+
+		if (_ancestors.Count == 0) return;
+
+		_ancestors.Reverse();
+		tree.RestoreExpanded(_ancestors);
+		_tree.Flatten(_visible);
+		InsertPlaceholder();
+		_list.SetCount(_visible.Count);
 	}
 
 	private IReadOnlyList<ExplorerGroup>? _groups;
@@ -190,7 +213,10 @@ public sealed partial class ExplorerView : Panel
 		for (int i = 0; i < _visible.Count; i++) {
 			if (_selectedNode is { } node ? !ReferenceEquals(_visible[i], node) : _visible[i].IsDirectory || _visible[i].FullPath != SelectedPath) continue;
 
-			_list.Select(i, reveal);
+			_list.Select(i, false);
+
+			if (reveal) _list.RevealCentered(i);
+
 			return;
 		}
 

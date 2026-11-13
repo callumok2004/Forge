@@ -50,6 +50,8 @@ public sealed class RoslynFeatures(RoslynLanguageClient server, DotnetSettings s
 		string? hover = await server.Hover.RequestAsync(path, line, column).ConfigureAwait(false);
 		string? table = await sizes.ConfigureAwait(false);
 
+		if (hover is not null && EnumValues.AppendToHover(hover, server.Documents.OpenPaths().Select(server.Documents.Text).OfType<string>()) is { } valued) hover = valued;
+
 		return table is null ? hover : hover is { Length: > 0 } ? string.Concat(hover, "\n\n---\n\n", table) : table;
 	}
 
@@ -61,7 +63,22 @@ public sealed class RoslynFeatures(RoslynLanguageClient server, DotnetSettings s
 
 	public int LineHintsVersion => layout.Version;
 
-	public IReadOnlyDictionary<int, LineHint>? LineHints(string path, int version) => layout.Hints(path, version);
+	private readonly EnumValues _enumValues = new();
+
+	public IReadOnlyDictionary<int, LineHint>? LineHints(string path, int version) {
+		IReadOnlyDictionary<int, LineHint>? sizes = layout.Hints(path, version);
+		IReadOnlyDictionary<int, LineHint>? enums = _enumValues.Hints(path, version, () => host.GetDocumentText(path));
+
+		if (enums is null) return sizes;
+
+		if (sizes is null) return enums;
+
+		Dictionary<int, LineHint> merged = new(enums);
+
+		foreach ((int line, LineHint hint) in sizes) merged[line] = hint;
+
+		return merged;
+	}
 
 	public async Task<IReadOnlyList<DocumentHighlight>> DocumentHighlightsAsync(string path, int line, int column) {
 		IReadOnlyList<ServerHighlight> highlights = await server.Highlights.RequestAsync(path, line, column).ConfigureAwait(false);

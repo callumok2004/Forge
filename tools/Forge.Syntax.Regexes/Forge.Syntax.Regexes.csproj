@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<RootNamespace>Forge.Syntax.TextMate</RootNamespace>
+		<EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+		<Nullable>enable</Nullable>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<Compile Include="$(BundledRegexSource)" />
+	</ItemGroup>
+</Project>

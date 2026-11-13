@@ -59,7 +59,7 @@
 
 	<Target Name="BuildRoslynServer" BeforeTargets="BeforeBuild" Condition="Exists('$(RoslynServerProject)')" Inputs="@(RoslynSource)" Outputs="$(RoslynBin)Microsoft.CodeAnalysis.LanguageServer.dll">
 		<Message Importance="high" Text="Building roslyn language server fork..." />
-		<Exec WorkingDirectory="$(RoslynRoot)" Command="dotnet publish &quot;$(RoslynServerProject)&quot; -c Release -o &quot;$(RoslynBin.TrimEnd('\'))&quot; -v:m -m -p:RunAnalyzers=false -p:TreatWarningsAsErrors=false -p:UsingToolXliff=false -p:EnableNgenOptimization=false" />
+		<Exec WorkingDirectory="$(RoslynRoot)" Command="dotnet publish &quot;$(RoslynServerProject)&quot; -c Release -o &quot;$(RoslynBin.TrimEnd('\'))&quot; -v:m -m -p:RunAnalyzers=false -p:TreatWarningsAsErrors=false -p:UsingToolXliff=false -p:EnableNgenOptimization=false -p:SatelliteResourceLanguages=en" />
 		<Touch Files="$(RoslynBin)Microsoft.CodeAnalysis.LanguageServer.dll" />
 	</Target>
 

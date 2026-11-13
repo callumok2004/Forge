@@ -193,6 +193,14 @@ public sealed class ExceptionWidget : Panel
 		return true;
 	}
 
+	public override bool OnMouseTriplePressed(MouseButton button, float x, float y) {
+		if (button != MouseButton.Left) return false;
+
+		_selection.SelectLine(x, y);
+		Repaint();
+		return true;
+	}
+
 	public override bool OnMouseReleased(MouseButton button, float x, float y) {
 		if (!_selecting) return false;
 

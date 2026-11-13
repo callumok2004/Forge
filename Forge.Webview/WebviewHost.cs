@@ -16,7 +16,7 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 	private const string BrowserArguments =
 		"--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,Translate " +
 		"--enable-features=NetworkServiceInProcess2 --in-process-gpu " +
-		"--renderer-process-limit=1 --disable-background-timer-throttling " +
+		"--renderer-process-limit=1 --disable-background-timer-throttling --enable-low-end-device-mode " +
 		"--js-flags=--max-old-space-size=192";
 
 	private const string VirtualHost = "forge-webview";
@@ -259,10 +259,7 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 			if (Trace) Fail($"deliver [{id}] {json.Length} bytes");
 
 			try {
-				string literal = System.Text.Json.JsonSerializer.Serialize(json);
-
-				_ = core.ExecuteScriptAsync(
-					$"window.postMessage(JSON.parse({literal}), \"*\");");
+				core.PostWebMessageAsJson(json);
 			}
 			catch (Exception exception) when (exception is ArgumentException or COMException
 				or InvalidOperationException) {
@@ -319,22 +316,77 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 			AreBrowserExtensionsEnabled = false,
 		};
 
-		Complete(CoreWebView2Environment.CreateAsync(null, userDataFolder, options), environment => {
+		CoreWebView2Environment.CreateAsync(null, DataFolder, options).ContinueWith(finished => post(() => {
+			if (finished.IsFaulted) {
+				_creating = false;
+
+				if (MoveToPrivateFolder(finished.Exception?.GetBaseException())) return;
+
+				Fail(Describe($"create environment in {DataFolder}", finished.Exception?.GetBaseException()));
+				return;
+			}
+
 			_creating = false;
-			_environment = environment;
+			_environment = finished.Result;
 
 			foreach (KeyValuePair<string, View> pair in _views) {
 				if (pair.Value is { Wanted: true, Controller: null }) CreateController(pair.Key, pair.Value);
 			}
-		});
+		}), TaskScheduler.Default);
 	}
+
+	private const int InvalidState = unchecked((int)0x8007139F);
+
+	private bool MoveToPrivateFolder(Exception? exception) {
+		if (exception is not COMException { HResult: InvalidState }) return false;
+
+		if (_privateFolder is not null) return _creating || _environment is not null;
+
+		RemoveStaleFolders();
+		_privateFolder = $"{userDataFolder}-{Environment.ProcessId}";
+		_environment = null;
+		EnsureEnvironment();
+		return true;
+	}
+
+	private void RemoveStaleFolders() {
+		string? parent = Path.GetDirectoryName(userDataFolder);
+
+		if (parent is null || !Directory.Exists(parent)) return;
+
+		string prefix = Path.GetFileName(userDataFolder) + "-";
+
+		foreach (string folder in Directory.EnumerateDirectories(parent, prefix + "*")) {
+			if (!int.TryParse(Path.GetFileName(folder).AsSpan(prefix.Length), out int owner) || IsRunning(owner)) continue;
+
+			try {
+				Directory.Delete(folder, recursive: true);
+			}
+			catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
+			}
+		}
+
+		static bool IsRunning(int processId) {
+			try {
+				using System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(processId);
+				return !process.HasExited;
+			}
+			catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) {
+				return false;
+			}
+		}
+	}
+
+	private string? _privateFolder;
+
+	private string DataFolder => _privateFolder ?? userDataFolder;
 
 	private void CreateController(string id, View view) {
 		if (_environment is not { } environment || view.Controller is not null) return;
 
 		if (view.Visual == 0) view.Visual = composition.CreateVisual();
 
-		Complete(environment.CreateCoreWebView2CompositionControllerAsync(window), controller => {
+		Complete("create controller", environment.CreateCoreWebView2CompositionControllerAsync(window), controller => {
 			if (_disposed || !view.Wanted) {
 				controller.Close();
 				return;
@@ -355,7 +407,7 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 
 			ReleaseFocus();
 
-			Complete(controller.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(ApiScript),
+			Complete("add api script", controller.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(ApiScript),
 				_ => Navigate(id, view));
 		});
 	}
@@ -539,11 +591,17 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 		view.Visual = 0;
 	}
 
-	private void Complete<T>(Task<T> task, Action<T> continuation) =>
+	private static string Describe(string operation, Exception? exception) =>
+		exception is null ? $"{operation} failed." : $"{operation} failed: {exception.GetType().Name} 0x{exception.HResult:X8} {exception.Message}";
+
+	private void Complete<T>(string operation, Task<T> task, Action<T> continuation) =>
 		task.ContinueWith(finished => post(() => {
 			if (finished.IsFaulted) {
-				Fail(finished.Exception?.GetBaseException().Message ?? "Webview creation failed.");
 				_creating = false;
+
+				if (MoveToPrivateFolder(finished.Exception?.GetBaseException())) return;
+
+				Fail(Describe(operation, finished.Exception?.GetBaseException()));
 				return;
 			}
 
@@ -552,7 +610,7 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 			}
 			catch (Exception exception) when (exception is COMException or InvalidOperationException
 				or ObjectDisposedException) {
-				Fail(exception.Message);
+				Fail(Describe(operation, exception));
 			}
 		}), TaskScheduler.Default);
 

@@ -20,7 +20,7 @@ public enum PanelView
 	References,
 }
 
-public readonly record struct Problem(string File, int Line, int Column, string Message, DiagnosticSeverity Severity, string? Code, bool Build);
+public readonly record struct Problem(string File, int Line, int Column, string Message, DiagnosticSeverity Severity, string? Code, bool Build, int EndLine = 0, int EndColumn = 0);
 
 public sealed class PanelPart : Panel, IDisposable, IViewPart
 {
@@ -261,7 +261,7 @@ public sealed class PanelPart : Panel, IDisposable, IViewPart
 
 			for (int i = 0; i < converted.Length; i++) {
 				Diagnostic diagnostic = diagnostics[i];
-				converted[i] = new Problem(diagnostic.File, diagnostic.Line, diagnostic.Column, diagnostic.Message, diagnostic.Severity, diagnostic.Code, build);
+				converted[i] = new Problem(diagnostic.File, diagnostic.Line, diagnostic.Column, diagnostic.Message, diagnostic.Severity, diagnostic.Code, build, diagnostic.EndLine, diagnostic.EndColumn);
 			}
 
 			_problemsByOwner[owner] = converted;

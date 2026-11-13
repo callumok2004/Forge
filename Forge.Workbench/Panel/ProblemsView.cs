@@ -1,6 +1,7 @@
 using Forge.Common.Commands;
 using Forge.Common.Render;
 using Forge.Common.UI;
+using Forge.Core.Native;
 using Forge.Theming;
 using Forge.UI.Controls;
 
@@ -96,7 +97,7 @@ public sealed class ProblemsView : Panel
 		_toolbar.AddChild(_search);
 
 		_header = new GridHeader(this) { Name = "ErrorListHeader", Dock = DockType.Top };
-		_list = new ListPanel { Name = "ErrorListRows", Dock = DockType.Fill, RowHeight = RowHeight, RowPainter = PaintRow, Activated = Activate };
+		_list = new ListPanel { Name = "ErrorListRows", Dock = DockType.Fill, RowHeight = RowHeight, RowPainter = PaintRow, Activated = Activate, ContextRequested = OpenContextMenu };
 
 		AddChild(_toolbar);
 		AddChild(_header);
@@ -295,6 +296,43 @@ public sealed class ProblemsView : Panel
 		|| extension.Equals(".fsproj", StringComparison.OrdinalIgnoreCase) || extension.Equals(".vcxproj", StringComparison.OrdinalIgnoreCase)
 		|| extension.Equals(".shproj", StringComparison.OrdinalIgnoreCase) || extension.Equals(".sqlproj", StringComparison.OrdinalIgnoreCase)
 		|| extension.Equals(".esproj", StringComparison.OrdinalIgnoreCase);
+
+	private void OpenContextMenu(int row, float x, float y) {
+		if ((uint)row >= (uint)_rowCount) return;
+
+		Problem problem = _part.Problems[_rows[row]];
+		Menu menu = new();
+		menu.Add(new MenuItem("Copy", "problems.action.copy", () => Clipboard.SetText(Describe(problem))));
+		menu.Add(new MenuItem("Copy Message", "problems.action.copyMessage", () => Clipboard.SetText(problem.Message)));
+
+		(float absX, float absY) = _list.GetAbsPos();
+		menu.Open(absX + x, absY + y);
+	}
+
+	public override bool OnKeyCodePressed(uint key, KeyModifiers modifiers) {
+		if ((modifiers & KeyModifiers.Control) == 0 || key != VirtualKey.C || (uint)_list.Selected >= (uint)_rowCount) return false;
+
+		Clipboard.SetText(Describe(_part.Problems[_rows[_list.Selected]]));
+		return true;
+	}
+
+	private static string Describe(Problem problem) {
+		System.Text.Json.Nodes.JsonObject marker = new() {
+			["resource"] = "/" + problem.File.Replace('\\', '/'),
+			["code"] = problem.Code,
+			["severity"] = problem.Severity switch { DiagnosticSeverity.Error => 8, DiagnosticSeverity.Warning => 4, _ => 2 },
+			["message"] = problem.Message,
+			["source"] = problem.Build ? "build" : null,
+			["startLineNumber"] = problem.Line,
+			["startColumn"] = problem.Column,
+			["endLineNumber"] = problem.EndLine > 0 ? problem.EndLine : problem.Line,
+			["endColumn"] = problem.EndColumn > 0 ? problem.EndColumn : problem.Column,
+		};
+
+		foreach (string key in marker.Where(static pair => pair.Value is null).Select(static pair => pair.Key).ToList()) marker.Remove(key);
+
+		return marker.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true, IndentCharacter = '\t', IndentSize = 1, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+	}
 
 	private void Activate(int index) {
 		if ((uint)index >= (uint)_rowCount) return;

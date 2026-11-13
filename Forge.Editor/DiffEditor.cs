@@ -103,6 +103,7 @@ public sealed class DiffEditor
 	public void Focus(bool original) {
 		OriginalFocused = original;
 		Original.CaretVisible = original;
+		Modified.CaretVisible = !original;
 	}
 
 	private float _syncedScroll = -1f;

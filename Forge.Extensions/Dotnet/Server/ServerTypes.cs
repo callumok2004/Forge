@@ -42,7 +42,7 @@ public sealed record ServerSignatures(IReadOnlyList<ServerSignature> Overloads, 
 	public int ParameterIndex => Active.ActiveParameter >= 0 ? Active.ActiveParameter : ActiveParameter;
 }
 
-public readonly record struct ServerDiagnostic(string File, int Line, int Column, string Message, DiagnosticSeverity Severity, string? Code);
+public readonly record struct ServerDiagnostic(string File, int Line, int Column, string Message, DiagnosticSeverity Severity, string? Code, int EndLine = 0, int EndColumn = 0);
 
 public enum LanguageServerState
 {

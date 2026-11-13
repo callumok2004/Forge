@@ -20,6 +20,7 @@ public sealed class TerminalScreen
 	private const char EscapeCharacter = '\u001B';
 
 	private readonly List<TerminalCell[]> _lines = [];
+	private readonly HashSet<TerminalCell[]> _wrapped = new(ReferenceEqualityComparer.Instance);
 	private readonly int[] _parameters = new int[MaxParameters];
 
 	private State _state;
@@ -65,6 +66,19 @@ public sealed class TerminalScreen
 
 	public ReadOnlySpan<TerminalCell> Line(int index) => (uint)index < (uint)_lines.Count ? _lines[index] : default;
 
+	public bool IsWrapped(int index) => (uint)index < (uint)_lines.Count && _wrapped.Contains(_lines[index]);
+
+	public (int First, int Last) LogicalLine(int index) {
+		int first = index;
+		int last = index;
+
+		while (first > 0 && IsWrapped(first - 1)) first--;
+
+		while (last + 1 < _lines.Count && IsWrapped(last)) last++;
+
+		return (first, last);
+	}
+
 	public void ScrollBy(int lines) {
 		ScrollOffset = Math.Clamp(ScrollOffset + lines, 0, ScrollbackCount);
 	}
@@ -77,21 +91,101 @@ public sealed class TerminalScreen
 
 		if (columns == Columns && rows == Rows && _lines.Count > 0) return;
 
+		lock (Sync) {
+			if (_lines.Count > 0 && columns != Columns) Reflow(columns, rows);
+			else {
+				Columns = columns;
+				Rows = rows;
+			}
+
+			while (_lines.Count < rows) _lines.Add(NewLine());
+
+			_cursorRow = Math.Clamp(_cursorRow, 0, rows - 1);
+			_cursorColumn = Math.Clamp(_cursorColumn, 0, columns - 1);
+			ScrollOffset = Math.Clamp(ScrollOffset, 0, ScrollbackCount);
+		}
+	}
+
+	private void Reflow(int columns, int rows) {
+		int cursorLine = Math.Clamp(_lines.Count - Rows + _cursorRow, 0, _lines.Count - 1);
+		List<TerminalCell[]> result = [];
+		HashSet<TerminalCell[]> wrapped = new(ReferenceEqualityComparer.Instance);
+		List<TerminalCell> logical = [];
+		int newCursorLine = 0;
+		int newCursorColumn = 0;
+
 		Columns = columns;
 		Rows = rows;
 
-		for (int i = 0; i < _lines.Count; i++) {
-			if (_lines[i].Length != columns) {
+		int index = 0;
+
+		while (index < _lines.Count) {
+			logical.Clear();
+			int cursorOffset = -1;
+
+			while (true) {
+				TerminalCell[] line = _lines[index];
+				bool continues = _wrapped.Contains(line) && index + 1 < _lines.Count;
+
+				if (index == cursorLine) cursorOffset = logical.Count + _cursorColumn;
+
+				int length = continues ? line.Length : ContentLength(line);
+				for (int i = 0; i < length; i++) logical.Add(line[i]);
+
+				index++;
+
+				if (!continues) break;
+			}
+
+			int total = Math.Max(logical.Count, cursorOffset + 1);
+			int chunks = Math.Max(1, (total + columns - 1) / columns);
+
+			for (int chunk = 0; chunk < chunks; chunk++) {
 				TerminalCell[] line = NewLine();
-				Array.Copy(_lines[i], line, Math.Min(_lines[i].Length, columns));
-				_lines[i] = line;
+				int start = chunk * columns;
+				int count = Math.Clamp(logical.Count - start, 0, columns);
+
+				for (int i = 0; i < count; i++) line[i] = logical[start + i];
+
+				if (chunk < chunks - 1) wrapped.Add(line);
+
+				result.Add(line);
+			}
+
+			if (cursorOffset >= 0) {
+				int first = result.Count - chunks;
+				newCursorLine = first + Math.Min(chunks - 1, cursorOffset / columns);
+				newCursorColumn = cursorOffset - ((newCursorLine - first) * columns);
 			}
 		}
 
-		while (_lines.Count < rows) _lines.Add(NewLine());
+		while (result.Count - 1 > newCursorLine && ContentLength(result[^1]) == 0 && !wrapped.Contains(result[^1])) result.RemoveAt(result.Count - 1);
 
-		_cursorRow = Math.Clamp(_cursorRow, 0, rows - 1);
-		_cursorColumn = Math.Clamp(_cursorColumn, 0, columns - 1);
+		while (result.Count < rows) result.Add(NewLine());
+
+		_lines.Clear();
+		_lines.AddRange(result);
+		_wrapped.Clear();
+		_wrapped.UnionWith(wrapped);
+
+		_cursorRow = newCursorLine - (_lines.Count - rows);
+		_cursorColumn = newCursorColumn;
+
+		if (_cursorRow < 0) {
+			for (int i = _cursorRow; i < 0; i++) _lines.Add(NewLine());
+
+			_cursorRow = newCursorLine - (_lines.Count - rows);
+		}
+
+		Trim();
+	}
+
+	private static int ContentLength(TerminalCell[] line) {
+		int length = line.Length;
+
+		while (length > 0 && line[length - 1].Character == ' ' && line[length - 1].Background == 0) length--;
+
+		return length;
 	}
 
 	private TerminalCell[] NewLine() {
@@ -104,9 +198,11 @@ public sealed class TerminalScreen
 
 	public void Write(ReadOnlySpan<char> text) {
 		lock (Sync) {
-			ScrollOffset = 0;
+			int before = _lines.Count;
 
 			foreach (char character in text) Consume(character);
+
+			if (ScrollOffset > 0) ScrollOffset = Math.Clamp(ScrollOffset + _lines.Count - before, 0, ScrollbackCount);
 		}
 	}
 
@@ -353,6 +449,7 @@ public sealed class TerminalScreen
 
 	private void Put(char character) {
 		if (_cursorColumn >= Columns) {
+			_wrapped.Add(VisibleLine(_cursorRow));
 			_cursorColumn = 0;
 			NextLine();
 		}
@@ -385,7 +482,11 @@ public sealed class TerminalScreen
 	private void Trim() {
 		int excess = _lines.Count - Rows - ScrollbackLimit;
 
-		if (excess > 0) _lines.RemoveRange(0, excess);
+		if (excess <= 0) return;
+
+		for (int i = 0; i < excess; i++) _wrapped.Remove(_lines[i]);
+
+		_lines.RemoveRange(0, excess);
 	}
 
 	private void EraseDisplay(int mode) {
@@ -407,7 +508,11 @@ public sealed class TerminalScreen
 			default:
 				for (int row = 0; row < Rows; row++) Clear(VisibleLine(row), 0, Columns);
 
-				if (mode == 3 && _lines.Count > Rows) _lines.RemoveRange(0, _lines.Count - Rows);
+				if (mode == 3 && _lines.Count > Rows) {
+					for (int i = 0; i < _lines.Count - Rows; i++) _wrapped.Remove(_lines[i]);
+
+					_lines.RemoveRange(0, _lines.Count - Rows);
+				}
 
 				return;
 		}

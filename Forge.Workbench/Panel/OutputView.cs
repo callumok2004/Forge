@@ -116,20 +116,25 @@ public sealed class OutputView : Panel
 
 		if (line < 0 || text.IsEmpty) return true;
 
-		int start = Math.Min(column, text.Length);
-		int end = start;
-
-		while (start > 0 && IsWordCharacter(text[start - 1])) start--;
-
-		while (end < text.Length && IsWordCharacter(text[end])) end++;
-
+		(int start, int end) = WordRange.At(text, column, WordRange.EditorSeparators);
 		_anchor = (line, start);
 		_focus = (line, end);
 		Repaint();
 		return true;
 	}
 
-	private static bool IsWordCharacter(char c) => char.IsLetterOrDigit(c) || c == '_';
+	public override bool OnMouseTriplePressed(MouseButton button, float x, float y) {
+		if (button != MouseButton.Left) return false;
+
+		(int line, _) = PositionAt(x, y);
+
+		if (line < 0) return true;
+
+		_anchor = (line, 0);
+		_focus = line + 1 < Channel.GetCount() ? (line + 1, 0) : (line, VisibleLine(line).Length);
+		Repaint();
+		return true;
+	}
 
 	public override void OnCursorMoved(float x, float y) {
 		if (!_selecting) return;

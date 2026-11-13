@@ -30,7 +30,19 @@
 		"category": "Text Editor",
 		"title": "Minimap",
 		"properties": {
-			"editor.minimap.enabled": { "type": "boolean", "default": true, "description": "Controls whether the minimap is shown." }
+			"editor.minimap.enabled": { "type": "boolean", "default": true, "description": "Controls whether the minimap is shown." },
+			"editor.minimap.autohide": { "type": "string", "enum": ["none", "mouseover", "scroll"], "enumDescriptions": ["The minimap is always shown.", "The minimap is hidden when mouse is not over the minimap and shown when mouse is over the minimap.", "The minimap is only shown when the editor is scrolled"], "default": "none", "description": "Controls whether the minimap is hidden automatically." },
+			"editor.minimap.size": { "type": "string", "enum": ["proportional", "fill", "fit"], "enumDescriptions": ["The minimap has the same size as the editor contents (and might scroll).", "The minimap will stretch or shrink as necessary to fill the height of the editor (no scrolling).", "The minimap will shrink as necessary to never be larger than the editor (no scrolling)."], "default": "proportional", "description": "Controls the size of the minimap." },
+			"editor.minimap.side": { "type": "string", "enum": ["left", "right"], "default": "right", "description": "Controls the side where to render the minimap." },
+			"editor.minimap.showSlider": { "type": "string", "enum": ["always", "mouseover"], "default": "mouseover", "description": "Controls when the minimap slider is shown." },
+			"editor.minimap.scale": { "type": "number", "default": 1, "minimum": 1, "maximum": 3, "enum": [1, 2, 3], "description": "Scale of content drawn in the minimap: 1, 2 or 3." },
+			"editor.minimap.renderCharacters": { "type": "boolean", "default": true, "description": "Render the actual characters on a line as opposed to color blocks." },
+			"editor.minimap.maxColumn": { "type": "number", "default": 120, "description": "Limit the width of the minimap to render at most a certain number of columns." },
+			"editor.minimap.showRegionSectionHeaders": { "type": "boolean", "default": true, "description": "Controls whether named regions are shown as section headers in the minimap." },
+			"editor.minimap.showMarkSectionHeaders": { "type": "boolean", "default": true, "description": "Controls whether MARK: comments are shown as section headers in the minimap." },
+			"editor.minimap.markSectionHeaderRegex": { "type": "string", "default": "\\bMARK:\\s*(?<separator>-?)\\s*(?<label>.*)$", "description": "Defines the regular expression used to find section headers in comments. The regex must contain a named match group `label` (written as `(?<label>.+)`) that encapsulates the section header, otherwise it will not work. Optionally you can include another match group named `separator`. Use \\n in the pattern to match multi-line headers." },
+			"editor.minimap.sectionHeaderFontSize": { "type": "number", "default": 9, "description": "Controls the font size of section headers in the minimap." },
+			"editor.minimap.sectionHeaderLetterSpacing": { "type": "number", "default": 1, "description": "Controls the amount of space (in pixels) between characters of section header. This helps the readability of the header in small font sizes." }
 		}
 	},
 	{

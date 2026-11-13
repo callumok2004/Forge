@@ -104,8 +104,113 @@ public sealed class Highlighter(LanguageDefinition language)
 			entry.Tokens.Add(new ColoredToken(token.Start, length, TextMate.Grammars.ColorFor(token.Scopes)));
 		}
 
+		if (Language.GrammarId == "csharp") ColorSplitDeclaration(snapshot, line, span, entry.Tokens);
+
 		entry.Line = line;
 		return entry.Tokens;
+	}
+
+	private static readonly System.Text.RegularExpressions.Regex SplitName = new(@"^\s*(@?[_\p{L}][_\p{L}\p{Nd}]*)\s*(<[^>]*>)?\s*$", System.Text.RegularExpressions.RegexOptions.Compiled);
+	private static readonly System.Text.RegularExpressions.Regex DeclarationEnd = new(@"\b(class|struct|interface|record|enum)\s*$", System.Text.RegularExpressions.RegexOptions.Compiled);
+	private static readonly System.Text.RegularExpressions.Regex BaseList = new(@"^\s*:", System.Text.RegularExpressions.RegexOptions.Compiled);
+	private static readonly System.Text.RegularExpressions.Regex TypeName = new(@"@?[_\p{L}][_\p{L}\p{Nd}]*", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+	private static readonly string[] ClassNameScopes = ["source.cs", "entity.name.type.class.cs"];
+	private static readonly string[] BaseTypeScopes = ["source.cs", "entity.other.inherited-class.cs"];
+
+	private static void ColorSplitDeclaration(TextSnapshot snapshot, int line, TextSpan span, List<ColoredToken> tokens) {
+		string text = snapshot.GetText(span);
+		bool name = SplitName.IsMatch(text);
+		bool bases = !name && BaseList.IsMatch(text);
+
+		if (!name && !bases) return;
+
+		int previous = line - 1;
+
+		for (; previous >= 0 && line - previous <= 32; previous--) {
+			string candidate = snapshot.GetText(snapshot.GetLineSpan(previous)).Trim();
+
+			if (candidate.Length == 0 || candidate[0] == '#') continue;
+
+			if (bases && SplitName.IsMatch(candidate)) continue;
+
+			break;
+		}
+
+		if (previous < 0 || !DeclarationEnd.IsMatch(snapshot.GetText(snapshot.GetLineSpan(previous)))) return;
+
+		if (name) {
+			System.Text.RegularExpressions.Match match = SplitName.Match(text);
+			Recolor(tokens, match.Groups[1].Index, match.Groups[1].Length, TextMate.Grammars.ColorFor(ClassNameScopes));
+			return;
+		}
+
+		Theming.Color color = TextMate.Grammars.ColorFor(BaseTypeScopes);
+
+		foreach (System.Text.RegularExpressions.Match match in TypeName.Matches(text, text.IndexOf(':') + 1)) {
+			if (match.Value is "where" or "new" or "class" or "struct" or "unmanaged" or "notnull") break;
+
+			Recolor(tokens, match.Index, match.Length, color);
+		}
+	}
+
+	private static void Recolor(List<ColoredToken> tokens, int start, int length, Theming.Color color) {
+		int end = start + length;
+		List<ColoredToken> result = [with(tokens.Count + 2)];
+
+		foreach (ColoredToken token in tokens) {
+			int tokenEnd = token.Start + token.Length;
+
+			if (tokenEnd <= start || token.Start >= end) {
+				result.Add(token);
+				continue;
+			}
+
+			if (token.Start < start) result.Add(new ColoredToken(token.Start, start - token.Start, token.Color));
+
+			if (tokenEnd > end) result.Add(new ColoredToken(end, tokenEnd - end, token.Color));
+		}
+
+		result.Add(new ColoredToken(start, length, color));
+		result.Sort(static (a, b) => a.Start.CompareTo(b.Start));
+		tokens.Clear();
+		tokens.AddRange(result);
+	}
+
+	private static readonly System.Text.RegularExpressions.Regex StandardTokenScope = new(@"\b(comment|string|regex|meta\.embedded)\b", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+	public bool IsCommentAt(TextSnapshot snapshot, int line, int column) {
+		if (GrammarFor() is not { } tokenizer) {
+			foreach (Token token in TokenizeLine(snapshot, line)) {
+				if (column >= token.Start && column < token.End) return token.Kind is TokenKind.Comment or TokenKind.DocComment;
+			}
+
+			return false;
+		}
+
+		EnsureGrammarStates(snapshot, tokenizer, line);
+
+		TextSpan span = snapshot.GetLineSpan(line);
+		TextMate.GrammarState start = line < _grammarValidUpTo && line < _grammarStates.Length ? _grammarStates[line] ?? TextMate.GrammarState.Root : TextMate.GrammarState.Root;
+		List<TextMate.ScopedToken> scoped = [];
+
+		tokenizer.Tokenize(GrammarLine(snapshot, span), start, scoped);
+
+		foreach (TextMate.ScopedToken token in scoped) {
+			if (column < token.Start || column >= token.Start + token.Length) continue;
+
+			string? kind = null;
+
+			foreach (string scope in token.Scopes) {
+				System.Text.RegularExpressions.Match match = StandardTokenScope.Match(scope);
+
+				if (match.Success) kind = match.Groups[1].Value;
+			}
+
+			return kind == "comment";
+		}
+
+		return false;
 	}
 
 	private string GrammarLine(TextSnapshot snapshot, TextSpan span) {

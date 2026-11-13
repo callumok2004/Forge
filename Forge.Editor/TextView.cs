@@ -1,3 +1,4 @@
+using Forge.Common.Commands;
 using Forge.Common.Editor;
 using Forge.Common.Git;
 using Forge.Common.Debug;
@@ -65,6 +66,8 @@ public sealed class TextView : ITextView
 
 		_zones.RemoveAt(index);
 	}
+
+	public bool HasHiddenLines => _hiddenZones > 0;
 
 	public bool IsHiddenLine(int line) {
 		if (_hiddenZones == 0) return false;
@@ -477,8 +480,22 @@ public sealed class TextView : ITextView
 		return Math.Clamp((int)((contentY - consumed) / lineHeight), 0, Math.Max(0, Snapshot.LineCount - 1));
 	}
 
+	private int _editedLine = -1;
+
+	public int TakeEditedLine() {
+		int line = _editedLine;
+		_editedLine = -1;
+		return line;
+	}
+
+	public float TextAreaWidth => _textAreaWidth;
+
+	public float ContentWidth => _contentWidth;
+
 	private void OnBufferChanged(TextBuffer buffer, TextChange change) {
 		TextSnapshot before = Snapshot;
+		int editedLine = before.GetLineAt(Math.Clamp(change.Offset, 0, before.Length));
+		_editedLine = _editedLine < 0 ? editedLine : Math.Min(_editedLine, editedLine);
 		int removedEnd = change.Offset + change.RemovedLength;
 		bool caretInside = change.RemovedLength > 0 && CaretOffset > change.Offset && CaretOffset < removedEnd;
 		bool anchorInside = change.RemovedLength > 0 && SelectionAnchor > change.Offset && SelectionAnchor < removedEnd;
@@ -602,6 +619,20 @@ public sealed class TextView : ITextView
 	public bool CaretVisible { get; set; } = true;
 
 	public IFileDiff? Diff { get; set; }
+
+	public float ScrollbarOffset { get; set; }
+
+	public IReadOnlyList<GitChange> GitChanges() {
+		if (Diff is not { } diff || diff.GetPath() != Path) return [];
+
+		if (_bufferTextOwner != Buffer) {
+			_bufferTextOwner = Buffer;
+			_bufferText = Buffer.GetText;
+		}
+
+		diff.Sync(Buffer.Version, _bufferText!);
+		return diff.GetChanges();
+	}
 
 	private Func<string>? _bufferText;
 	private TextBuffer? _bufferTextOwner;
@@ -738,41 +769,14 @@ public sealed class TextView : ITextView
 
 		TextSpan line = Snapshot.GetLineSpan(Snapshot.GetLineAt(offset));
 
-		int at = offset;
-
-		if (at >= line.End || (at > line.Start && !IsWordCharacter(Snapshot[at]))) at--;
-
-		if (at < line.Start || at >= line.End) {
+		if (line.Length == 0) {
 			MoveTo(offset, extend: false);
 			return;
 		}
 
-		int start;
-		int end;
-
-		if (IsWordCharacter(Snapshot[at])) {
-			start = at;
-			end = at + 1;
-
-			while (start > line.Start && IsWordCharacter(Snapshot[start - 1])) start--;
-
-			while (end < line.End && IsWordCharacter(Snapshot[end])) end++;
-		}
-		else if (Snapshot[at] is ' ' or '\t') {
-			start = at;
-			end = at + 1;
-
-			while (start > line.Start && Snapshot[start - 1] is ' ' or '\t') start--;
-
-			while (end < line.End && Snapshot[end] is ' ' or '\t') end++;
-		}
-		else {
-			start = at;
-			end = at + 1;
-		}
-
-		SelectionAnchor = start;
-		CaretOffset = end;
+		(int start, int end) = Forge.Common.UI.WordRange.At(Snapshot.GetText(line).AsSpan(), offset - line.Start, Forge.Common.UI.WordRange.EditorSeparators);
+		SelectionAnchor = line.Start + start;
+		CaretOffset = line.Start + end;
 		_desiredColumn = -1;
 	}
 
@@ -1513,6 +1517,8 @@ public sealed class TextView : ITextView
 		return caret.Intersect(PixelRect.Around(viewportX, viewportY, viewportWidth, viewportHeight));
 	}
 
+	public PixelRect RenderedCaretRect(ITextFont font) => _rendered ? CaretRect(font, _renderedX, _renderedY, _renderedWidth, _renderedHeight) : default;
+
 	private bool _rendered;
 	private float _renderedX;
 	private float _renderedY;
@@ -1691,6 +1697,8 @@ public sealed class TextView : ITextView
 				CaretMarker = (Math.Max(y, lineTop), Math.Min(y + height, lineTop + lineHeight));
 			}
 
+			if (ProblemLenses is not null && ProblemLenses.TryGetValue(line, out ProblemLens lens)) painter.FillRectangle(x + gutterWidth, lineTop, width - gutterWidth, lineHeight, LensBackground(lens.Severity));
+
 			DrawExecutionLine(painter, line, x, lineTop, width, lineHeight);
 
 			painter.PushClip(textAreaLeft, lineTop, textAreaWidth, lineHeight);
@@ -1708,8 +1716,13 @@ public sealed class TextView : ITextView
 			if (Link is { } link && link.Line == line) DrawLinkedLine(painter, link, textLeft, lineTop, lineHeight, x + width);
 			else DrawLineText(painter, line, textLeft, lineTop);
 
+			DrawSquiggles(painter, line, textLeft, lineTop, lineHeight);
+
 			float hintLeft = DrawInlineValue(painter, line, textLeft, lineTop, lineHeight);
-			DrawLineHint(painter, line, hintLeft, textLeft, lineTop);
+			float trailing = DrawLineHint(painter, line, hintLeft, textLeft, lineTop);
+			trailing = DrawProblemLens(painter, line, trailing, lineTop);
+
+			if (line == caretLine && BlameFor?.Invoke(line) is { Length: > 0 } blame) DrawBlame(painter, blame, trailing, lineTop);
 
 			painter.PopClip();
 
@@ -1773,14 +1786,100 @@ public sealed class TextView : ITextView
 
 	public IReadOnlyDictionary<int, LineHint>? LineHints { get; set; }
 
-	private void DrawLineHint(IPainter painter, int line, float after, float textLeft, float lineTop) {
-		if (LineHints is null || !LineHints.TryGetValue(line, out LineHint hint)) return;
-
+	private float DrawLineHint(IPainter painter, int line, float after, float textLeft, float lineTop) {
 		ITextFont font = painter.GetCode();
 		float cellWidth = font.GetCellWidth();
 		float end = after >= 0f ? after : textLeft + (VisualColumnAt(line, Snapshot.GetLineSpan(line).End) * cellWidth);
 
-		painter.DrawText(font, hint.Text, end + (LineHintMarginCells * cellWidth), lineTop + font.GetBaseline(), hint.Color ?? (hint.Warning ? Theme.WarningForeground : Theme.EditorInlayHintForeground));
+		if (LineHints is null || !LineHints.TryGetValue(line, out LineHint hint)) return end;
+
+		float left = end + (LineHintMarginCells * cellWidth);
+		painter.DrawText(font, hint.Text, left, lineTop + font.GetBaseline(), hint.Color ?? (hint.Warning ? Theme.WarningForeground : Theme.EditorInlayHintForeground));
+		return left + font.Measure(hint.Text);
+	}
+
+	public readonly record struct ProblemLens(string Message, DiagnosticSeverity Severity);
+
+	public readonly record struct Squiggle(int Line, int StartColumn, int EndLine, int EndColumn, DiagnosticSeverity Severity);
+
+	public IReadOnlyDictionary<int, ProblemLens>? ProblemLenses { get; set; }
+
+	public IReadOnlyList<Squiggle>? Squiggles { get; set; }
+
+	public Func<int, string?>? BlameFor { get; set; }
+
+	private const float ErrorLensMarginCells = 4f;
+	private const float GitLensMarginEm = 3f;
+
+	private static Theming.Color LensBackground(DiagnosticSeverity severity) => severity switch {
+		DiagnosticSeverity.Error => Theme.ErrorLensErrorBackground,
+		DiagnosticSeverity.Warning => Theme.ErrorLensWarningBackground,
+		_ => Theme.ErrorLensInfoBackground,
+	};
+
+	private static Theming.Color LensForeground(DiagnosticSeverity severity) => severity switch {
+		DiagnosticSeverity.Error => Theme.ErrorLensErrorForeground,
+		DiagnosticSeverity.Warning => Theme.ErrorLensWarningForeground,
+		_ => Theme.ErrorLensInfoForeground,
+	};
+
+	private static Theming.Color SquiggleColor(DiagnosticSeverity severity) => severity switch {
+		DiagnosticSeverity.Error => Theme.ErrorForeground,
+		DiagnosticSeverity.Warning => Theme.WarningForeground,
+		_ => Theme.InfoForeground,
+	};
+
+	private float DrawProblemLens(IPainter painter, int line, float after, float lineTop) {
+		if (ProblemLenses is null || !ProblemLenses.TryGetValue(line, out ProblemLens lens)) return after;
+
+		ITextFont font = painter.GetCode();
+		float left = after + (ErrorLensMarginCells * font.GetCellWidth());
+		painter.DrawText(font, lens.Message, left, lineTop + font.GetBaseline(), LensForeground(lens.Severity));
+		return left + font.Measure(lens.Message);
+	}
+
+	private static void DrawBlame(IPainter painter, string blame, float after, float lineTop) {
+		ITextFont font = painter.GetCode();
+		painter.DrawText(font, blame, after + (GitLensMarginEm * font.GetSizeInPixels()), lineTop + font.GetBaseline(), Theme.GitLensTrailingLineForeground);
+	}
+
+	private void DrawSquiggles(IPainter painter, int line, float textLeft, float lineTop, float lineHeight) {
+		if (Squiggles is not { Count: > 0 } squiggles) return;
+
+		float cellWidth = painter.GetCode().GetCellWidth();
+		TextSpan span = Snapshot.GetLineSpan(line);
+		float scale = Scale;
+		float bottom = lineTop + lineHeight;
+
+		foreach (Squiggle squiggle in squiggles) {
+			if (squiggle.Line > line || squiggle.EndLine < line) continue;
+
+			int startColumn = squiggle.Line == line ? squiggle.StartColumn : 0;
+			int endColumn = squiggle.EndLine == line ? squiggle.EndColumn : span.Length;
+			int start = VisualColumnAt(line, Math.Min(span.Start + startColumn, span.End));
+			int end = VisualColumnAt(line, Math.Min(span.Start + endColumn, span.End));
+
+			if (end <= start) end = start + 1;
+
+			DrawSquiggle(painter, textLeft + (start * cellWidth), textLeft + (end * cellWidth), bottom, scale, SquiggleColor(squiggle.Severity));
+		}
+	}
+
+	private static void DrawSquiggle(IPainter painter, float left, float right, float bottom, float scale, Theming.Color color) {
+		float step = 3f * scale;
+		float high = bottom - (3f * scale);
+		float low = bottom - (0.5f * scale);
+		float x = left;
+		bool up = false;
+
+		while (x < right) {
+			float next = MathF.Min(x + step, right);
+			float rise = (low - high) * ((next - x) / step);
+			float fromY = up ? high : low;
+			painter.StrokeLine(x, fromY, next, up ? fromY + rise : fromY - rise, scale, color);
+			x = next;
+			up = !up;
+		}
 	}
 
 	public IReadOnlyList<Decoration>? Decorations { get; set; }
@@ -2060,7 +2159,7 @@ public sealed class TextView : ITextView
 		}
 
 		float trackWidth = ScrollbarWidth * Scale;
-		float trackX = x + width - trackWidth;
+		float trackX = x + width + ScrollbarOffset - trackWidth;
 		float thumbHeight = Math.Max(ScrollbarMinThumb * Scale, height * (height / contentHeight));
 		float maxScroll = Math.Max(1f, contentHeight - height);
 		float progress = Math.Clamp(ScrollY / maxScroll, 0f, 1f);
@@ -2078,7 +2177,7 @@ public sealed class TextView : ITextView
 
 		float trackHeight = HorizontalScrollbarHeight * Scale;
 		float trackLeft = x + gutterWidth;
-		float trackWidth = width - gutterWidth - (ShowVerticalScrollbar && _vertical.Max > 0f ? _vertical.Width : 0f);
+		float trackWidth = width - gutterWidth - (ShowVerticalScrollbar && _vertical.Max > 0f && ScrollbarOffset == 0f ? _vertical.Width : 0f);
 		float trackY = y + height - trackHeight;
 		float thumbWidth = Math.Max(ScrollbarMinThumb * Scale, trackWidth * (_textAreaWidth / _contentWidth));
 		float maxScroll = Math.Max(1f, _contentWidth - _textAreaWidth);
@@ -2210,6 +2309,47 @@ public sealed class TextView : ITextView
 
 		Color color = line == caretLine ? Theme.LineNumberActiveForeground : Theme.LineNumberForeground;
 		painter.DrawText(painter.GetCode(), digits[..written], textX, lineTop + font.GetBaseline(), color);
+	}
+
+	public int LineColors(int line, ref uint[] colors) {
+		TextSpan span = Snapshot.GetLineSpan(line);
+		uint fallback = Pack(Theme.EditorForeground);
+
+		EnsureCapacity(ref colors, span.Length + 1);
+
+		for (int i = 0; i < span.Length; i++) colors[i] = fallback;
+
+		if (!Highlighter.IsEnabled || span.Length == 0) return span.Length;
+
+		if (Highlighter.ColorLine(Snapshot, line) is { Count: > 0 } coloured) {
+			foreach (Highlighter.ColoredToken token in coloured) {
+				if (token.Length <= 0 || token.Start + token.Length > span.Length) continue;
+
+				uint colour = Pack(token.Color);
+
+				for (int at = token.Start; at < token.Start + token.Length; at++) colors[at] = colour;
+			}
+		}
+		else {
+			foreach (Token token in Highlighter.TokenizeLine(Snapshot, line)) {
+				if (token.Length <= 0 || token.End > span.Length) continue;
+
+				uint colour = Pack(SyntaxColors.For(token.Kind));
+
+				for (int at = token.Start; at < token.End; at++) colors[at] = colour;
+			}
+		}
+
+		if (Semantics is { Count: > 0 } semantics) {
+			for (int i = FirstSemantic(semantics, line); i < semantics.Count && semantics[i].Line == line; i++) {
+				SemanticSpan semantic = semantics[i];
+				int end = Math.Min(semantic.StartColumn + semantic.Length, span.Length);
+
+				for (int at = Math.Max(0, semantic.StartColumn); at < end; at++) colors[at] = semantic.Color;
+			}
+		}
+
+		return span.Length;
 	}
 
 	private void DrawLineText(IPainter painter, int line, float x, float lineTop) {

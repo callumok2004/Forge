@@ -32,6 +32,7 @@ public enum DocumentEvent
 	Changed,
 	Saved,
 	Closed,
+	CaretMoved,
 }
 
 public readonly record struct QuickPickItem(string Label, string Description = "", string Detail = "");
@@ -50,7 +51,7 @@ public enum DiagnosticSeverity : byte
 	Info,
 }
 
-public readonly record struct Diagnostic(string File, int Line, int Column, string Message, DiagnosticSeverity Severity, string? Code = null)
+public readonly record struct Diagnostic(string File, int Line, int Column, string Message, DiagnosticSeverity Severity, string? Code = null, int EndLine = 0, int EndColumn = 0)
 {
 	public bool IsError => Severity == DiagnosticSeverity.Error;
 }

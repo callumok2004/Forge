@@ -124,9 +124,20 @@ public sealed class TerminalView : Panel
 	}
 }
 
-public sealed class TerminalScreenPanel : Panel
+public sealed partial class TerminalScreenPanel : Panel
 {
 	private readonly PanelPart _part;
+	private TerminalLink? _link;
+	private float _mouseX;
+	private float _mouseY;
+
+	private readonly record struct TerminalLink((int Line, int Column) Start, (int Line, int Column) End, string Target, int TargetLine, int TargetColumn, bool Url);
+
+	[System.Text.RegularExpressions.GeneratedRegex(@"\b(?:https?|file)://[^\s""'<>()\[\]{}]+")]
+	private static partial System.Text.RegularExpressions.Regex UrlPattern();
+
+	[System.Text.RegularExpressions.GeneratedRegex(@"(?<path>(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|[\\/~])?[\w.\-\\/]*[\w\-]\.[A-Za-z0-9]+)(?:\((?<line>\d+)(?:,(?<column>\d+))?\)|:(?<line>\d+)(?::(?<column>\d+))?)?")]
+	private static partial System.Text.RegularExpressions.Regex PathPattern();
 
 	public TerminalSession? Session { get; set; }
 
@@ -221,6 +232,11 @@ public sealed class TerminalScreenPanel : Panel
 
 		if (button != MouseButton.Left) return true;
 
+		if ((Ui?.GetModifiers() & KeyModifiers.Control) != 0 && LinkAt(session.Screen, x, y) is { } link) {
+			OpenLink(link);
+			return true;
+		}
+
 		(int Line, int Column) position = PositionAt(session.Screen, x, y);
 
 		if ((Ui?.GetModifiers() & KeyModifiers.Shift) != 0 && _anchor.Line >= 0) _focus = position;
@@ -239,26 +255,143 @@ public sealed class TerminalScreenPanel : Panel
 		(int line, int column) = PositionAt(screen, x, y);
 
 		lock (screen.Sync) {
-			ReadOnlySpan<TerminalCell> cells = screen.Line(line);
-			int start = Math.Min(column, cells.Length);
-			int end = start;
+			string text = LogicalText(screen, line, out int[] starts, out int first);
+			int offset = Math.Min(starts[line - first] + column, text.Length);
+			(int start, int end) = WordRange.At(text, offset, WordRange.TerminalSeparators);
 
-			while (start > 0 && IsWordCharacter(cells[start - 1].Character)) start--;
-
-			while (end < cells.Length && IsWordCharacter(cells[end].Character)) end++;
-
-			_anchor = (line, start);
-			_focus = (line, end);
+			_anchor = Locate(starts, first, start);
+			_focus = Locate(starts, first, end);
 		}
 
 		Repaint();
 		return true;
 	}
 
-	private static bool IsWordCharacter(char c) => c != '\0' && !char.IsWhiteSpace(c) && c is not ('(' or ')' or '[' or ']' or '{' or '}' or '\'' or '"' or ',' or ';' or '|' or '<' or '>');
+	public override bool OnMouseTriplePressed(MouseButton button, float x, float y) {
+		if (button != MouseButton.Left || Session is not { } session) return false;
+
+		TerminalScreen screen = session.Screen;
+		(int line, _) = PositionAt(screen, x, y);
+
+		lock (screen.Sync) {
+			(int first, int last) = screen.LogicalLine(line);
+			_anchor = (first, 0);
+			_focus = (last, screen.Line(last).Length);
+		}
+
+		Repaint();
+		return true;
+	}
+
+	private static string LogicalText(TerminalScreen screen, int line, out int[] starts, out int first) {
+		(first, int last) = screen.LogicalLine(line);
+		starts = new int[last - first + 2];
+		System.Text.StringBuilder builder = new();
+
+		for (int i = first; i <= last; i++) {
+			starts[i - first] = builder.Length;
+
+			foreach (TerminalCell cell in screen.Line(i)) builder.Append(cell.Character == ' ' ? ' ' : cell.Character);
+		}
+
+		starts[^1] = builder.Length;
+		return builder.ToString();
+	}
+
+	private static (int Line, int Column) Locate(int[] starts, int first, int offset) {
+		int index = 0;
+
+		while (index + 2 < starts.Length && starts[index + 1] < offset) index++;
+
+		return (first + index, offset - starts[index]);
+	}
+
+
+	private TerminalLink? LinkAt(TerminalScreen screen, float x, float y) {
+		(int line, int column) = PositionAt(screen, x - (_cellWidth / 2f), y);
+		string text;
+		int[] starts;
+		int first;
+
+		lock (screen.Sync) {
+			if (screen.Line(line).IsEmpty) return null;
+
+			text = LogicalText(screen, line, out starts, out first);
+		}
+
+		int offset = starts[line - first] + column;
+
+		foreach (System.Text.RegularExpressions.Match match in UrlPattern().Matches(text)) {
+			if (offset >= match.Index && offset < match.Index + match.Length) return new TerminalLink(Locate(starts, first, match.Index), Locate(starts, first, match.Index + match.Length), match.Value.TrimEnd('.', ',', ';', ':'), 0, 0, true);
+		}
+
+		foreach (System.Text.RegularExpressions.Match match in PathPattern().Matches(text)) {
+			if (offset < match.Index || offset >= match.Index + match.Length) continue;
+
+			string path = match.Groups["path"].Value;
+
+			if (path.StartsWith('~')) path = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + path[1..];
+
+			string full;
+
+			try {
+				full = Path.GetFullPath(Path.Combine(_part.WorkingDirectory, path));
+			}
+			catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException) {
+				return null;
+			}
+
+			if (!File.Exists(full)) return null;
+
+			int targetLine = int.TryParse(match.Groups["line"].ValueSpan, out int parsedLine) ? parsedLine : 1;
+			int targetColumn = int.TryParse(match.Groups["column"].ValueSpan, out int parsedColumn) ? parsedColumn : 1;
+			return new TerminalLink(Locate(starts, first, match.Index), Locate(starts, first, match.Index + match.Length), full, targetLine, targetColumn, false);
+		}
+
+		return null;
+	}
+
+	private void UpdateLink() {
+		TerminalLink? link = !_selecting && Session is { } session && (Ui?.GetModifiers() & KeyModifiers.Control) != 0 ? LinkAt(session.Screen, _mouseX, _mouseY) : null;
+
+		if (link == _link) return;
+
+		_link = link;
+		Cursor = link is null ? CursorCode.IBeam : CursorCode.Hand;
+		Repaint();
+	}
+
+	private void OpenLink(TerminalLink link) {
+		if (!link.Url) {
+			_part.Navigate?.Invoke(link.Target, link.TargetLine, link.TargetColumn);
+			return;
+		}
+
+		try {
+			System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(link.Target) { UseShellExecute = true });
+		}
+		catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException) {
+		}
+	}
+
+	public override void OnCursorExited() {
+		if (_link is null) return;
+
+		_link = null;
+		Cursor = CursorCode.IBeam;
+		Repaint();
+	}
 
 	public override void OnCursorMoved(float x, float y) {
-		if (!_selecting || Session is not { } session) return;
+		_mouseX = x;
+		_mouseY = y;
+
+		if (!_selecting) {
+			UpdateLink();
+			return;
+		}
+
+		if (Session is not { } session) return;
 
 		if (y < 0f) session.Screen.ScrollBy(1);
 		else if (y > Tall) session.Screen.ScrollBy(-1);
@@ -285,6 +418,7 @@ public sealed class TerminalScreenPanel : Panel
 		if (Session is not { } terminal) return false;
 
 		ClearSelection();
+		terminal.Screen.ScrollToBottom();
 		terminal.Write([character]);
 		return true;
 	}
@@ -294,6 +428,11 @@ public sealed class TerminalScreenPanel : Panel
 
 		bool control = (modifiers & KeyModifiers.Control) != 0;
 
+		if (key == VirtualKey.Control) {
+			UpdateLink();
+			return false;
+		}
+
 		if (control && key == VirtualKey.C && CopySelection()) return true;
 
 		if (control && key == VirtualKey.V) {
@@ -301,14 +440,17 @@ public sealed class TerminalScreenPanel : Panel
 			return true;
 		}
 
-		ClearSelection();
-
 		if (control && key is >= VirtualKey.A and <= VirtualKey.Z) {
+			ClearSelection();
+			terminal.Screen.ScrollToBottom();
 			terminal.SendControl((char)key);
 			return true;
 		}
 
-		if (key == VirtualKey.Right && !control && terminal.AcceptSuggestion()) return true;
+		if (key == VirtualKey.Right && !control && terminal.AcceptSuggestion()) {
+			ClearSelection();
+			return true;
+		}
 
 		TerminalKey mapped = key switch {
 			VirtualKey.Return => TerminalKey.Enter,
@@ -325,6 +467,10 @@ public sealed class TerminalScreenPanel : Panel
 			_ => TerminalKey.None,
 		};
 
+		if (mapped == TerminalKey.None) return false;
+
+		ClearSelection();
+		terminal.Screen.ScrollToBottom();
 		return terminal.SendKey(mapped, control);
 	}
 
@@ -377,6 +523,12 @@ public sealed class TerminalScreenPanel : Panel
 				}
 
 				if (!cells.IsEmpty) DrawRow(painter, cells, ScreenX + padding, top, cellWidth, rowHeight, font);
+
+				if (_link is { } link && line >= link.Start.Line && line <= link.End.Line) {
+					int from = line == link.Start.Line ? link.Start.Column : 0;
+					int to = line == link.End.Line ? link.End.Column : cells.Length;
+					painter.FillRectangle(ScreenX + padding + (from * cellWidth), top + rowHeight - scale, (to - from) * cellWidth, scale, Theme.EditorForeground);
+				}
 			}
 
 			if (screen.CursorVisible && screen.ScrollOffset == 0) {

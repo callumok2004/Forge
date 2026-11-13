@@ -37,9 +37,12 @@ public class Button : Label
 
 	public override void OnCursorEntered() => Repaint();
 
+	public Action? CursorExited { get; set; }
+
 	public override void OnCursorExited() {
 		_pressed = false;
 		Repaint();
+		CursorExited?.Invoke();
 	}
 
 	public override bool OnMousePressed(MouseButton button, float x, float y) {

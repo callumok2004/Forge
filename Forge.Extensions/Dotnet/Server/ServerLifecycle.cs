@@ -73,6 +73,16 @@ public sealed class ServerLifecycle(RoslynLanguageClient server, SolutionWorkspa
 		});
 	}
 
+	private bool _fallbackWarned;
+
+	private void WarnFallback(ICommandHost host, ServerLaunch launch) {
+		if (_fallbackWarned) return;
+
+		_fallbackWarned = true;
+		output.Log(host, $"Bundled language server not found in {LanguageServerLocator.BundledDirectory}; falling back to {launch.ServerDirectory}.");
+		host.ShowMessage(MessageSeverity.Warning, $"The bundled C# language server was not found, so Forge is using the downloaded one in {launch.ServerDirectory}.", []);
+	}
+
 	private bool _updateChecked;
 
 	private void CheckForUpdate(ICommandHost host) {
@@ -114,7 +124,10 @@ public sealed class ServerLifecycle(RoslynLanguageClient server, SolutionWorkspa
 	private void Start(ICommandHost host, ServerLaunch launch) {
 		if (!_attached) Attach(host);
 
-		CheckForUpdate(host);
+		if (!launch.Bundled && settings.ServerPath is not { Length: > 0 }) {
+			WarnFallback(host, launch);
+			CheckForUpdate(host);
+		}
 
 		_launch = launch;
 		server.Start(launch, Path.Combine(settings.StorageDirectory, "logs"), workspace.Solution, workspace.Projects, settings);
@@ -224,7 +237,12 @@ public sealed class ServerLifecycle(RoslynLanguageClient server, SolutionWorkspa
 				diagnostics.Refresh(path, immediate: true);
 				break;
 
+			case DocumentEvent.CaretMoved:
+				contexts.Update(host);
+				break;
+
 			case DocumentEvent.Closed:
+				contexts.Forget(path);
 				server.Documents.Close(path);
 				server.Diagnostics.Forget(path);
 				diagnostics.Clear(path);

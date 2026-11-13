@@ -4,6 +4,8 @@ public interface IDebug
 {
 	event Action<string, string, int>? ProcessStarted;
 
+	event Action<string>? SessionStarted;
+
 	event Action<string>? SessionEnded;
 
 	DebugState GetState();

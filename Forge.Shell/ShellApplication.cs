@@ -94,6 +94,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			PaintBackdrop = () => ambient.Composite(device),
 		};
 		workbench.TitleBar.Icon = appIcon;
+		workbench.Minimap.Settings = MinimapSettingsFrom(settings);
 
 		using VectorIcon? explorerIcon = VectorIcon.Load(device.Factory, Path.Combine(AppContext.BaseDirectory, "Assets", "ui", "folder.svg"));
 		workbench.Auxiliary.IconLoader = path => VectorIcon.Load(device.Factory, path);
@@ -251,6 +252,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		debugConsole.Evaluate = expression => debugger.EvaluateAsync(expression, "repl");
 		debugConsole.LoadChildren = debugger.VariablesAsync;
 
+		debugger.SessionStarted += _ => debugConsole.Post(debugConsole.Clear);
 		debugger.OnOutput(value => debugConsole.Append(value.Category, value.Text));
 
 		bool debugging = false;
@@ -610,6 +612,22 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 	}
 
 
+	private static MinimapSettings MinimapSettingsFrom(Settings settings) => new() {
+		Enabled = settings.MinimapEnabled,
+		Autohide = settings.MinimapAutohide,
+		Size = settings.MinimapSize,
+		Side = settings.MinimapSide,
+		ShowSlider = settings.MinimapShowSlider,
+		Scale = settings.MinimapScale,
+		RenderCharacters = settings.MinimapRenderCharacters,
+		MaxColumn = settings.MinimapMaxColumn,
+		ShowRegionSectionHeaders = settings.MinimapShowRegionSectionHeaders,
+		ShowMarkSectionHeaders = settings.MinimapShowMarkSectionHeaders,
+		MarkSectionHeaderRegex = settings.MinimapMarkSectionHeaderRegex,
+		SectionHeaderFontSize = settings.MinimapSectionHeaderFontSize,
+		SectionHeaderLetterSpacing = settings.MinimapSectionHeaderLetterSpacing,
+	};
+
 	private static void WireEvents(AppWindow window, RenderDevice device, IPainter painter, FontSet fonts,
 		Settings settings, Workbench workbench, Ambient ambient, DebugService debugger,
 		System.Collections.Concurrent.ConcurrentQueue<Action> uiWork, string rootPath) {
@@ -711,6 +729,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			}
 
 			workbench.ShowMinimap = settings.MinimapEnabled;
+			workbench.Minimap.Settings = MinimapSettingsFrom(settings);
 			workbench.Panel.DefaultProfile = settings.DefaultTerminalProfile;
 			workbench.IntelliSense.Suggest.DetailsVisible = settings.SuggestDetailsVisible;
 			ApplyZoom();
@@ -729,6 +748,9 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		};
 
 		workbench.Panel.ProblemsChanged += () => workbench.Sidebar.Explorer.SetProblems(workbench.Panel.Problems, workbench.RootPath);
+		workbench.Panel.ProblemsChanged += Refresh;
+		workbench.Lenses.Post = workbench.Post;
+		workbench.Lenses.Changed = Refresh;
 		workbench.Sidebar.Explorer.FileOpened = path => {
 			workbench.OpenFile(path, preview: true);
 			Refresh();
@@ -968,12 +990,11 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 			Caret.Visible = !Caret.Visible;
 
-			if (workbench.ActiveView is not { } blinking) return;
+			if (workbench.FocusedView is not { } blinking) return;
 
 			blinking.CaretVisible = !blinking.CaretVisible;
 
-			Damage(blinking.CaretRect(painter.GetCode(), workbench.EditorLeft, workbench.EditorTop,
-				workbench.TextWidth(device.Width), workbench.EditorHeight(device.Height)));
+			Damage(blinking.RenderedCaretRect(painter.GetCode()));
 		};
 
 		string? lastRenderFailure = null;

@@ -30,6 +30,7 @@ public sealed class NotificationToast : Panel
 
 		_text = message;
 		_close.Action = () => Dismissed?.Invoke(this);
+		_close.CursorExited = OnCursorExited;
 
 		AddChild(_close);
 
@@ -40,7 +41,7 @@ public sealed class NotificationToast : Panel
 			PrimaryButton button = new() { Action = () => {
 				Resolve(index);
 				Dismissed?.Invoke(this);
-			} };
+			}, CursorExited = OnCursorExited };
 
 			button.SetText(actions[i]);
 			_buttons.Add(button);
@@ -139,7 +140,9 @@ public sealed class NotificationToast : Panel
 
 	public override void OnCursorEntered() => SetCloseVisible(true);
 
-	public override void OnCursorExited() => SetCloseVisible(IsCursorOver);
+	public override void OnCursorExited() => SetCloseVisible(ContainsCursor());
+
+	private bool ContainsCursor() => Ui?.GetMouseOver() is { } over && (ReferenceEquals(over, this) || over.HasParent(this));
 
 	private void SetCloseVisible(bool visible) {
 		if (_close.Visible == visible) return;

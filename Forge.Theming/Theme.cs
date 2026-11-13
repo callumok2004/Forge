@@ -63,7 +63,6 @@ public static class Theme
 	public static readonly Color BreadcrumbBackground = Color.Parse("#0d1118");
 	public static readonly Color BreadcrumbForeground = Color.Parse("#5b6678");
 	public static readonly Color BreadcrumbActiveForeground = Color.Parse("#9aa7bb");
-	public static readonly Color MinimapSlider = Color.Parse("#1d2a4466");
 
 	public static readonly Color ChromeBackground = Color.Parse("#0a0d12");
 	public static readonly Color ChromeForeground = Color.Parse("#8a96aa");
@@ -165,6 +164,13 @@ public static class Theme
 	public static readonly Color ErrorForeground = Color.Parse("#ff8a8a");
 	public static readonly Color WarningForeground = Color.Parse("#e3b341");
 	public static readonly Color InfoForeground = Color.Parse("#5aa8ff");
+	public static readonly Color ErrorLensErrorBackground = Color.Parse("#e454541b");
+	public static readonly Color ErrorLensErrorForeground = Color.Parse("#ff6464");
+	public static readonly Color ErrorLensWarningBackground = Color.Parse("#ff942f1b");
+	public static readonly Color ErrorLensWarningForeground = Color.Parse("#fa973a");
+	public static readonly Color ErrorLensInfoBackground = Color.Parse("#00b7e420");
+	public static readonly Color ErrorLensInfoForeground = Color.Parse("#00b7e4");
+	public static readonly Color GitLensTrailingLineForeground = Color.Parse("#99999959");
 	public static readonly Color SuccessForeground = Color.Parse("#3fd8a0");
 
 	public static readonly Color GitModifiedForeground = Color.Parse("#e3b341");
@@ -222,4 +228,20 @@ public static class Theme
 	public static readonly Color EditorWidgetBackground = Color.Parse("#121722");
 	public static readonly Color EditorWidgetBorder = Color.Parse("#1e2738");
 	public static readonly Color EditorWidgetForeground = Color.Parse("#c9d1dc");
+
+	public static readonly Color MinimapSlider = Color.Parse("#ffffff14");
+	public static readonly Color MinimapSliderHover = Color.Parse("#ffffff22");
+	public static readonly Color MinimapSliderActive = Color.Parse("#ffffff33");
+	public static readonly Color MinimapBackground = EditorBackground;
+	public static readonly float MinimapForegroundOpacity = 1f;
+	public static readonly Color MinimapSelectionHighlight = SelectionBackground;
+	public static readonly Color MinimapFindMatchHighlight = FindMatchHighlightBackground;
+	public static readonly Color MinimapSelectionOccurrenceHighlight = WordHighlightTextBackground;
+	public static readonly Color MinimapErrorHighlight = Color.Parse("#ff1212b3");
+	public static readonly Color MinimapWarningHighlight = WarningForeground;
+	public static readonly Color MinimapInfoHighlight = EditorInfoForeground;
+	public static readonly Color MinimapGutterAddedBackground = GitAddedForeground;
+	public static readonly Color MinimapGutterModifiedBackground = GitModifiedForeground;
+	public static readonly Color MinimapGutterDeletedBackground = GitDeletedForeground;
+	public static readonly Color MinimapShadow = WidgetShadow;
 }

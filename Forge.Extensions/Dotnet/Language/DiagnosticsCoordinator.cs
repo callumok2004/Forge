@@ -91,7 +91,7 @@ public sealed class DiagnosticsCoordinator
 
 	private Diagnostic[] All() {
 		lock (_sync) {
-			return [.. _diagnostics.Values.SelectMany(static file => file).Select(static diagnostic => new Diagnostic(diagnostic.File, diagnostic.Line, diagnostic.Column, diagnostic.Message, diagnostic.Severity, diagnostic.Code))];
+			return [.. _diagnostics.Values.SelectMany(static file => file).Select(static diagnostic => new Diagnostic(diagnostic.File, diagnostic.Line, diagnostic.Column, diagnostic.Message, diagnostic.Severity, diagnostic.Code, diagnostic.EndLine, diagnostic.EndColumn))];
 		}
 	}
 }

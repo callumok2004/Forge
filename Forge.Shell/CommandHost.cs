@@ -67,17 +67,24 @@ public sealed class CommandHost(Workbench workbench, Action refresh) : ICommandH
 		workbench.Panel.RunTask(name, commandLine, workingDirectory, lines, finished);
 
 	public void ReportProblems(string owner, bool build, IReadOnlyList<Diagnostic> problems) =>
-		workbench.Panel.SetProblems(owner, build, problems);
+		workbench.Post(() => {
+			workbench.Panel.SetProblems(owner, build, problems);
+			refresh();
+		});
 
 	public void SetExplorerGroups(IReadOnlyList<Forge.Common.Workspace.ExplorerGroup>? groups) =>
 		workbench.Post(() => workbench.Sidebar.Explorer.SetGroups(groups));
 
 	public void SetStatusItem(string id, string icon, string text, string? commandId, bool rightAligned, int priority) =>
-		workbench.StatusBar.SetItem(new StatusBar.Item(id,
-			Enum.TryParse(icon, ignoreCase: true, out Codicon parsedIcon) ? parsedIcon : Codicon.Run,
-			text, commandId, rightAligned, priority));
+		workbench.Post(() => {
+			workbench.StatusBar.SetItem(new StatusBar.Item(id, Enum.TryParse(icon, ignoreCase: true, out Codicon parsedIcon) ? parsedIcon : Codicon.Run, text, commandId, rightAligned, priority));
+			refresh();
+		});
 
-	public void RemoveStatusItem(string id) => workbench.StatusBar.RemoveItem(id);
+	public void RemoveStatusItem(string id) => workbench.Post(() => {
+		workbench.StatusBar.RemoveItem(id);
+		refresh();
+	});
 
 	public void ObserveDocuments(Action<DocumentEvent, string, string?> observer) => workbench.ObserveDocuments(observer);
 

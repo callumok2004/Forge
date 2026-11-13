@@ -9,24 +9,23 @@
 	</ItemGroup>
 
 	<PropertyGroup>
-		<BundledGrammars>csharp json jsonc xml markdown powershell yaml</BundledGrammars>
-		<BundledRegexFile>$(BaseIntermediateOutputPath)generated\BundledRegexes.g.cs</BundledRegexFile>
-		<GrammarGenerator>$(MSBuildThisFileDirectory)..\tools\Forge.Syntax.Generator\Forge.Syntax.Generator.csproj</GrammarGenerator>
+		<ForgeRoot>$(MSBuildThisFileDirectory)..\</ForgeRoot>
+		<GrammarGenerator>$(ForgeRoot)tools\Forge.Syntax.Generator\Forge.Syntax.Generator.csproj</GrammarGenerator>
+		<BundledRegexProject>$(ForgeRoot)tools\Forge.Syntax.Regexes\Forge.Syntax.Regexes.csproj</BundledRegexProject>
+		<BundledRegexFile>$(ForgeRoot)$(ForgeArtifacts)\obj\Forge.Syntax.Regexes\generated\BundledRegexes.g.cs</BundledRegexFile>
+		<BundledRegexOutput>$(ForgeRoot)$(ForgeArtifacts)\bin\Forge.Syntax.Regexes\$(TargetFramework)\</BundledRegexOutput>
+		<BundledRegexAssembly>$(BundledRegexOutput)Forge.Syntax.Regexes.dll</BundledRegexAssembly>
 	</PropertyGroup>
 
 	<ItemGroup>
-		<GrammarGeneratorInput Include="Grammars\*.tmLanguage.json;TextMate\OnigTranslate.cs;..\tools\Forge.Syntax.Generator\*.cs;$(MSBuildThisFileFullPath)" />
+		<GrammarGeneratorInput Include="Grammars\*.tmLanguage.json;TextMate\OnigTranslate.cs;$(ForgeRoot)tools\Forge.Syntax.Generator\*.cs;$(ForgeRoot)tools\Forge.Syntax.Generator\*.csproj;$(BundledRegexProject);$(MSBuildThisFileFullPath)" />
+		<Reference Include="Forge.Syntax.Regexes" HintPath="$(BundledRegexAssembly)" Private="true" />
 	</ItemGroup>
 
-	<Target Name="GenerateBundledRegexes" BeforeTargets="CoreCompile" Inputs="@(GrammarGeneratorInput)" Outputs="$(BundledRegexFile)">
-		<Exec Command="dotnet run --project &quot;$(GrammarGenerator)&quot; -c Release -- &quot;$(MSBuildThisFileDirectory)Grammars&quot; &quot;$(BundledRegexFile)&quot; $(BundledGrammars)" />
-		<Touch Files="$(BundledRegexFile)" />
-	</Target>
-
-	<Target Name="IncludeBundledRegexes" BeforeTargets="CoreCompile" AfterTargets="GenerateBundledRegexes">
-		<ItemGroup>
-			<Compile Include="$(BundledRegexFile)" />
-		</ItemGroup>
+	<Target Name="BuildBundledRegexes" BeforeTargets="ResolveAssemblyReferences" Condition="'$(DesignTimeBuild)' != 'true'" Inputs="@(GrammarGeneratorInput)" Outputs="$(BundledRegexAssembly)">
+		<Exec Command="dotnet run --project &quot;$(GrammarGenerator)&quot; -c Release -- &quot;$(MSBuildThisFileDirectory)Grammars&quot; &quot;$(BundledRegexFile)&quot;" />
+		<Exec Command="dotnet build &quot;$(BundledRegexProject)&quot; -c Release -p:ForgeTargetFramework=$(TargetFramework) -p:BundledRegexSource=&quot;$(BundledRegexFile)&quot; -o &quot;$(BundledRegexOutput.TrimEnd('\'))&quot; -v:m" />
+		<Touch Files="$(BundledRegexAssembly)" />
 	</Target>
 
 	<ItemGroup>

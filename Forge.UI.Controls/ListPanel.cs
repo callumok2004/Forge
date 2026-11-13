@@ -69,10 +69,32 @@ public sealed class ListPanel : Panel
 		Repaint();
 	}
 
+	private int _pendingReveal = -1;
+
 	public override void OnSizeChanged(float wide, float tall) {
-		if (_selected >= 0 && _count > 0) Select(_selected);
+		if (_pendingReveal >= 0 && tall > 0f) {
+			int row = _pendingReveal;
+			_pendingReveal = -1;
+			RevealCentered(row);
+			return;
+		}
 
 		_first = Math.Clamp(_first, 0, MaxFirst);
+	}
+
+	public void RevealCentered(int row) {
+		if (row < 0 || row >= _count) return;
+
+		if (Tall <= 0f) {
+			_pendingReveal = row;
+			return;
+		}
+
+		if (row < _first || row >= _first + PaintedRows) _first = row - (VisibleRows / 2);
+		else if (row >= _first + VisibleRows) _first = row - VisibleRows + 1;
+
+		_first = Math.Clamp(_first, 0, MaxFirst);
+		Repaint();
 	}
 
 	public void ClearSelection() {
@@ -155,7 +177,7 @@ public sealed class ListPanel : Panel
 
 		_pressed = RowAt(y);
 
-		if (_pressed >= 0) Select(_pressed);
+		if (_pressed >= 0) Select(_pressed, reveal: false);
 
 		return true;
 	}

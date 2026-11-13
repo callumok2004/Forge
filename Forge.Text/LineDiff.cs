@@ -6,7 +6,7 @@ public readonly record struct LineHunk(int OriginalStart, int OriginalCount, int
 
 public static class LineDiff
 {
-	private const int MaxCost = 1 << 22;
+	private const long MaxTrace = 1L << 24;
 
 	public static List<LineHunk> Compute(ReadOnlySpan<char> original, ReadOnlySpan<char> modified) {
 		List<LineHunk> hunks = [];
@@ -35,15 +35,10 @@ public static class LineDiff
 
 		if (a.IsEmpty && b.IsEmpty) return;
 
-		if (a.IsEmpty || b.IsEmpty || (long)(a.Length + b.Length) * Math.Min(a.Length, b.Length) > MaxCost) {
-			hunks.Add(new LineHunk(prefix, a.Length, prefix, b.Length));
-			return;
-		}
-
-		Myers(a, b, prefix, hunks);
+		if (a.IsEmpty || b.IsEmpty || !Myers(a, b, prefix, hunks)) hunks.Add(new LineHunk(prefix, a.Length, prefix, b.Length));
 	}
 
-	private static void Myers(ReadOnlySpan<int> a, ReadOnlySpan<int> b, int offset, List<LineHunk> hunks) {
+	private static bool Myers(ReadOnlySpan<int> a, ReadOnlySpan<int> b, int offset, List<LineHunk> hunks) {
 		int n = a.Length;
 		int m = b.Length;
 		int max = n + m;
@@ -56,9 +51,16 @@ public static class LineDiff
 			int d;
 			bool done = false;
 
+			long stored = 0;
+
 			for (d = 0; d <= max && !done; d++) {
-				int[] snapshot = ArrayPool<int>.Shared.Rent(width);
-				Array.Copy(v, snapshot, width);
+				int band = (2 * d) + 1;
+				stored += band;
+
+				if (stored > MaxTrace) return false;
+
+				int[] snapshot = ArrayPool<int>.Shared.Rent(band);
+				Array.Copy(v, max - d, snapshot, 0, band);
 				trace.Add(snapshot);
 
 				for (int k = -d; k <= d; k += 2) {
@@ -90,8 +92,8 @@ public static class LineDiff
 			for (int step = trace.Count - 1; step > 0; step--) {
 				int[] previous = trace[step];
 				int k = px - py;
-				int previousK = k == -step || (k != step && previous[max + k - 1] < previous[max + k + 1]) ? k + 1 : k - 1;
-				int previousX = previous[max + previousK];
+				int previousK = k == -step || (k != step && previous[step + k - 1] < previous[step + k + 1]) ? k + 1 : k - 1;
+				int previousX = previous[step + previousK];
 				int previousY = previousX - previousK;
 
 				while (px > previousX && py > previousY) {
@@ -124,6 +126,8 @@ public static class LineDiff
 
 				hunks.Add(new LineHunk(offset + startI, i - startI, offset + startJ, j - startJ));
 			}
+
+			return true;
 		}
 		finally {
 			ArrayPool<int>.Shared.Return(v);

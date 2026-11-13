@@ -5,6 +5,7 @@ public static class VirtualKey
 	public const uint Back = 0x08;
 	public const uint Tab = 0x09;
 	public const uint Return = 0x0D;
+	public const uint Control = 0x11;
 	public const uint Escape = 0x1B;
 	public const uint Space = 0x20;
 	public const uint PageUp = 0x21;
@@ -26,4 +27,5 @@ public static class VirtualKey
 	public const uint F5 = 0x74;
 	public const uint F = 0x46;
 	public const uint X = 0x58;
+	public const uint Y = 0x59;
 }

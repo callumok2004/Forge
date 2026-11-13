@@ -181,6 +181,8 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	public EditorDecorations Decorations { get; } = new();
 
+	public EditorLenses Lenses { get; } = new();
+
 	public TrailingSpacesExtension? TrailingSpaces { get; set; }
 
 	public DiscordPresenceExtension? Presence { get; set; }
@@ -201,8 +203,23 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		}
 	}
 
+	private string? _caretPath;
+	private int _caretLine = -1;
+
 	public void PublishActiveDocument() {
-		if (ActiveDocument is { } document) Publish(document);
+		if (ActiveDocument is not { } document) return;
+
+		Publish(document);
+
+		if (_documentObservers.Length == 0 || document.Path is not { } path || ActiveView is not { } view) return;
+
+		int line = view.CaretLine;
+
+		if (line == _caretLine && string.Equals(path, _caretPath, StringComparison.OrdinalIgnoreCase)) return;
+
+		_caretPath = path;
+		_caretLine = line;
+		PublishDocument(DocumentEvent.CaretMoved, path, null);
 	}
 
 	public void Publish(Document document) {
@@ -356,8 +373,18 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	public float EditorWidth(float windowWidth) =>
 		Math.Max(0f, windowWidth - EditorLeft - EditorRightGutter - AuxiliaryWidth - AuxiliaryStripWidth);
 
+	public Minimap Minimap => _minimap;
+
+	private float MinimapWidth => ShowMinimap && _minimap.Enabled ? _minimap.Width : 0f;
+
+	public float TextInset => MinimapWidth > 0f && _minimap.IsLeft ? MinimapWidth : 0f;
+
+	private float TextReserve => MinimapWidth > 0f ? MinimapWidth + (_minimap.IsLeft ? 0f : Minimap.VerticalScrollbarWidth * _scale) : 0f;
+
 	public float TextWidth(float windowWidth) =>
-		Math.Max(0f, EditorWidth(windowWidth) - (ShowMinimap ? Minimap.Width(_scale) : 0f));
+		Math.Max(0f, EditorWidth(windowWidth) - TextReserve);
+
+	public float TextAreaWidth(float editorWidth) => Math.Max(0f, editorWidth - TextReserve);
 
 	public float EditorHeight(float windowHeight) =>
 		Math.Max(0f, EditorBottom(windowHeight) - EditorTop);
@@ -374,14 +401,14 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 		damage.Add(floating
 			? PixelRect.Around(EditorLeft, EditorTop, EditorWidth(width), EditorHeight(height))
-			: view.PendingDamage(painter.GetCode(), EditorLeft, EditorTop, TextWidth(width),
+			: view.PendingDamage(painter.GetCode(), EditorLeft + TextInset, EditorTop, TextWidth(width),
 				EditorHeight(height)));
 
 		damage.Add(PixelRect.Around(EditorLeft, ShellTop, EditorWidth(width), EditorTop - ShellTop));
 
-		if (ShowMinimap) {
-			damage.Add(PixelRect.Around(EditorLeft + TextWidth(width), EditorTop,
-				Minimap.Width(_scale), EditorHeight(height)));
+		if (MinimapWidth > 0f) {
+			float minimapLeft = _minimap.IsLeft ? EditorLeft : EditorLeft + EditorWidth(width) - TextReserve;
+			damage.Add(PixelRect.Around(minimapLeft, EditorTop, TextReserve, EditorHeight(height)));
 		}
 
 		damage.Add(PixelRect.Around(0f, StatusBarTop(height), width, height - StatusBarTop(height)));
@@ -1416,6 +1443,8 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		if (_diffEditors.TryGetValue(view, out DiffEditor? diff)) {
 			diff.SetInline(width < DiffEditor.InlineBreakpoint * _scale);
 
+			view.ScrollbarOffset = 0f;
+
 			if (!diff.Inline) {
 				view.Scale = _scale;
 				diff.Render(painter, left, top, width, height, _scale);
@@ -1423,7 +1452,11 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 			}
 		}
 
-		float textWidth = Math.Max(0f, width - (ShowMinimap ? Minimap.Width(_scale) : 0f));
+		float minimapWidth = ShowMinimap ? _minimap.ComputeWidth(view, painter.GetCode(), width, height, _scale) : 0f;
+		bool minimapLeft = minimapWidth > 0f && _minimap.IsLeft;
+		float scrollbar = Minimap.VerticalScrollbarWidth * _scale;
+		float textLeft = minimapLeft ? left + minimapWidth : left;
+		float textWidth = minimapWidth <= 0f ? width : Math.Max(0f, width - minimapWidth - (minimapLeft ? 0f : scrollbar));
 
 		if (TrailingSpaces is { } trailing) {
 			float lineHeight = painter.GetCode().GetLineHeight();
@@ -1431,13 +1464,25 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 			Decorations.UpdateVisible(view, trailing, IntelliSense?.Occurrences.For(ActiveFilePath, view.Buffer.Version) ?? [], firstLine, firstLine + (int)(height / lineHeight) + 1);
 		}
 
+		Lenses.Apply(view, ActiveFilePath, Panel.Problems, Repository, false);
 		view.Lightbulb = IntelliSense?.Actions.Current is { } bulb ? new TextView.LightbulbMark(bulb.Line, bulb.Column, bulb.InGutter, bulb.AutoFix) : null;
 		view.BreakpointProvider = BreakpointMarkFor;
 		view.ExecutionLine = ExecutionLineFor?.Invoke(ActiveFilePath ?? string.Empty) ?? -1;
 		view.Scale = _scale;
-		view.Render(painter, left, top, textWidth, height);
+		view.ScrollbarOffset = minimapWidth > 0f && !minimapLeft ? minimapWidth + scrollbar : 0f;
 
-		if (ShowMinimap && painter.NeedsPaint(left + textWidth, top, Minimap.Width(_scale), height)) _minimap.Render(painter, view, view.Highlighter, left + textWidth, top, Minimap.Width(_scale), height, _scale);
+		if (minimapWidth > 0f && !minimapLeft) painter.FillRectangle(left + width - scrollbar, top, scrollbar, height, view.Background);
+
+		view.Render(painter, textLeft, top, textWidth, height);
+
+		if (minimapWidth > 0f) {
+			float minimapX = minimapLeft ? left : left + width - scrollbar - minimapWidth;
+
+			if (painter.NeedsPaint(minimapX, top, minimapWidth, height)) {
+				_minimap.Occurrences = IntelliSense?.Occurrences.For(ActiveFilePath, view.Buffer.Version) ?? [];
+				_minimap.Render(painter, view, minimapX, top, height, _scale);
+			}
+		}
 	}
 
 	private static void DrawEmptyState(IPainter painter, float x, float y, float width, float height) {

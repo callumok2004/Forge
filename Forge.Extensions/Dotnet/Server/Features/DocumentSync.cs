@@ -26,6 +26,12 @@ public sealed class DocumentSync(RoslynLanguageClient client)
 		lock (_sync) return _ready && _versions.ContainsKey(path);
 	}
 
+	public string? Text(string path) {
+		path = Normalize(path);
+
+		lock (_sync) return _texts.GetValueOrDefault(path);
+	}
+
 	public string[] OpenPaths() {
 		lock (_sync) return [.. _texts.Keys];
 	}

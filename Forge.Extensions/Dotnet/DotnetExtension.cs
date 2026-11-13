@@ -26,7 +26,11 @@ public sealed class DotnetExtension : ForgeExtension
 	public DotnetExtension() {
 		DiagnosticsCoordinator diagnostics = new(_server);
 
-		_contexts = new ProjectContextStatus(_server, _workspace, _output);
+		ProjectDefines defines = new(_workspace, _settings);
+
+		_server.Diagnostics.DefinesFor = defines.For;
+		_server.ProjectsLoaded += defines.Invalidate;
+		_contexts = new ProjectContextStatus(_server, _workspace, defines, diagnostics, _output);
 		_workspaceCommands = new WorkspaceCommands(_server, diagnostics, _output);
 		_lifecycle = new ServerLifecycle(_server, _workspace, diagnostics, _contexts, _workspaceCommands, new CodeActionRunner(_server, _output), _output, _settings);
 		_editor = new EditorCommands(_server, _output, _settings);

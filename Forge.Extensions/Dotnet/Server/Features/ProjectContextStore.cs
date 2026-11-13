@@ -40,16 +40,18 @@ public sealed class ProjectContextStore(RoslynLanguageClient client)
 		lock (_sync) return _contexts.GetValueOrDefault(path);
 	}
 
-	public void Select(string path, string id) {
+	public void Select(string path, string? id) {
 		lock (_sync) {
 			if (_contexts.TryGetValue(path, out ProjectContexts? list)) _contexts[path] = list with { SelectedId = id };
 		}
 	}
 
-	internal JsonObject Identifier(string path) {
+	internal JsonObject Identifier(string path) => Identifier(path, For(path)?.Current);
+
+	internal JsonObject Identifier(string path, ProjectContext? context) {
 		JsonObject identifier = new() { ["uri"] = client.UriOf(path) };
 
-		if (For(path)?.Current is { IsMiscellaneous: false } current) {
+		if (context is { IsMiscellaneous: false } current) {
 			identifier["_vs_projectContext"] = new JsonObject {
 				["_vs_id"] = current.Id,
 				["_vs_label"] = current.Label,

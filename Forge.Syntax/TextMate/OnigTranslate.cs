@@ -45,7 +45,7 @@ public static class OnigTranslate
 			}
 
 			if (c == '[' && i + 1 < pattern.Length && pattern[i + 1] == ':' &&
-				pattern.IndexOf(":]", i, StringComparison.Ordinal) is int close && close > 0) {
+				pattern.IndexOf(":]", i + 2, StringComparison.Ordinal) is int close && close > 0) {
 				string posix = pattern[(i + 2)..close];
 
 				if (PosixClass(posix) is { } replacement) {

@@ -93,14 +93,3 @@ public sealed class TieredRegex
 		}
 	}
 }
-
-internal static partial class BundledRegexes
-{
-	public static Regex? For(string translated) {
-		Regex? regex = null;
-		Find(translated, ref regex);
-		return regex;
-	}
-
-	static partial void Find(string translated, ref Regex? regex);
-}

@@ -67,6 +67,10 @@ public interface IPainter
 	void DrawImage(IImage image, float x, float y, float width, float height, bool pixelated);
 	void DrawPixels(PixelBuffer pixels, float x, float y);
 
+	void DrawPixels(PixelBuffer pixels, float x, float y, float width, float height, float opacity);
+
+	byte[]? RasterizeGlyphs(string family, float size, ReadOnlySpan<char> characters, int cellWidth, int cellHeight);
+
 	bool DrawFileIcon(ReadOnlySpan<char> fileName, float centreX, float centreY, float size);
 	bool DrawFolderIcon(ReadOnlySpan<char> folderName, bool expanded, float centreX, float centreY, float size);
 
