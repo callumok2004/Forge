@@ -113,9 +113,12 @@ public sealed class MsBuildProblemMatcher
 		ReadOnlySpan<char> position = location[(open + 1)..];
 		int comma = position.IndexOf(',');
 
-		if (comma < 0 ||
-			!int.TryParse(position[..comma], out line) ||
-			!int.TryParse(position[(comma + 1)..], out column)) return false;
+		if (comma < 0) return false;
+
+		ReadOnlySpan<char> after = position[(comma + 1)..];
+		int next = after.IndexOf(',');
+
+		if (!int.TryParse(position[..comma], out line) || !int.TryParse(next < 0 ? after : after[..next], out column)) return false;
 
 		file = location[..open].Trim().ToString();
 		return file.Length > 0;

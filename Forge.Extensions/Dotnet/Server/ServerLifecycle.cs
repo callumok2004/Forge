@@ -158,7 +158,10 @@ public sealed class ServerLifecycle(RoslynLanguageClient server, SolutionWorkspa
 	private void Attach(ICommandHost host) {
 		_attached = true;
 
-		server.Crashed += _ => ThreadPool.UnsafeQueueUserWorkItem(_ => OnCrashed(host), null);
+		server.Crashed += _ => {
+			diagnostics.StopWorkspace();
+			ThreadPool.UnsafeQueueUserWorkItem(_ => OnCrashed(host), null);
+		};
 
 		server.Log += message => output.Log(host, message);
 
@@ -173,6 +176,7 @@ public sealed class ServerLifecycle(RoslynLanguageClient server, SolutionWorkspa
 
 			if (host.GetActiveFilePath() is { } open && ProjectDiscovery.IsSource(open)) diagnostics.Refresh(open, immediate: true);
 
+			diagnostics.StartWorkspace();
 			host.Refresh();
 		};
 

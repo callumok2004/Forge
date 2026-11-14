@@ -67,6 +67,8 @@ public static class LanguageServerOptions
 			string other => other,
 		},
 		"codeStyle.formatting.newLine.insertFinalNewline" => (settings.GetBoolean("files.insertFinalNewline") ?? false).ToString().ToLowerInvariant(),
+		"dotnet.backgroundAnalysis.compilerDiagnosticsScope" => "fullSolution",
+		"dotnet.backgroundAnalysis.analyzerDiagnosticsScope" => "openFiles",
 		_ => null,
 	};
 }

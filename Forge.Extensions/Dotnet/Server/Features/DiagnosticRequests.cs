@@ -10,9 +10,93 @@ public sealed class DiagnosticRequests(RoslynLanguageClient client)
 	private readonly Dictionary<string, string> _resultIds = [with(StringComparer.OrdinalIgnoreCase)];
 	private readonly Dictionary<string, CancellationTokenSource> _inflight = [with(StringComparer.OrdinalIgnoreCase)];
 	private readonly Dictionary<string, (string ResultId, string Items)> _contextResults = [with(StringComparer.OrdinalIgnoreCase)];
+	private readonly Dictionary<string, string> _workspaceResultIds = [with(StringComparer.Ordinal)];
 	private readonly Lock _sync = new();
 
+	private CancellationTokenSource? _workspace;
+
 	public event Action<string, IReadOnlyList<ServerDiagnostic>>? Published;
+
+	public event Action<string, IReadOnlyList<ServerDiagnostic>>? WorkspacePublished;
+
+	public event Action? WorkspaceReset;
+
+	public void StartWorkspace() {
+		CancellationTokenSource next = new();
+		CancellationTokenSource? previous;
+
+		lock (_sync) {
+			previous = _workspace;
+			_workspace = next;
+			_workspaceResultIds.Clear();
+		}
+
+		previous?.Cancel();
+		WorkspaceReset?.Invoke();
+		_ = Task.Run(() => WorkspaceLoopAsync(next.Token));
+	}
+
+	public void StopWorkspace() {
+		lock (_sync) {
+			_workspace?.Cancel();
+			_workspace = null;
+			_workspaceResultIds.Clear();
+		}
+
+		WorkspaceReset?.Invoke();
+	}
+
+	public async Task<IReadOnlySet<string>> BuildOnlyIdsAsync() {
+		JsonNode? result = await client.RequestAsync("workspace/buildOnlyDiagnosticIds", new JsonObject(), CancellationToken.None).ConfigureAwait(false);
+		HashSet<string> ids = [with(StringComparer.OrdinalIgnoreCase)];
+
+		foreach (JsonNode? id in result?["ids"] as JsonArray ?? []) {
+			if (id?.GetValue<string>() is { } value) ids.Add(value);
+		}
+
+		return ids;
+	}
+
+	private async Task WorkspaceLoopAsync(CancellationToken cancellation) {
+		while (!cancellation.IsCancellationRequested) {
+			JsonArray previous = [];
+
+			lock (_sync) {
+				foreach ((string uri, string id) in _workspaceResultIds) previous.Add(new JsonObject { ["uri"] = uri, ["value"] = id });
+			}
+
+			JsonNode? result = await client.RequestAsync("workspace/diagnostic", new JsonObject { ["previousResultIds"] = previous }, cancellation).ConfigureAwait(false);
+
+			if (cancellation.IsCancellationRequested) return;
+
+			if (result?["items"] is not JsonArray reports) {
+				try {
+					await Task.Delay(2000, cancellation).ConfigureAwait(false);
+				}
+				catch (OperationCanceledException) {
+					return;
+				}
+
+				continue;
+			}
+
+			foreach (JsonNode? report in reports) {
+				if (report?["uri"]?.GetValue<string>() is not { } uri || SourceGeneratedDocuments.IsGenerated(uri)) continue;
+
+				string? resultId = report["resultId"]?.GetValue<string>();
+
+				lock (_sync) {
+					if (resultId is null) _workspaceResultIds.Remove(uri);
+					else _workspaceResultIds[uri] = resultId;
+				}
+
+				if (report["kind"]?.GetValue<string>() == "unchanged") continue;
+
+				string path = RoslynLanguageClient.FromUri(uri);
+				WorkspacePublished?.Invoke(path, report["items"] is JsonArray items ? Read(path, items) : []);
+			}
+		}
+	}
 
 	public Func<ProjectContext, Task<IReadOnlySet<string>>>? DefinesFor { get; set; }
 

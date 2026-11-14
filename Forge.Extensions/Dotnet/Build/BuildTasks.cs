@@ -2,11 +2,12 @@ using System.Diagnostics;
 
 using Forge.Common.Commands;
 using Forge.Common.Render;
+using Forge.Extensions.Dotnet.Language;
 using Forge.Extensions.Dotnet.Solution;
 
 namespace Forge.Extensions.Dotnet.Build;
 
-public sealed class BuildTasks(SolutionWorkspace workspace, DotnetOutput output)
+public sealed class BuildTasks(SolutionWorkspace workspace, DotnetOutput output, DiagnosticsCoordinator diagnostics)
 {
 	private const string BuildLoggerArguments = "-consoleLoggerParameters:NoSummary;ForceNoAlign";
 
@@ -35,8 +36,10 @@ public sealed class BuildTasks(SolutionWorkspace workspace, DotnetOutput output)
 
 		if (command == "build") Started?.Invoke();
 
+		diagnostics.SetBuild(host, []);
+
 		host.RunInTerminal($"dotnet {command}", $"dotnet {arguments}", Path.GetDirectoryName(target), line => {
-			if (matcher.Read(line)) host.ReportProblems(MsBuildProblemMatcher.Owner, true, matcher.Diagnostics);
+			if (matcher.Read(line)) diagnostics.SetBuild(host, [.. matcher.Diagnostics]);
 
 			host.Refresh();
 		}, exitCode => {
@@ -48,12 +51,13 @@ public sealed class BuildTasks(SolutionWorkspace workspace, DotnetOutput output)
 
 			output.Log(host, exitCode == 0 ? $".NET: {command} succeeded in {elapsed.TotalSeconds:F1}s" : $".NET: {command} failed with exit code {exitCode} after {elapsed.TotalSeconds:F1}s");
 
+			diagnostics.SetBuild(host, [.. matcher.Diagnostics]);
+
 			if (matcher.Diagnostics.Count > 0) {
 				output.Log(host, $"{matcher.ErrorCount} error(s), {matcher.WarningCount} warning(s)");
 
 				if (exitCode != 0) host.ShowPanel("Problems");
 			}
-			else if (exitCode == 0) host.ReportProblems(MsBuildProblemMatcher.Owner, true, []);
 
 			host.Refresh();
 		});
