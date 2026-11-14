@@ -181,18 +181,9 @@ public static class WorkbenchCommands
 		}, when: () => context.Host.GetRemoteUrl() is not null);
 
 		Add("forge.debug.pickConfiguration", "Select Launch Configuration", "Debug", () => {
-			Menu menu = new();
-			string? selected = context.Debugger.GetSelectedConfiguration();
-
-			foreach (DebugConfiguration configuration in context.Debugger.GetConfigurations()) {
-				string name = configuration.Name;
-				menu.Add(new MenuItem(name, action: () => context.Debugger.SelectConfiguration(name)) { Checked = name == selected });
-			}
-
-			menu.AddSeparator();
-			menu.Add(new MenuItem("Edit Configurations...", DebugCommands.Configure));
-
-			context.OpenMenu(menu, workbench.TitleBar.RunConfigurationLeft, TitleBar.Height(workbench.Scale));
+			LaunchPanel? panel = null;
+			panel = new LaunchPanel(context.Debugger, () => panel?.PostCommand(DebugCommands.Configure));
+			panel.Open(workbench.TitleBar.RunConfigurationLeft, TitleBar.Height(workbench.Scale));
 		});
 	}
 

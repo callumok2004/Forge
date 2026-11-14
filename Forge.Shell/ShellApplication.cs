@@ -223,6 +223,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		workbench.Webviews = webviews;
 		workbench.Auxiliary.Webviews = webviews;
+		webviews.Trace = Environment.GetEnvironmentVariable("FORGE_TRACE_WEBVIEWS") == "1";
 
 		webviews.SetZoom(settings.ZoomFactor);
 
@@ -1242,7 +1243,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 	}
 
 	private static void StartVSCodeBridge(Workbench workbench, CommandHost host, Action<Action> post, Action refresh) {
-		VSCodeBridge bridge = new(Registry, host);
+		VSCodeBridge bridge = new(Registry, host) { TraceWebviews = Environment.GetEnvironmentVariable("FORGE_TRACE_WEBVIEWS") == "1" };
 		workbench.VSCode = bridge;
 
 		bridge.ViewsChanged = () => post(() => workbench.Auxiliary.SetViews(bridge.WebviewViews));

@@ -179,7 +179,12 @@ public sealed class JsonRpcConnection : IDisposable
 					read += got;
 				}
 
-				Dispatch(Encoding.UTF8.GetString(body));
+				try {
+					Dispatch(Encoding.UTF8.GetString(body));
+				}
+				catch (Exception exception) when (exception is not (IOException or ObjectDisposedException)) {
+					Log?.Invoke($"Failed to handle a {length} byte message: {exception.GetType().Name}: {exception.Message}");
+				}
 			}
 		}
 		catch (Exception exception) when (exception is IOException or ObjectDisposedException) {
@@ -221,15 +226,58 @@ public sealed class JsonRpcConnection : IDisposable
 		}
 	}
 
+	private static readonly JsonDocumentOptions ParseOptions = new() { MaxDepth = 4096 };
+
+	private static bool Escape(string json, int at, out int code) {
+		code = 0;
+
+		if (at + 5 >= json.Length || json[at] != '\\' || json[at + 1] != 'u') return false;
+
+		return int.TryParse(json.AsSpan(at + 2, 4), System.Globalization.NumberStyles.HexNumber, null, out code);
+	}
+
+	private static string ReplaceLoneSurrogates(string json) {
+		StringBuilder builder = new(json.Length);
+
+		for (int i = 0; i < json.Length; i++) {
+			if (json[i] != '\\' || i + 1 >= json.Length) {
+				builder.Append(json[i]);
+				continue;
+			}
+
+			if (!Escape(json, i, out int code)) {
+				builder.Append(json, i, 2);
+				i++;
+				continue;
+			}
+
+			if (code is >= 0xD800 and <= 0xDBFF && Escape(json, i + 6, out int low) && low is >= 0xDC00 and <= 0xDFFF) {
+				builder.Append(json, i, 12);
+				i += 11;
+				continue;
+			}
+
+			builder.Append(code is >= 0xD800 and <= 0xDFFF ? "\\uFFFD" : json.Substring(i, 6));
+			i += 5;
+		}
+
+		return builder.ToString();
+	}
+
 	private void Dispatch(string json) {
 		JsonNode? message;
 
 		try {
-			message = JsonNode.Parse(json);
+			message = JsonNode.Parse(json, null, ParseOptions);
 		}
-		catch (JsonException exception) {
-			Log?.Invoke($"Malformed message from the language server: {exception.Message}");
-			return;
+		catch (JsonException) {
+			try {
+				message = JsonNode.Parse(ReplaceLoneSurrogates(json), null, ParseOptions);
+			}
+			catch (JsonException exception) {
+				Log?.Invoke($"Malformed message from the language server: {exception.Message}");
+				return;
+			}
 		}
 
 		if (message is not JsonObject root) return;

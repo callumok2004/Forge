@@ -18,6 +18,12 @@ public interface IDebug
 
 	void SelectConfiguration(string name);
 
+	void SetLaunchOption(string configuration, int index, bool enabled, string? value);
+
+	void AddLaunchOption(string configuration, string arguments);
+
+	void RemoveLaunchOption(string configuration, int index);
+
 	void ReloadConfigurations();
 
 	bool StartDebugging(string? configurationName, bool noDebug);

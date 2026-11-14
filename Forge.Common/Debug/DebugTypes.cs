@@ -106,6 +106,15 @@ public sealed record DebugConfiguration(string Name, string Type, string Request
 		new Dictionary<string, string>(StringComparer.Ordinal);
 
 	public System.Text.Json.Nodes.JsonObject? Raw { get; init; }
+
+	public IReadOnlyList<LaunchOption> Options { get; init; } = [];
+}
+
+public sealed record LaunchOption(string Label, IReadOnlyList<string> Args, string? Value, bool Enabled, string Source, bool Inline, int Index)
+{
+	public IEnumerable<string> Resolve() {
+		foreach (string arg in Args) yield return Value is null ? arg : arg.Replace("${value}", Value, StringComparison.Ordinal);
+	}
 }
 
 public sealed record DebugCompound(string Name, IReadOnlyList<string> Configurations,

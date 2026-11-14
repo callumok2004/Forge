@@ -71,6 +71,41 @@ public sealed class DebugService : IDebug, IDisposable
 		_modelChanged?.Invoke();
 	}
 
+	public void SetLaunchOption(string configuration, int index, bool enabled, string? value) {
+		if (_launch.Find(configuration) is not { } found || (uint)index >= (uint)found.Options.Count) return;
+
+		if (!LaunchConfigurations.Write(configuration, found.Options[index], enabled, value)) {
+			Report($"Could not update the launch option \"{found.Options[index].Label}\".");
+			return;
+		}
+
+		ReloadConfigurations();
+	}
+
+	public void AddLaunchOption(string configuration, string arguments) {
+		List<string> args = LaunchConfigurations.SplitArguments(arguments);
+
+		if (args.Count == 0) return;
+
+		if (!LaunchConfigurations.AddOption(WorkspaceFolder, configuration, LaunchConfigurations.JoinArguments(args), args)) {
+			Report("Could not add the launch option to .forge/launch.json.");
+			return;
+		}
+
+		ReloadConfigurations();
+	}
+
+	public void RemoveLaunchOption(string configuration, int index) {
+		if (_launch.Find(configuration) is not { } found || (uint)index >= (uint)found.Options.Count) return;
+
+		if (!LaunchConfigurations.RemoveOption(configuration, found.Options[index])) {
+			Report($"Could not remove the launch option \"{found.Options[index].Label}\".");
+			return;
+		}
+
+		ReloadConfigurations();
+	}
+
 	public void ReloadConfigurations() {
 		_launch = LaunchConfigurations.Load(WorkspaceFolder);
 

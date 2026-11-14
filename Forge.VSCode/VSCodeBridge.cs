@@ -282,9 +282,19 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 	private JsonNode? WebviewSend(JsonNode? parameters) {
 		if (parameters?["id"]?.GetValue<string>() is not { } id) return null;
 
-		if (TraceWebviews) Log($"extension -> webview [{id}] {Summarise(parameters["message"])}");
+		string json;
 
-		WebviewMessage?.Invoke(id, parameters["message"]?.ToJsonString() ?? "null");
+		try {
+			json = parameters["message"]?.ToJsonString() ?? "null";
+		}
+		catch (Exception exception) when (exception is OutOfMemoryException or InvalidOperationException or ArgumentException) {
+			Log($"Could not forward a message to webview {id}: {exception.GetType().Name}: {exception.Message}");
+			return null;
+		}
+
+		if (TraceWebviews) Log($"extension -> webview [{id}] {json.Length} chars {(json.Length > 300 ? json[..300] + "..." : json)}");
+
+		WebviewMessage?.Invoke(id, json);
 		return null;
 	}
 
@@ -373,7 +383,17 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 	private static bool IsClaudeIdentifier(string? value) =>
 		value is not null && value.Contains("claude", StringComparison.OrdinalIgnoreCase);
 
-	public void Log(string line) => host.Channel("Extensions").Append(line);
+	public void Log(string line) {
+		host.Channel("Extensions").Append(line);
+
+		if (TraceWebviews) {
+			try {
+				File.AppendAllText(Path.Combine(Forge.Core.UserData.Directory, "extensions.log"), $"{DateTime.Now:HH:mm:ss.fff} {line}{Environment.NewLine}");
+			}
+			catch (IOException) {
+			}
+		}
+	}
 
 	private static string Humanise(string id) {
 		int dot = id.LastIndexOf('.');

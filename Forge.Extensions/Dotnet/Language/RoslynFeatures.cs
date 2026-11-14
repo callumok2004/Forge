@@ -73,12 +73,21 @@ public sealed class RoslynFeatures(RoslynLanguageClient server, DotnetSettings s
 
 		if (sizes is null) return enums;
 
+		if (ReferenceEquals(sizes, _mergedSizes) && ReferenceEquals(enums, _mergedEnums)) return _merged;
+
 		Dictionary<int, LineHint> merged = new(enums);
 
 		foreach ((int line, LineHint hint) in sizes) merged[line] = hint;
 
+		_mergedSizes = sizes;
+		_mergedEnums = enums;
+		_merged = merged;
 		return merged;
 	}
+
+	private IReadOnlyDictionary<int, LineHint>? _mergedSizes;
+	private IReadOnlyDictionary<int, LineHint>? _mergedEnums;
+	private IReadOnlyDictionary<int, LineHint>? _merged;
 
 	public async Task<IReadOnlyList<DocumentHighlight>> DocumentHighlightsAsync(string path, int line, int column) {
 		IReadOnlyList<ServerHighlight> highlights = await server.Highlights.RequestAsync(path, line, column).ConfigureAwait(false);
