@@ -9,13 +9,13 @@ namespace Forge.Language;
 
 public sealed class JsonRpcConnection : IDisposable
 {
-	private readonly Process _process;
+	private readonly Process? _process;
 
 	private readonly Stream _output;
 	private readonly Stream _input;
 
 	private string? _firstLine;
-	private readonly Dictionary<int, TaskCompletionSource<JsonNode?>> _pending = [];
+	private readonly Dictionary<int, TaskCompletionSource<JsonElement?>> _pending = [];
 	private readonly Lock _sync = new();
 
 	private readonly System.Collections.Concurrent.BlockingCollection<byte[]> _outbound = [];
@@ -60,8 +60,16 @@ public sealed class JsonRpcConnection : IDisposable
 		ThreadPool.UnsafeQueueUserWorkItem(_ => WriteLoop(), null);
 	}
 
+	internal JsonRpcConnection(Stream input, Stream output) {
+		_input = input;
+		_output = output;
+
+		ThreadPool.UnsafeQueueUserWorkItem(_ => ReadLoop(), null);
+		ThreadPool.UnsafeQueueUserWorkItem(_ => WriteLoop(), null);
+	}
+
 	private (Stream Input, Stream Output) ConnectTransport() {
-		string? line = _process.StandardOutput.ReadLine();
+		string? line = _process!.StandardOutput.ReadLine();
 
 		if (line is { Length: > 0 } && line.TrimStart().StartsWith('{') &&
 			JsonNode.Parse(line)?["pipeName"]?.GetValue<string>() is { Length: > 0 } pipeName) {
@@ -79,7 +87,7 @@ public sealed class JsonRpcConnection : IDisposable
 		}
 
 		_firstLine = line;
-		return (_process.StandardOutput.BaseStream, _process.StandardInput.BaseStream);
+		return (_process!.StandardOutput.BaseStream, _process.StandardInput.BaseStream);
 	}
 
 	public event Action<string>? Log;
@@ -96,12 +104,13 @@ public sealed class JsonRpcConnection : IDisposable
 
 	public bool IsRunning => !_disposed && !_exited;
 
-	public int ProcessId => _process.Id;
+	public int ProcessId => _process?.Id ?? 0;
 
-	public async Task<JsonNode?> SendRequestAsync(string method, JsonNode? parameters,
-		CancellationToken cancellationToken = default) {
+	public async Task<JsonNode?> SendRequestAsync(string method, JsonNode? parameters, CancellationToken cancellationToken = default) => ToNode(await SendRequestElementAsync(method, parameters, cancellationToken).ConfigureAwait(false));
+
+	public async Task<JsonElement?> SendRequestElementAsync(string method, JsonNode? parameters, CancellationToken cancellationToken = default) {
 		int id;
-		TaskCompletionSource<JsonNode?> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+		TaskCompletionSource<JsonElement?> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
 		lock (_sync) {
 			id = _nextId++;
@@ -126,6 +135,13 @@ public sealed class JsonRpcConnection : IDisposable
 		return await completion.Task.ConfigureAwait(false);
 	}
 
+	public static JsonNode? ToNode(JsonElement? element) => element is not { } value ? null : value.ValueKind switch {
+		JsonValueKind.Object => JsonObject.Create(value),
+		JsonValueKind.Array => JsonArray.Create(value),
+		JsonValueKind.Null or JsonValueKind.Undefined => null,
+		_ => JsonValue.Create(value),
+	};
+
 	public void SendNotification(string method, JsonNode? parameters) =>
 		Write(new JsonObject {
 			["jsonrpc"] = "2.0",
@@ -137,7 +153,11 @@ public sealed class JsonRpcConnection : IDisposable
 		if (_disposed) return;
 
 		try {
-			_outbound.Add(Encoding.UTF8.GetBytes(message.ToJsonString()));
+			System.Buffers.ArrayBufferWriter<byte> buffer = new(256);
+
+			using (Utf8JsonWriter writer = new(buffer)) message.WriteTo(writer);
+
+			_outbound.Add(buffer.WrittenSpan.ToArray());
 		}
 		catch (InvalidOperationException) {
 		}
@@ -168,22 +188,26 @@ public sealed class JsonRpcConnection : IDisposable
 
 				if (length < 0) break;
 
-				byte[] body = new byte[length];
-				int read = 0;
-
-				while (read < length) {
-					int got = input.Read(body, read, length - read);
-
-					if (got <= 0) return;
-
-					read += got;
-				}
+				byte[] body = System.Buffers.ArrayPool<byte>.Shared.Rent(length);
 
 				try {
-					Dispatch(Encoding.UTF8.GetString(body));
+					int read = 0;
+
+					while (read < length) {
+						int got = input.Read(body, read, length - read);
+
+						if (got <= 0) return;
+
+						read += got;
+					}
+
+					Dispatch(body.AsSpan(0, length));
 				}
 				catch (Exception exception) when (exception is not (IOException or ObjectDisposedException)) {
 					Log?.Invoke($"Failed to handle a {length} byte message: {exception.GetType().Name}: {exception.Message}");
+				}
+				finally {
+					System.Buffers.ArrayPool<byte>.Shared.Return(body);
 				}
 			}
 		}
@@ -264,42 +288,54 @@ public sealed class JsonRpcConnection : IDisposable
 		return builder.ToString();
 	}
 
-	private void Dispatch(string json) {
-		JsonNode? message;
+	private JsonElement? Parse(ReadOnlySpan<byte> json) {
+		bool surrogates = json.IndexOf("\\ud"u8) >= 0 || json.IndexOf("\\uD"u8) >= 0;
+
+		if (!surrogates) {
+			try {
+				Utf8JsonReader reader = new(json, new JsonReaderOptions { MaxDepth = ParseOptions.MaxDepth });
+				return JsonElement.ParseValue(ref reader);
+			}
+			catch (JsonException) {
+			}
+		}
 
 		try {
-			message = JsonNode.Parse(json, null, ParseOptions);
+			using JsonDocument repaired = JsonDocument.Parse(ReplaceLoneSurrogates(Encoding.UTF8.GetString(json)), ParseOptions);
+			return repaired.RootElement.Clone();
 		}
-		catch (JsonException) {
-			try {
-				message = JsonNode.Parse(ReplaceLoneSurrogates(json), null, ParseOptions);
-			}
-			catch (JsonException exception) {
-				Log?.Invoke($"Malformed message from the language server: {exception.Message}");
-				return;
-			}
+		catch (JsonException exception) {
+			Log?.Invoke($"Malformed message from the language server: {exception.Message}");
+			return null;
 		}
+	}
 
-		if (message is not JsonObject root) return;
+	private void Dispatch(ReadOnlySpan<byte> json) {
+		if (Parse(json) is not { } root) return;
 
-		string? method = root["method"]?.GetValue<string>();
+		if (root.ValueKind != JsonValueKind.Object) return;
 
-		if (method is null) {
+		if (!root.TryGetProperty("method", out JsonElement methodElement) || methodElement.ValueKind != JsonValueKind.String) {
 			CompleteResponse(root);
 			return;
 		}
 
-		if (root["id"] is { } requestId) {
-			if (AsyncRequestHandler?.Invoke(method, root["params"]) is { } pending) {
-				_ = ReplyAsync(requestId.DeepClone(), pending);
+		string method = methodElement.GetString()!;
+		JsonNode? parameters = root.TryGetProperty("params", out JsonElement paramsElement) ? ToNode(paramsElement) : null;
+
+		if (root.TryGetProperty("id", out JsonElement idElement)) {
+			JsonNode requestId = JsonValue.Create(idElement)!;
+
+			if (AsyncRequestHandler?.Invoke(method, parameters) is { } pending) {
+				_ = ReplyAsync(requestId, pending);
 				return;
 			}
 
-			Reply(requestId.DeepClone(), RequestHandler?.Invoke(method, root["params"]));
+			Reply(requestId, RequestHandler?.Invoke(method, parameters));
 			return;
 		}
 
-		Notification?.Invoke(method, root["params"]);
+		Notification?.Invoke(method, parameters);
 	}
 
 	private void Reply(JsonNode id, JsonNode? result) => Write(new JsonObject {
@@ -321,28 +357,26 @@ public sealed class JsonRpcConnection : IDisposable
 		if (!_disposed) Reply(id, result);
 	}
 
-	private void CompleteResponse(JsonObject root) {
-		if (root["id"]?.GetValue<int>() is not { } id) return;
+	private void CompleteResponse(JsonElement root) {
+		if (!root.TryGetProperty("id", out JsonElement idElement) || !idElement.TryGetInt32(out int id)) return;
 
-		TaskCompletionSource<JsonNode?>? completion;
+		TaskCompletionSource<JsonElement?>? completion;
 
 		lock (_sync) {
 			if (!_pending.Remove(id, out completion)) return;
 		}
 
-		if (root["error"] is JsonObject error) {
-			completion.TrySetException(new InvalidOperationException(
-				error["message"]?.GetValue<string>() ?? "The language server reported an error."));
-
+		if (root.TryGetProperty("error", out JsonElement error) && error.ValueKind == JsonValueKind.Object) {
+			completion.TrySetException(new InvalidOperationException(error.TryGetProperty("message", out JsonElement message) && message.ValueKind == JsonValueKind.String ? message.GetString() : "The language server reported an error."));
 			return;
 		}
 
-		completion.TrySetResult(root["result"]?.DeepClone());
+		completion.TrySetResult(root.TryGetProperty("result", out JsonElement result) ? result : null);
 	}
 
 	private void FailPending(string reason) {
 		lock (_sync) {
-			foreach (TaskCompletionSource<JsonNode?> completion in _pending.Values) {
+			foreach (TaskCompletionSource<JsonElement?> completion in _pending.Values) {
 				completion.TrySetException(new InvalidOperationException(reason));
 			}
 
@@ -358,7 +392,7 @@ public sealed class JsonRpcConnection : IDisposable
 		_outbound.CompleteAdding();
 
 		try {
-			if (!_process.HasExited) _process.Kill(entireProcessTree: true);
+			if (_process is { HasExited: false }) _process.Kill(entireProcessTree: true);
 		}
 		catch (Exception exception) when (exception is InvalidOperationException
 			or System.ComponentModel.Win32Exception) {
@@ -366,7 +400,12 @@ public sealed class JsonRpcConnection : IDisposable
 
 		if (_input is System.IO.Pipes.NamedPipeClientStream pipe) pipe.Dispose();
 
-		_process.Dispose();
+		_process?.Dispose();
+
+		if (_process is null) {
+			_input.Dispose();
+			_output.Dispose();
+		}
 		FailPending("The language server was shut down.");
 	}
 }

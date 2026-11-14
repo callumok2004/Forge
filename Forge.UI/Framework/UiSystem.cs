@@ -24,6 +24,8 @@ public sealed class UiSystem : IUiSystem
 	private long _lastClickAt;
 	private float _lastClickX;
 	private float _lastClickY;
+	private MouseButton _lastClickButton;
+	private Panel? _lastClickTarget;
 	private int _clickCount;
 	private float _cursorX;
 	private float _cursorY;
@@ -249,12 +251,14 @@ public sealed class UiSystem : IUiSystem
 		if (target is null) return false;
 
 		long now = Stopwatch.GetTimestamp();
-		bool chained = (now - _lastClickAt) * 1000 / Stopwatch.Frequency <= MultiClickMilliseconds && MathF.Abs(x - _lastClickX) <= MultiClickSlop && MathF.Abs(y - _lastClickY) <= MultiClickSlop;
+		bool chained = button == _lastClickButton && ReferenceEquals(target, _lastClickTarget) && (now - _lastClickAt) * 1000 / Stopwatch.Frequency <= MultiClickMilliseconds && MathF.Abs(x - _lastClickX) <= MultiClickSlop && MathF.Abs(y - _lastClickY) <= MultiClickSlop;
 
 		_clickCount = chained ? _clickCount + 1 : 1;
 		_lastClickAt = now;
 		_lastClickX = x;
 		_lastClickY = y;
+		_lastClickButton = button;
+		_lastClickTarget = target;
 		_pressed = target;
 
 		if (target.KeyboardInputEnabled) SetFocus(target);

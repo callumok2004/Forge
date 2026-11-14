@@ -125,6 +125,10 @@ public sealed class DocumentSync(RoslynLanguageClient client)
 			wasOpen = _versions.Remove(path) && _ready;
 		}
 
+		client.Diagnostics.Forget(path);
+		client.SemanticTokens.Forget(path);
+		client.CodeLenses.Forget(path);
+
 		if (wasOpen) SendClose(path);
 	}
 

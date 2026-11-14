@@ -138,6 +138,39 @@ public static partial class Preprocessor
 		return stack;
 	}
 
+	public static bool[] ActiveLines(string text, IReadOnlySet<string> defines) {
+		string[] lines = LineBreak().Split(text);
+		bool[] active = new bool[lines.Length];
+		List<Frame> stack = [];
+
+		for (int i = 0; i < lines.Length; i++) {
+			Match directive = lines[i].AsSpan().TrimStart().StartsWith('#') ? DirectivePattern().Match(lines[i]) : Match.Empty;
+
+			if (directive.Success) {
+				string keyword = directive.Groups[1].Value;
+				string rest = directive.Groups[2].Value;
+				bool parentActive = stack.Count == 0 || stack[^1].Active;
+
+				if (keyword == "endif") {
+					if (stack.Count > 0) stack.RemoveAt(stack.Count - 1);
+				}
+				else if (keyword == "if") {
+					bool result = parentActive && Evaluate(Tokenize(rest), defines);
+					stack.Add(new Frame(parentActive, result, result));
+				}
+				else if (stack.Count > 0) {
+					Frame frame = stack[^1];
+					bool value = keyword == "elif" ? frame.ParentActive && !frame.Taken && Evaluate(Tokenize(rest), defines) : frame.ParentActive && !frame.Taken;
+					stack[^1] = new Frame(frame.ParentActive, frame.Taken || value, value);
+				}
+			}
+
+			active[i] = stack.Count == 0 || stack[^1].Active;
+		}
+
+		return active;
+	}
+
 	public static bool IsActiveAt(string text, int line, IReadOnlySet<string> defines) {
 		List<Frame> stack = FramesAt(text, line, defines);
 		return stack.Count == 0 || stack[^1].Active;

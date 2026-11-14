@@ -75,6 +75,8 @@ public sealed partial class RoslynLanguageClient : IDisposable
 
 	public HoverRequests Hover { get; }
 
+	public int? ServerProcessId => _connection is { IsRunning: true } connection ? connection.ProcessId : null;
+
 	public LanguageServerState State { get; private set; } = LanguageServerState.Stopped;
 
 	public string StatusText { get; private set; } = "Stopped";
@@ -96,6 +98,17 @@ public sealed partial class RoslynLanguageClient : IDisposable
 
 		try {
 			return await connection.SendRequestAsync(method, parameters, cancellationToken).ConfigureAwait(false);
+		}
+		catch (Exception exception) when (exception is InvalidOperationException or IOException or OperationCanceledException) {
+			return null;
+		}
+	}
+
+	internal async Task<System.Text.Json.JsonElement?> RequestElementAsync(string method, JsonObject parameters, CancellationToken cancellationToken = default) {
+		if (Connection is not { } connection) return null;
+
+		try {
+			return await connection.SendRequestElementAsync(method, parameters, cancellationToken).ConfigureAwait(false);
 		}
 		catch (Exception exception) when (exception is InvalidOperationException or IOException or OperationCanceledException) {
 			return null;

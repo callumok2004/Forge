@@ -175,12 +175,14 @@ public sealed class ExtensionHostSync
 		return slash >= 0 ? path[(slash + 1)..] : path;
 	}
 
-	private Document OpenVirtual(JsonNode uri, string text, string name) {
+	private static bool Preview(JsonNode? parameters) => parameters?["options"]?["preview"]?.GetValue<bool>() ?? parameters?["preview"]?.GetValue<bool>() ?? true;
+
+	private Document OpenVirtual(JsonNode uri, string text, string name, bool preview = false) {
 		string key = External(uri);
 		_virtualUris[key] = (JsonObject)uri.DeepClone();
 
 		if (_workbench.FindVirtual(key) is { } existing) {
-			_workbench.OpenVirtual(existing);
+			_workbench.OpenVirtual(existing, preview);
 			return existing;
 		}
 
@@ -190,7 +192,7 @@ public sealed class ExtensionHostSync
 			return true;
 		};
 
-		_workbench.OpenVirtual(document);
+		_workbench.OpenVirtual(document, preview);
 		return document;
 	}
 
@@ -384,11 +386,11 @@ public sealed class ExtensionHostSync
 
 			if (!File.Exists(path)) return null;
 
-			_workbench.OpenFile(path);
+			_workbench.OpenFile(path, Preview(parameters));
 			document = FindDocument(uri);
 		}
 		else {
-			document = OpenVirtual(uri, parameters["text"]?.GetValue<string>() ?? string.Empty, DisplayName(uri));
+			document = OpenVirtual(uri, parameters["text"]?.GetValue<string>() ?? string.Empty, DisplayName(uri), Preview(parameters));
 		}
 
 		if (document is null || parameters["options"]?["selection"] is not JsonObject selection) return true;
@@ -422,10 +424,10 @@ public sealed class ExtensionHostSync
 		Document? document;
 
 		if (Scheme(modified) == "file") {
-			document = _workbench.OpenDiffTab(FsPath(modified), originalKey, title, preview: parameters["preview"]?.GetValue<bool>() ?? true);
+			document = _workbench.OpenDiffTab(FsPath(modified), originalKey, title, Preview(parameters));
 		}
 		else {
-			document = OpenVirtual(modified, parameters["modifiedText"]?.GetValue<string>() ?? string.Empty, title);
+			document = OpenVirtual(modified, parameters["modifiedText"]?.GetValue<string>() ?? string.Empty, title, Preview(parameters));
 		}
 
 		if (document is null) return null;

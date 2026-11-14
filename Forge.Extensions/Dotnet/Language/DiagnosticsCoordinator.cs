@@ -38,8 +38,7 @@ public sealed class DiagnosticsCoordinator
 				}
 			}
 
-			await _server.Diagnostics.PullAsync(path).ConfigureAwait(false);
-			await RefreshSemanticTokensAsync(path).ConfigureAwait(false);
+			await Task.WhenAll(_server.Diagnostics.PullAsync(path), RefreshSemanticTokensAsync(path)).ConfigureAwait(false);
 		});
 	}
 

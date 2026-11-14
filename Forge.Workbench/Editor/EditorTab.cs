@@ -75,6 +75,7 @@ public sealed class EditorTab : Button
 
 	public override bool OnMouseDoublePressed(MouseButton button, float x, float y) {
 		if (button == MouseButton.Left) _strip.Pinned?.Invoke(Index);
+		else return OnMousePressed(button, x, y);
 
 		return true;
 	}

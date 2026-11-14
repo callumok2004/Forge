@@ -11,4 +11,8 @@
 	<ItemGroup>
 		<PackageReference Include="StreamJsonRpc" />
 	</ItemGroup>
+
+	<ItemGroup>
+		<InternalsVisibleTo Include="Forge.Tests" />
+	</ItemGroup>
 </Project>

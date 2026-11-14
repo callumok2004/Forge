@@ -14,7 +14,7 @@ public sealed class DotnetSettings
 
 	public string SourceGeneratorExecution { get; private set; } = "balanced";
 
-	public IReadOnlyDictionary<string, string> ServerEnvironment { get; private set; } = new Dictionary<string, string>();
+	public IReadOnlyDictionary<string, string> ServerEnvironment { get; set; } = new Dictionary<string, string>();
 
 	public string? DotnetPath { get; private set; }
 

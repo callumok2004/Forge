@@ -51,6 +51,8 @@ public sealed class CodeLensRequests(RoslynLanguageClient client)
 
 	public event Action? Changed;
 
+	internal void Forget(string path) => _lenses.TryRemove(path, out _);
+
 	public void Invalidate() {
 		Interlocked.Increment(ref _version);
 		Changed?.Invoke();

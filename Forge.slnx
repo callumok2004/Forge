@@ -80,5 +80,8 @@
     <Project Path="Forge.Tests/Forge.Tests.csproj">
       <Platform Project="x64" />
     </Project>
+    <Project Path="Forge.Workloads/Forge.Workloads.csproj">
+      <Platform Project="x64" />
+    </Project>
   </Folder>
 </Solution>

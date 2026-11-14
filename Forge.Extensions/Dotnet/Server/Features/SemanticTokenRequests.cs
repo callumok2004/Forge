@@ -17,35 +17,50 @@ public sealed class SemanticTokenRequests(RoslynLanguageClient client)
 		}
 	}
 
+	internal void Forget(string path) => _cache.TryRemove(path, out _);
+
 	public IReadOnlyList<ServerToken>? Cached(string path) => _cache.TryGetValue(path, out IReadOnlyList<ServerToken>? tokens) ? tokens : null;
 
 	public async Task<IReadOnlyList<ServerToken>> FullAsync(string path) {
 		if (_tokenTypes.Length == 0 || !client.Documents.IsOpen(path)) return [];
 
-		JsonNode? result = await client.RequestAsync("textDocument/semanticTokens/full", new JsonObject {
+		System.Text.Json.JsonElement? result = await client.RequestElementAsync("textDocument/semanticTokens/full", new JsonObject {
 			["textDocument"] = client.Contexts.Identifier(path),
 		}).ConfigureAwait(false);
 
-		if (result?["data"] is not JsonArray data || data.Count < 5) return [];
+		List<ServerToken> tokens = Decode(result.Property("data"), _tokenTypes, _staticModifier);
 
-		List<ServerToken> tokens = [with(data.Count / 5)];
+		_cache[path] = tokens;
+		return tokens;
+	}
+
+	internal static List<ServerToken> Decode(System.Text.Json.JsonElement? dataElement, string[] tokenTypes, int staticModifier) {
+		if (dataElement is not { ValueKind: System.Text.Json.JsonValueKind.Array } data || data.GetArrayLength() < 5) return [];
+
+		List<ServerToken> tokens = [with(data.GetArrayLength() / 5)];
+		Span<int> values = stackalloc int[5];
+		int filled = 0;
 		int line = 0;
 		int character = 0;
 
-		for (int i = 0; i + 4 < data.Count; i += 5) {
-			int lineDelta = data[i]?.GetValue<int>() ?? 0;
-			int startDelta = data[i + 1]?.GetValue<int>() ?? 0;
-			int length = data[i + 2]?.GetValue<int>() ?? 0;
-			int type = data[i + 3]?.GetValue<int>() ?? 0;
-			int modifiers = data[i + 4]?.GetValue<int>() ?? 0;
+		foreach (System.Text.Json.JsonElement number in data.EnumerateArray()) {
+			values[filled++] = number.TryGetInt32(out int value) ? value : 0;
+
+			if (filled < 5) continue;
+
+			filled = 0;
+			int lineDelta = values[0];
+			int startDelta = values[1];
+			int length = values[2];
+			int type = values[3];
+			int modifiers = values[4];
 
 			line += lineDelta;
 			character = lineDelta == 0 ? character + startDelta : startDelta;
 
-			if (length > 0 && type >= 0 && type < _tokenTypes.Length) tokens.Add(new ServerToken(line + 1, character, length, _tokenTypes[type], _staticModifier >= 0 && (modifiers & (1 << _staticModifier)) != 0));
+			if (length > 0 && type >= 0 && type < tokenTypes.Length) tokens.Add(new ServerToken(line + 1, character, length, tokenTypes[type], staticModifier >= 0 && (modifiers & (1 << staticModifier)) != 0));
 		}
 
-		_cache[path] = tokens;
 		return tokens;
 	}
 }

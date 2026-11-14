@@ -673,6 +673,14 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		return null;
 	}
 
+	public void OpenVirtual(Document document, bool preview) => AsPreview(preview, () => {
+		OpenVirtual(document);
+
+		if (!preview) Pin(ActiveIndex);
+
+		return 0;
+	});
+
 	public void OpenVirtual(Document document) {
 		int existing = _documents.IndexOf(document);
 
