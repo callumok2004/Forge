@@ -14,6 +14,8 @@ public sealed class DiagnosticRequests(RoslynLanguageClient client)
 	private readonly Lock _sync = new();
 
 	private CancellationTokenSource? _workspace;
+	private string? _workspaceToken;
+	private int _workspaceRequests;
 
 	public event Action<string, IReadOnlyList<ServerDiagnostic>>? Published;
 
@@ -46,6 +48,36 @@ public sealed class DiagnosticRequests(RoslynLanguageClient client)
 		WorkspaceReset?.Invoke();
 	}
 
+	internal bool OnProgress(JsonNode? parameters) {
+		if (parameters?["token"]?.GetValue<string>() is not { } token) return false;
+
+		lock (_sync) {
+			if (token != _workspaceToken) return token.StartsWith("forge/workspaceDiagnostic/", StringComparison.Ordinal);
+		}
+
+		if (parameters["value"]?["items"] is JsonArray reports) Apply(reports);
+
+		return true;
+	}
+
+	private void Apply(JsonArray reports) {
+		foreach (JsonNode? report in reports) {
+			if (report?["uri"]?.GetValue<string>() is not { } uri || SourceGeneratedDocuments.IsGenerated(uri)) continue;
+
+			string? resultId = report["resultId"]?.GetValue<string>();
+
+			lock (_sync) {
+				if (resultId is null) _workspaceResultIds.Remove(uri);
+				else _workspaceResultIds[uri] = resultId;
+			}
+
+			if (report["kind"]?.GetValue<string>() == "unchanged") continue;
+
+			string path = RoslynLanguageClient.FromUri(uri);
+			WorkspacePublished?.Invoke(path, report["items"] is JsonArray items ? Read(path, items) : []);
+		}
+	}
+
 	public async Task<IReadOnlySet<string>> BuildOnlyIdsAsync() {
 		JsonNode? result = await client.RequestAsync("workspace/buildOnlyDiagnosticIds", new JsonObject(), CancellationToken.None).ConfigureAwait(false);
 		HashSet<string> ids = [with(StringComparer.OrdinalIgnoreCase)];
@@ -65,7 +97,11 @@ public sealed class DiagnosticRequests(RoslynLanguageClient client)
 				foreach ((string uri, string id) in _workspaceResultIds) previous.Add(new JsonObject { ["uri"] = uri, ["value"] = id });
 			}
 
-			JsonNode? result = await client.RequestAsync("workspace/diagnostic", new JsonObject { ["previousResultIds"] = previous }, cancellation).ConfigureAwait(false);
+			string token = $"forge/workspaceDiagnostic/{Interlocked.Increment(ref _workspaceRequests)}";
+
+			lock (_sync) _workspaceToken = token;
+
+			JsonNode? result = await client.RequestAsync("workspace/diagnostic", new JsonObject { ["previousResultIds"] = previous, ["partialResultToken"] = token }, cancellation).ConfigureAwait(false);
 
 			if (cancellation.IsCancellationRequested) return;
 
@@ -80,21 +116,7 @@ public sealed class DiagnosticRequests(RoslynLanguageClient client)
 				continue;
 			}
 
-			foreach (JsonNode? report in reports) {
-				if (report?["uri"]?.GetValue<string>() is not { } uri || SourceGeneratedDocuments.IsGenerated(uri)) continue;
-
-				string? resultId = report["resultId"]?.GetValue<string>();
-
-				lock (_sync) {
-					if (resultId is null) _workspaceResultIds.Remove(uri);
-					else _workspaceResultIds[uri] = resultId;
-				}
-
-				if (report["kind"]?.GetValue<string>() == "unchanged") continue;
-
-				string path = RoslynLanguageClient.FromUri(uri);
-				WorkspacePublished?.Invoke(path, report["items"] is JsonArray items ? Read(path, items) : []);
-			}
+			Apply(reports);
 		}
 	}
 

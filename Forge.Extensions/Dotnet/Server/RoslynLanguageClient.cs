@@ -99,7 +99,11 @@ public sealed partial class RoslynLanguageClient : IDisposable
 		try {
 			return await connection.SendRequestAsync(method, parameters, cancellationToken).ConfigureAwait(false);
 		}
-		catch (Exception exception) when (exception is InvalidOperationException or IOException or OperationCanceledException) {
+		catch (InvalidOperationException exception) {
+			Log?.Invoke($"{method} failed: {exception.Message}");
+			return null;
+		}
+		catch (Exception exception) when (exception is IOException or OperationCanceledException) {
 			return null;
 		}
 	}
@@ -327,7 +331,7 @@ public sealed partial class RoslynLanguageClient : IDisposable
 				break;
 
 			case "$/progress":
-				Workspace.OnProgress(parameters);
+				if (!Diagnostics.OnProgress(parameters)) Workspace.OnProgress(parameters);
 				break;
 
 			case "window/_roslyn_showToast":
