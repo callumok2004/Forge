@@ -175,28 +175,8 @@ public sealed partial class TerminalScreenPanel : Panel
 
 	private string SelectedText(TerminalScreen screen) {
 		((int startLine, int startColumn), (int endLine, int endColumn)) = Ordered();
-		System.Text.StringBuilder builder = new();
 
-		lock (screen.Sync) {
-			for (int line = startLine; line <= endLine; line++) {
-				ReadOnlySpan<TerminalCell> cells = screen.Line(line);
-				int from = line == startLine ? Math.Min(startColumn, cells.Length) : 0;
-				int to = line == endLine ? Math.Min(endColumn, cells.Length) : cells.Length;
-				int length = builder.Length;
-
-				for (int i = from; i < to; i++) builder.Append(cells[i].Character == '\0' ? ' ' : cells[i].Character);
-
-				if (line == endLine) break;
-
-				while (builder.Length > length && builder[^1] == ' ') builder.Length--;
-
-				builder.Append(Environment.NewLine);
-			}
-		}
-
-		while (builder.Length > 0 && char.IsWhiteSpace(builder[^1])) builder.Length--;
-
-		return builder.ToString();
+		lock (screen.Sync) return screen.Text(startLine, startColumn, endLine, endColumn).TrimEnd();
 	}
 
 	private bool CopySelection() {
@@ -497,7 +477,6 @@ public sealed partial class TerminalScreenPanel : Panel
 		int rows = Math.Max(1, (int)((Tall - padding) / rowHeight));
 
 		session.Resize(columns, rows);
-		session.Drain();
 
 		TerminalScreen screen = session.Screen;
 		bool selection = HasSelection;

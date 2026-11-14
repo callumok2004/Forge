@@ -39,6 +39,8 @@ public sealed class TerminalScreen
 
 	public object Sync { get; } = new();
 
+	public event Action<string>? LineFed;
+
 	public int Columns { get; private set; } = 80;
 
 	public int Rows { get; private set; } = 24;
@@ -79,6 +81,41 @@ public sealed class TerminalScreen
 		return (first, last);
 	}
 
+	public string LogicalText(int index) {
+		if ((uint)index >= (uint)_lines.Count) return string.Empty;
+
+		(int first, int last) = LogicalLine(index);
+
+		return Text(first, 0, last, Columns);
+	}
+
+	public string Text(int startLine, int startColumn, int endLine, int endColumn) {
+		System.Text.StringBuilder builder = new();
+
+		for (int line = Math.Max(0, startLine); line <= endLine && line < _lines.Count; line++) {
+			TerminalCell[] cells = _lines[line];
+			bool wrapped = line < endLine && _wrapped.Contains(cells);
+			int from = line == startLine ? Math.Clamp(startColumn, 0, cells.Length) : 0;
+			int to = line == endLine ? Math.Clamp(endColumn, 0, cells.Length) : cells.Length;
+
+			if (!wrapped) to = Math.Min(to, ContentLength(cells));
+
+			for (int i = from; i < to; i++) builder.Append(cells[i].Character == '\0' ? ' ' : cells[i].Character);
+
+			if (line < endLine && !wrapped) builder.Append(Environment.NewLine);
+		}
+
+		return builder.ToString();
+	}
+
+	public void FlushLine() {
+		lock (Sync) {
+			string line = LogicalText(_lines.Count - Rows + _cursorRow);
+
+			if (line.Length > 0) LineFed?.Invoke(line);
+		}
+	}
+
 	public void ScrollBy(int lines) {
 		ScrollOffset = Math.Clamp(ScrollOffset + lines, 0, ScrollbackCount);
 	}
@@ -113,6 +150,8 @@ public sealed class TerminalScreen
 		List<TerminalCell> logical = [];
 		int newCursorLine = 0;
 		int newCursorColumn = 0;
+		int topLine = ScrollOffset > 0 ? _lines.Count - Rows - ScrollOffset : -1;
+		int newTop = -1;
 
 		Columns = columns;
 		Rows = rows;
@@ -122,12 +161,15 @@ public sealed class TerminalScreen
 		while (index < _lines.Count) {
 			logical.Clear();
 			int cursorOffset = -1;
+			int topOffset = -1;
 
 			while (true) {
 				TerminalCell[] line = _lines[index];
 				bool continues = _wrapped.Contains(line) && index + 1 < _lines.Count;
 
 				if (index == cursorLine) cursorOffset = logical.Count + _cursorColumn;
+
+				if (index == topLine) topOffset = logical.Count;
 
 				int length = continues ? line.Length : ContentLength(line);
 				for (int i = 0; i < length; i++) logical.Add(line[i]);
@@ -151,6 +193,8 @@ public sealed class TerminalScreen
 
 				result.Add(line);
 			}
+
+			if (topOffset >= 0) newTop = result.Count - chunks + Math.Min(chunks - 1, topOffset / columns);
 
 			if (cursorOffset >= 0) {
 				int first = result.Count - chunks;
@@ -177,6 +221,7 @@ public sealed class TerminalScreen
 			_cursorRow = newCursorLine - (_lines.Count - rows);
 		}
 
+		ScrollOffset = newTop >= 0 ? Math.Clamp(_lines.Count - rows - newTop, 0, ScrollbackCount) : 0;
 		Trim();
 	}
 
@@ -255,6 +300,8 @@ public sealed class TerminalScreen
 				return;
 
 			case '\n':
+				if (LineFed is { } fed) fed(LogicalText(_lines.Count - Rows + _cursorRow));
+
 				NextLine();
 				return;
 

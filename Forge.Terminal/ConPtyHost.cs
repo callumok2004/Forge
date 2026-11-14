@@ -8,6 +8,7 @@ public sealed unsafe partial class ConPtyHost : IDisposable
 	private const string Kernel32 = "kernel32.dll";
 
 	private const uint ExtendedStartupInfoPresent = 0x00080000;
+	private const uint ResizeQuirk = 0x2;
 	private const nint PseudoConsoleAttribute = 0x00020016;
 
 	private const int ReadBufferSize = 8192;
@@ -38,7 +39,7 @@ public sealed unsafe partial class ConPtyHost : IDisposable
 		if (!CreatePipe(out _readFromChild, out _output, 0, 0) ||
 			!CreatePipe(out _input, out _writeToChild, 0, 0)) return false;
 
-		if (CreatePseudoConsole(Pack(columns, rows), _input, _output, 0, out _console) != 0) return false;
+		if (CreatePseudoConsole(Pack(columns, rows), _input, _output, ResizeQuirk, out _console) != 0) return false;
 
 		if (!StartProcess(command, workingDirectory)) return false;
 

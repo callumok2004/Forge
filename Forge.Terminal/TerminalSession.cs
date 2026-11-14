@@ -4,15 +4,8 @@ public sealed class TerminalSession : IDisposable
 {
 	private const char Escape = '\u001B';
 
-	private const char Newline = (char)10;
-	private const char Return = (char)13;
-	private const char Backspace = (char)8;
-	private const char Bell = (char)7;
-
 	private readonly ConPtyHost _host = new();
 	private readonly System.Text.StringBuilder _line = new();
-	private readonly System.Collections.Concurrent.ConcurrentQueue<string> _pending = new();
-	private readonly System.Text.StringBuilder _observed = new();
 
 	public TerminalHistory? History { get; set; }
 
@@ -40,17 +33,18 @@ public sealed class TerminalSession : IDisposable
 	public bool Start(TerminalProfile profile, string workingDirectory, int columns, int rows) {
 		Screen.Resize(columns, rows);
 		Title = profile.Name;
+		Screen.LineFed += Observe;
 
 		_host.Output += text => {
-			_pending.Enqueue(text);
-			Observe(text);
+			Screen.Write(text);
 			Changed?.Invoke();
 		};
 
 		_host.Exited += () => {
 			HasExited = true;
-			Flush();
-			_pending.Enqueue("\r\n[process exited]\r\n");
+			Screen.FlushLine();
+			Screen.LineFed -= Observe;
+			Screen.Write("\r\n[process exited]\r\n");
 			ExitObserver?.Invoke(_host.ExitCode);
 			Changed?.Invoke();
 		};
@@ -58,39 +52,7 @@ public sealed class TerminalSession : IDisposable
 		return _host.Start(profile.CommandLine, workingDirectory, columns, rows);
 	}
 
-	private void Observe(ReadOnlySpan<char> text) {
-		if (LineObserver is null) return;
-
-		for (int i = 0; i < text.Length; i++) {
-			char character = text[i];
-
-			if (character == Escape) {
-				while (i < text.Length && !char.IsLetter(text[i])) i++;
-				continue;
-			}
-
-			if (character == Newline) {
-				Flush();
-				continue;
-			}
-
-			if (character is Return or Backspace or Bell) continue;
-
-			_observed.Append(character);
-		}
-	}
-
-	private void Flush() {
-		if (_observed.Length == 0) return;
-
-		string line = _observed.ToString();
-		_observed.Clear();
-		LineObserver?.Invoke(line);
-	}
-
-	public void Drain() {
-		while (_pending.TryDequeue(out string? text)) Screen.Write(text);
-	}
+	private void Observe(string line) => LineObserver?.Invoke(line);
 
 	public void Resize(int columns, int rows) {
 		if (columns == Screen.Columns && rows == Screen.Rows) return;
