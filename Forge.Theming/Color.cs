@@ -64,6 +64,47 @@ public readonly struct Color(float red, float green, float blue, float alpha = 1
 
 	public Color WithAlpha(float alpha) => new(R, G, B, alpha);
 
+	public Color Transparency(float factor) => new(R, G, B, A * factor);
+
+	public Color Lighten(float factor) => WithLightness(static (lightness, factor) => lightness + (lightness * factor), factor);
+
+	public Color Darken(float factor) => WithLightness(static (lightness, factor) => lightness - (lightness * factor), factor);
+
+	private Color WithLightness(Func<float, float, float> adjust, float factor) {
+		float max = MathF.Max(R, MathF.Max(G, B));
+		float min = MathF.Min(R, MathF.Min(G, B));
+		float chroma = max - min;
+		float lightness = (max + min) / 2f;
+		float saturation = chroma == 0f ? 0f : chroma / (1f - MathF.Abs((2f * lightness) - 1f));
+		float hue = 0f;
+
+		if (chroma > 0f) {
+			if (max == R) hue = ((G - B) / chroma) + (G < B ? 6f : 0f);
+			else if (max == G) hue = ((B - R) / chroma) + 2f;
+			else hue = ((R - G) / chroma) + 4f;
+
+			hue *= 60f;
+		}
+
+		lightness = Math.Clamp(adjust(lightness, factor), 0f, 1f);
+		saturation = Math.Clamp(saturation, 0f, 1f);
+
+		float c = (1f - MathF.Abs((2f * lightness) - 1f)) * saturation;
+		float x = c * (1f - MathF.Abs(((hue / 60f) % 2f) - 1f));
+		float m = lightness - (c / 2f);
+
+		(float r, float g, float b) = hue switch {
+			< 60f => (c, x, 0f),
+			< 120f => (x, c, 0f),
+			< 180f => (0f, c, x),
+			< 240f => (0f, x, c),
+			< 300f => (x, 0f, c),
+			_ => (c, 0f, x),
+		};
+
+		return new Color(r + m, g + m, b + m, A);
+	}
+
 	public override string ToString() =>
 		$"#{(byte)(R * 255):X2}{(byte)(G * 255):X2}{(byte)(B * 255):X2}{(byte)(A * 255):X2}";
 

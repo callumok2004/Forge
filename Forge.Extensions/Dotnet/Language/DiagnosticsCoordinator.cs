@@ -144,7 +144,7 @@ public sealed class DiagnosticsCoordinator
 	}
 
 	private static void Add(List<Diagnostic> all, IReadOnlyList<ServerDiagnostic> file) {
-		foreach (ServerDiagnostic diagnostic in file) all.Add(new Diagnostic(diagnostic.File, diagnostic.Line, diagnostic.Column, diagnostic.Message, diagnostic.Severity, diagnostic.Code, diagnostic.EndLine, diagnostic.EndColumn));
+		foreach (ServerDiagnostic diagnostic in file) all.Add(new Diagnostic(diagnostic.File, diagnostic.Line, diagnostic.Column, diagnostic.Message, diagnostic.Severity, diagnostic.Code, diagnostic.EndLine, diagnostic.EndColumn, diagnostic.Href));
 	}
 
 	private bool Keep(Diagnostic diagnostic) => KeepBuild(diagnostic, _buildOnly, _diagnostics.ContainsKey, _workspace.ContainsKey, FullSolution("dotnet.backgroundAnalysis.compilerDiagnosticsScope", "fullSolution"), FullSolution("dotnet.backgroundAnalysis.analyzerDiagnosticsScope", "openFiles"));

@@ -1722,7 +1722,9 @@ public sealed class TextView : ITextView
 			float trailing = DrawLineHint(painter, line, hintLeft, textLeft, lineTop);
 			trailing = DrawProblemLens(painter, line, trailing, lineTop);
 
-			if (line == caretLine && BlameFor?.Invoke(line) is { Length: > 0 } blame) DrawBlame(painter, blame, trailing, lineTop);
+			if (line == caretLine && BlameFor?.Invoke(line) is { Length: > 0 } blame) trailing = DrawBlame(painter, blame, trailing, lineTop);
+
+			GrowContentWidth(trailing - textLeft, painter.GetCode());
 
 			painter.PopClip();
 
@@ -1800,7 +1802,7 @@ public sealed class TextView : ITextView
 
 	public readonly record struct ProblemLens(string Message, DiagnosticSeverity Severity);
 
-	public readonly record struct Squiggle(int Line, int StartColumn, int EndLine, int EndColumn, DiagnosticSeverity Severity);
+	public readonly record struct Squiggle(int Line, int StartColumn, int EndLine, int EndColumn, DiagnosticSeverity Severity, string Message = "", string? Code = null, string? Href = null);
 
 	public IReadOnlyDictionary<int, ProblemLens>? ProblemLenses { get; set; }
 
@@ -1838,9 +1840,17 @@ public sealed class TextView : ITextView
 		return left + font.Measure(lens.Message);
 	}
 
-	private static void DrawBlame(IPainter painter, string blame, float after, float lineTop) {
+	private static float DrawBlame(IPainter painter, string blame, float after, float lineTop) {
 		ITextFont font = painter.GetCode();
-		painter.DrawText(font, blame, after + (GitLensMarginEm * font.GetSizeInPixels()), lineTop + font.GetBaseline(), Theme.GitLensTrailingLineForeground);
+		float left = after + (GitLensMarginEm * font.GetSizeInPixels());
+		painter.DrawText(font, blame, left, lineTop + font.GetBaseline(), Theme.GitLensTrailingLineForeground);
+		return left + font.Measure(blame);
+	}
+
+	private void GrowContentWidth(float extent, ITextFont font) {
+		float width = extent + (ScrollBeyondLastColumn * font.GetCellWidth());
+
+		if (width > _contentWidth) _contentWidth = width;
 	}
 
 	private void DrawSquiggles(IPainter painter, int line, float textLeft, float lineTop, float lineHeight) {

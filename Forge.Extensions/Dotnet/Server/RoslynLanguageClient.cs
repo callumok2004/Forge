@@ -298,6 +298,17 @@ public sealed partial class RoslynLanguageClient : IDisposable
 
 	public bool OpenWorkspace() {
 		if (_solutionPath is { Length: > 0 } solution) {
+			if (Solution.SharedSourceProjects.ProjectsToOpen(solution, out IReadOnlyList<string> skipped) is { Count: > 0 } subset) {
+				Log?.Invoke($"Opening {subset.Count} project(s) from {solution}; skipping shared-source project(s) excluded from build: {string.Join(", ", skipped.Select(Path.GetFileNameWithoutExtension))}");
+
+				JsonArray included = [];
+
+				foreach (string project in subset) included.Add(project);
+
+				Notify("project/open", new JsonObject { ["projects"] = included });
+				return true;
+			}
+
 			Log?.Invoke($"Opening solution {solution}");
 			Notify("solution/open", new JsonObject { ["solution"] = solution });
 			return true;

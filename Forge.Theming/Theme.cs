@@ -228,6 +228,10 @@ public static class Theme
 	public static readonly Color EditorWidgetBackground = Color.Parse("#121722");
 	public static readonly Color EditorWidgetBorder = Color.Parse("#1e2738");
 	public static readonly Color EditorWidgetForeground = Color.Parse("#c9d1dc");
+	public static readonly Color EditorHoverBackground = EditorWidgetBackground;
+	public static readonly Color EditorHoverForeground = EditorWidgetForeground;
+	public static readonly Color EditorHoverStatusBarBackground = EditorHoverBackground.Lighten(0.2f);
+	public static readonly Color HoverShadow = Color.Parse("#00000024");
 
 	public static readonly Color MinimapSlider = Color.Parse("#ffffff14");
 	public static readonly Color MinimapSliderHover = Color.Parse("#ffffff22");

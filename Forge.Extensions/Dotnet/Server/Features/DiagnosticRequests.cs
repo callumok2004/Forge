@@ -10,7 +10,8 @@ public sealed class DiagnosticRequests(RoslynLanguageClient client)
 	private readonly Dictionary<string, string> _resultIds = [with(StringComparer.OrdinalIgnoreCase)];
 	private readonly Dictionary<string, CancellationTokenSource> _inflight = [with(StringComparer.OrdinalIgnoreCase)];
 	private readonly Dictionary<string, (string ResultId, string Items)> _contextResults = [with(StringComparer.OrdinalIgnoreCase)];
-	private readonly Dictionary<string, string> _workspaceResultIds = [with(StringComparer.Ordinal)];
+	private readonly Dictionary<string, (string Uri, JsonNode? Context, string ResultId)> _workspaceResultIds = [with(StringComparer.Ordinal)];
+	private readonly Dictionary<string, Dictionary<string, List<ServerDiagnostic>>> _workspaceItems = [with(StringComparer.Ordinal)];
 	private readonly Lock _sync = new();
 
 	private CancellationTokenSource? _workspace;
@@ -31,6 +32,7 @@ public sealed class DiagnosticRequests(RoslynLanguageClient client)
 			previous = _workspace;
 			_workspace = next;
 			_workspaceResultIds.Clear();
+			_workspaceItems.Clear();
 		}
 
 		previous?.Cancel();
@@ -43,6 +45,7 @@ public sealed class DiagnosticRequests(RoslynLanguageClient client)
 			_workspace?.Cancel();
 			_workspace = null;
 			_workspaceResultIds.Clear();
+			_workspaceItems.Clear();
 		}
 
 		WorkspaceReset?.Invoke();
@@ -65,17 +68,47 @@ public sealed class DiagnosticRequests(RoslynLanguageClient client)
 			if (report?["uri"]?.GetValue<string>() is not { } uri || SourceGeneratedDocuments.IsGenerated(uri)) continue;
 
 			string? resultId = report["resultId"]?.GetValue<string>();
+			JsonNode? context = report["_vs_projectContext"];
+			string contextId = context?["_vs_id"]?.GetValue<string>() ?? string.Empty;
+			string key = $"{uri}|{contextId}";
 
 			lock (_sync) {
-				if (resultId is null) _workspaceResultIds.Remove(uri);
-				else _workspaceResultIds[uri] = resultId;
+				if (resultId is null) _workspaceResultIds.Remove(key);
+				else _workspaceResultIds[key] = (uri, context?.DeepClone(), resultId);
 			}
 
 			if (report["kind"]?.GetValue<string>() == "unchanged") continue;
 
 			string path = RoslynLanguageClient.FromUri(uri);
-			WorkspacePublished?.Invoke(path, report["items"] is JsonArray items ? Read(path, items) : []);
+			List<ServerDiagnostic> items = report["items"] is JsonArray array ? Read(path, array) : [];
+			List<ServerDiagnostic> merged;
+
+			lock (_sync) {
+				if (!_workspaceItems.TryGetValue(uri, out Dictionary<string, List<ServerDiagnostic>>? byContext)) _workspaceItems[uri] = byContext = [with(StringComparer.Ordinal)];
+
+				if (resultId is null && items.Count == 0) byContext.Remove(contextId);
+				else byContext[contextId] = items;
+
+				if (byContext.Count == 0) _workspaceItems.Remove(uri);
+
+				merged = Union(byContext.Values);
+			}
+
+			WorkspacePublished?.Invoke(path, merged);
 		}
+	}
+
+	internal static List<ServerDiagnostic> Union(IEnumerable<IReadOnlyList<ServerDiagnostic>> reports) {
+		List<ServerDiagnostic> merged = [];
+		HashSet<(int, int, int, int, string?, string, DiagnosticSeverity)> seen = [];
+
+		foreach (IReadOnlyList<ServerDiagnostic> report in reports) {
+			foreach (ServerDiagnostic diagnostic in report) {
+				if (seen.Add((diagnostic.Line, diagnostic.Column, diagnostic.EndLine, diagnostic.EndColumn, diagnostic.Code, diagnostic.Message, diagnostic.Severity))) merged.Add(diagnostic);
+			}
+		}
+
+		return merged;
 	}
 
 	public async Task<IReadOnlySet<string>> BuildOnlyIdsAsync() {
@@ -94,7 +127,13 @@ public sealed class DiagnosticRequests(RoslynLanguageClient client)
 			JsonArray previous = [];
 
 			lock (_sync) {
-				foreach ((string uri, string id) in _workspaceResultIds) previous.Add(new JsonObject { ["uri"] = uri, ["value"] = id });
+				foreach ((string uri, JsonNode? context, string id) in _workspaceResultIds.Values) {
+					JsonObject entry = new() { ["uri"] = uri, ["value"] = id };
+
+					if (context is not null) entry["_vs_projectContext"] = context.DeepClone();
+
+					previous.Add(entry);
+				}
 			}
 
 			string token = $"forge/workspaceDiagnostic/{Interlocked.Increment(ref _workspaceRequests)}";
@@ -303,7 +342,7 @@ public sealed class DiagnosticRequests(RoslynLanguageClient client)
 			string message = entry["message"]?.GetValue<string>() ?? string.Empty;
 			string? code = entry["code"]?.ToString();
 
-			results.Add(new ServerDiagnostic(path, LspJson.Line(start), LspJson.Column(start), message, severity switch { 1 => DiagnosticSeverity.Error, 2 => DiagnosticSeverity.Warning, _ => DiagnosticSeverity.Info }, code is { Length: > 0 } ? code : null, LspJson.Line(entry["range"]?["end"]), LspJson.Column(entry["range"]?["end"])));
+			results.Add(new ServerDiagnostic(path, LspJson.Line(start), LspJson.Column(start), message, severity switch { 1 => DiagnosticSeverity.Error, 2 => DiagnosticSeverity.Warning, _ => DiagnosticSeverity.Info }, code is { Length: > 0 } ? code : null, LspJson.Line(entry["range"]?["end"]), LspJson.Column(entry["range"]?["end"]), entry["codeDescription"]?["href"]?.GetValue<string>()));
 		}
 
 		return results;

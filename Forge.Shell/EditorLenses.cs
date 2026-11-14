@@ -14,7 +14,7 @@ public sealed partial class EditorLenses
 	private const int MessageMaxChars = 500;
 	private const int BlameDelayAfterEdit = 5000;
 
-	private record struct Tracked(int Start, int End, DiagnosticSeverity Severity, string Message);
+	private record struct Tracked(int Start, int End, DiagnosticSeverity Severity, string Message, string Full, string? Code, string? Href);
 
 	private IReadOnlyList<Problem>? _problems;
 	private string? _path;
@@ -77,7 +77,7 @@ public sealed partial class EditorLenses
 			int start = OffsetOf(snapshot, line, column);
 			int end = problem.EndLine > 0 ? OffsetOf(snapshot, problem.EndLine - 1, Math.Max(0, problem.EndColumn - 1)) : start;
 
-			_tracked.Add(new Tracked(start, Math.Max(start, end), problem.Severity, Prepare(problem.Message)));
+			_tracked.Add(new Tracked(start, Math.Max(start, end), problem.Severity, Prepare(problem.Message), problem.Message, problem.Code, problem.Href));
 		}
 	}
 
@@ -116,7 +116,7 @@ public sealed partial class EditorLenses
 			int line = snapshot.GetLineAt(start);
 			int endLine = snapshot.GetLineAt(end);
 
-			_squiggles.Add(new TextView.Squiggle(line, start - snapshot.GetLineStartOffset(line), endLine, end - snapshot.GetLineStartOffset(endLine), tracked.Severity));
+			_squiggles.Add(new TextView.Squiggle(line, start - snapshot.GetLineStartOffset(line), endLine, end - snapshot.GetLineStartOffset(endLine), tracked.Severity, tracked.Full, tracked.Code, tracked.Href));
 
 			if (!_lenses.TryGetValue(line, out TextView.ProblemLens existing) || tracked.Severity < existing.Severity) _lenses[line] = new TextView.ProblemLens(tracked.Message, tracked.Severity);
 		}

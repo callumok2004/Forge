@@ -168,9 +168,7 @@ public sealed class ProblemsView : Panel
 		_rowCount = count;
 		_rows.AsSpan(0, count).Sort(Compare);
 
-		_errors.SetCount(errors);
-		_warnings.SetCount(warnings);
-		_messages.SetCount(infos);
+		if (_errors.SetCount(errors) | _warnings.SetCount(warnings) | _messages.SetCount(infos)) InvalidateLayout();
 
 		_list.SetCount(count);
 		_list.ClearSelection();
@@ -534,23 +532,18 @@ public sealed class ProblemsView : Panel
 
 		public float PreferredWidth => Ui is null ? 0f : ((Padding * 2f) + Metrics.IconSize + Gap) * Scale + Ui.GetFonts().GetUi().Measure(Label);
 
-		public void SetCount(int count) {
+		public bool SetCount(int count) {
 			Span<char> buffer = _label;
 			count.TryFormat(buffer, out int written);
 			buffer[written++] = ' ';
 			ReadOnlySpan<char> noun = count == 1 ? _one : _many;
 			noun.CopyTo(buffer[written..]);
 			int length = written + noun.Length;
-
-			if (length == _length) {
-				Repaint();
-				_length = length;
-				return;
-			}
+			bool resized = length != _length;
 
 			_length = length;
-			Parent?.InvalidateLayout();
 			Repaint();
+			return resized;
 		}
 
 		public override void OnCursorEntered() => Repaint();

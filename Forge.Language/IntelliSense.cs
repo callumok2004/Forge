@@ -120,6 +120,20 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 
 	private bool _hoverRequested;
 
+	private (int Line, int Column, float X, float Y)? _pendingPointer;
+
+	private bool _pendingHide;
+
+	private long _pendingSince;
+
+	private float _pointerX;
+
+	private int _hoverStart = -1;
+
+	private int _hoverEnd = -1;
+
+	private bool _hoverWired;
+
 	private static bool IsWordCharacter(char character) =>
 		char.IsLetterOrDigit(character) || character == '_';
 
@@ -161,6 +175,9 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 		Session.Cancel();
 		Signature.Hide();
 		Hover.Hide();
+		_hoverStart = _hoverEnd = -1;
+		_pendingHide = false;
+		_pendingPointer = null;
 	}
 
 	public bool HandleKey(uint key, bool control) {
@@ -382,6 +399,27 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 			Suggest.SetDetail(index, string.Empty, string.Empty);
 		}
 
+		WireHover();
+
+		if (Hover.AdvanceQuickFixPlaceholder()) refresh();
+
+		if (_pendingHide && Environment.TickCount64 - _pendingSince >= HoverWidget.HidingDelayMilliseconds) {
+			_pendingHide = false;
+
+			if (!PointerOverHover && !Hover.HasFocus) {
+				(int Line, int Column, float X, float Y)? pending = _pendingPointer;
+				_pendingPointer = null;
+				Hover.Hide();
+				_hoverStart = _hoverEnd = -1;
+
+				if (pending is { } target) Aim(target.Line, target.Column, target.X, target.Y);
+				else _pointerRestingSince = 0;
+
+				refresh();
+			}
+			else _pendingPointer = null;
+		}
+
 		if (_hoverRequested || _pointerRestingSince == 0 || Suggest.IsOpen ||
 			Environment.TickCount64 - _pointerRestingSince < HoverWidget.DelayMilliseconds) return;
 
@@ -404,7 +442,96 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 			}
 		}
 
+		ShowMarkerHover(path, line, column);
 		RequestLanguageHover(path, line, column);
+	}
+
+	private bool PointerOverHover => Panel.Ui?.GetMouseOver() is { } over && (over == Hover || over.HasParent(Hover));
+
+	private void WireHover() {
+		if (_hoverWired) return;
+
+		_hoverWired = true;
+		Hover.Changed = refresh;
+		Hover.LinkRequested = static href => {
+			try {
+				System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(href) { UseShellExecute = true })?.Dispose();
+			}
+			catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException) {
+			}
+		};
+		Hover.ViewProblemRequested = marker => {
+			if (workbench.GetActiveView() is not TextView view) return;
+
+			int offset = view.Snapshot.GetLineStartOffset(marker.Line) + marker.StartColumn;
+			view.MoveTo(Math.Min(offset, view.Snapshot.Length), extend: false);
+			_hoverStart = _hoverEnd = -1;
+			workbench.RestoreEditorFocus();
+			refresh();
+		};
+		Hover.QuickFixRequested = (marker, x, y) => {
+			if (workbench.GetActiveView() is not TextView view || Features is not { } features) return;
+
+			int offset = view.Snapshot.GetLineStartOffset(marker.Line) + marker.StartColumn;
+			view.MoveTo(Math.Min(offset, view.Snapshot.Length), extend: false);
+			_hoverStart = _hoverEnd = -1;
+			workbench.RestoreEditorFocus();
+			Actions.OpenFromLightbulb(features, x, y);
+			refresh();
+		};
+	}
+
+	private void ShowMarkerHover(string path, int line, int column) {
+		if (workbench.GetActiveView() is not TextView view || Panel.Ui is not { } ui) return;
+
+		TextSnapshot snapshot = view.Snapshot;
+		int index = line - 1;
+
+		if (index < 0 || index >= snapshot.LineCount) return;
+
+		ITextFont code = ui.GetFonts().GetCode();
+		int lineStart = snapshot.GetLineStartOffset(index);
+		int lineLength = snapshot.GetLineLength(index);
+		int character = Math.Clamp(column - 1, 0, lineLength);
+		float endX = view.PointForOffset(code, lineStart + lineLength, _editorLeft, _editorTop).X;
+
+		if (_pointerX > endX + (code.GetCellWidth() / 2f)) return;
+
+		int start = character;
+		int end = character;
+
+		while (start > 0 && IsWordCharacter(snapshot[lineStart + start - 1])) start--;
+
+		while (end < lineLength && IsWordCharacter(snapshot[lineStart + end])) end++;
+
+		List<HoverWidget.Marker> markers = [];
+
+		foreach (TextView.Squiggle squiggle in view.Squiggles ?? []) {
+			if (squiggle.Line > index || squiggle.EndLine < index) continue;
+
+			int markerStart = squiggle.Line == index ? squiggle.StartColumn : 0;
+			int markerEnd = squiggle.EndLine == index ? squiggle.EndColumn : lineLength;
+
+			if (markerStart > character + 1 || character > markerEnd) continue;
+
+			markers.Add(new HoverWidget.Marker(index, markerStart, markerEnd, squiggle.Message, squiggle.Severity, squiggle.Code, squiggle.Href));
+			start = Math.Min(start, markerStart);
+			end = Math.Max(end, markerEnd);
+		}
+
+		_hoverStart = start;
+		_hoverEnd = end;
+		Hover.ShowMarkers(markers, line, column);
+
+		if (markers.Count == 0 || Features is not { } features) return;
+
+		HoverWidget.Marker first = markers.MinBy(static marker => marker.Severity);
+
+		_ = Task.Run(async () => {
+			IReadOnlyList<CodeActionEntry> actions = await features.CodeActionsAsync(path, line, first.StartColumn + 1, line, first.EndColumn + 1, automatic: false).ConfigureAwait(false);
+			Hover.SetQuickFixes(actions.Any(static action => action.DisabledReason is null && action.Kind.StartsWith("quickfix", StringComparison.Ordinal)), line, column);
+			refresh();
+		});
 	}
 
 	private void RequestLanguageHover(string path, int line, int column) {
@@ -419,13 +546,37 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 	}
 
 	public void PointerMoved(int line, int column, float x, float y) {
-		if (line == Hover.Line && column == Hover.Column) return;
+		if (line == Hover.Line && column == Hover.Column && !_pendingHide) return;
 
 		if (DebugValues.Hover.IsOpen && (line != DebugValues.Hover.Line || column - 1 < DebugValues.Hover.StartColumn || column - 1 > DebugValues.Hover.EndColumn)) DebugValues.CancelHover();
 
+		if (Hover.IsOpen) {
+			if (Hover.HasFocus || Hover.IsSelecting) return;
+
+			if (line == Hover.Line && column - 1 >= _hoverStart && column - 1 <= _hoverEnd) {
+				_pendingHide = false;
+				_pendingPointer = null;
+				return;
+			}
+
+			_pendingPointer = (line, column, x, y);
+
+			if (!_pendingHide) {
+				_pendingHide = true;
+				_pendingSince = Environment.TickCount64;
+			}
+
+			return;
+		}
+
+		Aim(line, column, x, y);
+	}
+
+	private void Aim(int line, int column, float x, float y) {
 		Hover.Hide();
 		Hover.Aim(line, column, x, y);
-
+		_pointerX = x;
+		_hoverStart = _hoverEnd = -1;
 		_pointerRestingSince = Environment.TickCount64;
 		_hoverRequested = false;
 	}
@@ -433,7 +584,15 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 	public void PointerLeft() {
 		_pointerRestingSince = 0;
 		_hoverRequested = false;
-		Hover.Hide();
+
+		if (Hover.IsOpen && (PointerOverHover || Hover.HasFocus)) {
+			_pendingHide = false;
+			_pendingPointer = null;
+		}
+		else {
+			Hover.Hide();
+			_hoverStart = _hoverEnd = -1;
+		}
 
 		if (Panel.Ui?.GetMouseOver() is { } over && (over == DebugValues.Hover || over.Parent == DebugValues.Hover)) return;
 
@@ -497,7 +656,18 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 		}
 		else Signature.Visible = false;
 
-		Hover.Place(editorTop, editorBottom, editorRight, originX, originY);
+		if (Hover.IsOpen && _hoverStart >= 0) {
+			TextSnapshot hoverSnapshot = view.GetSnapshot();
+			int hoverLine = Math.Clamp(Hover.Line - 1, 0, Math.Max(0, hoverSnapshot.LineCount - 1));
+			int hoverLineStart = hoverSnapshot.GetLineStartOffset(hoverLine);
+			int hoverLength = hoverSnapshot.GetLineLength(hoverLine);
+			(float primaryX, float lineTop) = view.PointForOffset(font, hoverLineStart + Math.Clamp(Hover.Column - 1, 0, hoverLength), editorLeft, editorTop);
+			float secondaryX = view.PointForOffset(font, hoverLineStart + Math.Clamp(_hoverStart, 0, hoverLength), editorLeft, editorTop).X;
+
+			Hover.Anchor(primaryX, secondaryX, lineTop, lineHeight);
+		}
+
+		Hover.Place(0f, ui.GetViewportHeight(), editorRight, originX, originY, editorRight - editorLeft);
 
 		_editorLeft = editorLeft;
 		_editorTop = editorTop;
@@ -507,7 +677,7 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 		debugHover.Place(editorTop, editorBottom, editorRight, originX, originY);
 
 		if (view is TextView textView) {
-			TextView.HoverRange? range = debugHover.IsOpen ? new TextView.HoverRange(debugHover.Line - 1, debugHover.StartColumn, debugHover.EndColumn) : null;
+			TextView.HoverRange? range = debugHover.IsOpen ? new TextView.HoverRange(debugHover.Line - 1, debugHover.StartColumn, debugHover.EndColumn) : Hover.IsOpen && _hoverStart >= 0 && _hoverEnd > _hoverStart ? new TextView.HoverRange(Hover.Line - 1, _hoverStart, _hoverEnd) : null;
 
 			if (textView.HoverHighlight != range) textView.HoverHighlight = range;
 		}
