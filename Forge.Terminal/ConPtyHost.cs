@@ -9,6 +9,7 @@ public sealed unsafe partial class ConPtyHost : IDisposable
 
 	private const uint ExtendedStartupInfoPresent = 0x00080000;
 	private const uint ResizeQuirk = 0x2;
+	private const int UseStdHandles = 0x100;
 	private const nint PseudoConsoleAttribute = 0x00020016;
 
 	private const int ReadBufferSize = 8192;
@@ -93,6 +94,7 @@ public sealed unsafe partial class ConPtyHost : IDisposable
 		StartupInfoEx startup = default;
 		startup.Startup.Size = sizeof(StartupInfoEx);
 		startup.AttributeList = _attributes;
+		startup.Startup.Flags = UseStdHandles;
 
 		char[] mutable = new char[command.Length + 1];
 		command.CopyTo(mutable);

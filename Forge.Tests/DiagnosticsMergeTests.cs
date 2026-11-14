@@ -53,9 +53,21 @@ public class DiagnosticsMergeTests
 			[Unreported] = [new ServerDiagnostic(Unreported, 3, 1, "opening", DiagnosticSeverity.Warning, "CS3")],
 		};
 
-		Diagnostic[] merged = DiagnosticsCoordinator.Merge(documents, workspace, path => path == Open || path == Unreported);
+		Diagnostic[] merged = DiagnosticsCoordinator.Merge(documents, workspace);
 
-		Assert.Equal(["live", "closed"], merged.Select(static diagnostic => diagnostic.Message).Order().Reverse());
+		Assert.Equal(["closed", "live", "opening"], merged.Select(static diagnostic => diagnostic.Message).Order());
+	}
+
+	[Fact]
+	public void OpeningFileKeepsWorkspaceProblemsUntilDocumentPullArrives() {
+		Dictionary<string, IReadOnlyList<ServerDiagnostic>> documents = new(StringComparer.OrdinalIgnoreCase);
+		Dictionary<string, IReadOnlyList<ServerDiagnostic>> workspace = new(StringComparer.OrdinalIgnoreCase) { [Open] = [new ServerDiagnostic(Open, 1, 1, "kept", DiagnosticSeverity.Warning, "CS1")] };
+
+		Assert.Equal("kept", Assert.Single(DiagnosticsCoordinator.Merge(documents, workspace)).Message);
+
+		documents[Open] = [new ServerDiagnostic(Open, 1, 1, "fresh", DiagnosticSeverity.Warning, "CS1")];
+
+		Assert.Equal("fresh", Assert.Single(DiagnosticsCoordinator.Merge(documents, workspace)).Message);
 	}
 
 	[Fact]
@@ -63,7 +75,7 @@ public class DiagnosticsMergeTests
 		Dictionary<string, IReadOnlyList<ServerDiagnostic>> documents = new(StringComparer.OrdinalIgnoreCase) { [Open] = [] };
 		Dictionary<string, IReadOnlyList<ServerDiagnostic>> workspace = new(StringComparer.OrdinalIgnoreCase) { [Closed] = [] };
 
-		Assert.Empty(DiagnosticsCoordinator.Merge(documents, workspace, static _ => false));
+		Assert.Empty(DiagnosticsCoordinator.Merge(documents, workspace));
 	}
 
 	[Fact]

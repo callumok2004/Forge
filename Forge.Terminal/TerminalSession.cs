@@ -43,6 +43,9 @@ public sealed class TerminalSession : IDisposable
 		_host.Exited += () => {
 			HasExited = true;
 			Screen.FlushLine();
+
+			foreach (string line in Screen.LogicalLines()) Observe(line);
+
 			Screen.LineFed -= Observe;
 			Screen.Write("\r\n[process exited]\r\n");
 			ExitObserver?.Invoke(_host.ExitCode);

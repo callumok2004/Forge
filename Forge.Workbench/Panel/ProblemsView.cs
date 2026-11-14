@@ -187,7 +187,7 @@ public sealed class ProblemsView : Panel
 	private bool MatchesSource(in Problem problem) => Source switch {
 		ErrorListSource.BuildOnly => problem.Build,
 		ErrorListSource.IntelliSenseOnly => !problem.Build,
-		_ => true,
+		_ => !problem.Superseded,
 	};
 
 	private bool MatchesSearch(in Problem problem, ReadOnlySpan<char> search) {

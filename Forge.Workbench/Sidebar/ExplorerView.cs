@@ -32,7 +32,7 @@ public sealed partial class ExplorerView : Panel
 		_folderProblems.Clear();
 
 		foreach (Problem problem in problems) {
-			if (problem.Severity is not (DiagnosticSeverity.Error or DiagnosticSeverity.Warning) || string.IsNullOrEmpty(problem.File)) continue;
+			if (problem.Superseded || problem.Severity is not (DiagnosticSeverity.Error or DiagnosticSeverity.Warning) || string.IsNullOrEmpty(problem.File)) continue;
 
 			bool error = problem.Severity == DiagnosticSeverity.Error;
 			_fileProblems.TryGetValue(problem.File, out (int Errors, int Warnings) counts);

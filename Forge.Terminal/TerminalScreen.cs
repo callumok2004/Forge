@@ -389,17 +389,37 @@ public sealed class TerminalScreen
 		_state = State.Ground;
 	}
 
+	private void MoveRow(int row) {
+		if (row != _cursorRow && LineFed is { } fed && LogicalText(_lines.Count - Rows + _cursorRow) is { Length: > 0 } text) fed(text);
+
+		_cursorRow = row;
+	}
+
+	public List<string> LogicalLines() {
+		List<string> lines = [];
+
+		lock (Sync) {
+			for (int index = 0; index < _lines.Count; index = LogicalLine(index).Last + 1) {
+				string text = LogicalText(index);
+
+				if (text.Length > 0) lines.Add(text);
+			}
+		}
+
+		return lines;
+	}
+
 	private int Parameter(int index, int fallback) =>
 		index < _parameterCount && _parameters[index] > 0 ? _parameters[index] : fallback;
 
 	private void Dispatch(char final) {
 		switch (final) {
 			case 'A':
-				_cursorRow = Math.Max(0, _cursorRow - Parameter(0, 1));
+				MoveRow(Math.Max(0, _cursorRow - Parameter(0, 1)));
 				return;
 
 			case 'B':
-				_cursorRow = Math.Min(Rows - 1, _cursorRow + Parameter(0, 1));
+				MoveRow(Math.Min(Rows - 1, _cursorRow + Parameter(0, 1)));
 				return;
 
 			case 'C':
@@ -411,12 +431,12 @@ public sealed class TerminalScreen
 				return;
 
 			case 'E':
-				_cursorRow = Math.Min(Rows - 1, _cursorRow + Parameter(0, 1));
+				MoveRow(Math.Min(Rows - 1, _cursorRow + Parameter(0, 1)));
 				_cursorColumn = 0;
 				return;
 
 			case 'F':
-				_cursorRow = Math.Max(0, _cursorRow - Parameter(0, 1));
+				MoveRow(Math.Max(0, _cursorRow - Parameter(0, 1)));
 				_cursorColumn = 0;
 				return;
 
@@ -425,12 +445,12 @@ public sealed class TerminalScreen
 				return;
 
 			case 'd':
-				_cursorRow = Math.Clamp(Parameter(0, 1) - 1, 0, Rows - 1);
+				MoveRow(Math.Clamp(Parameter(0, 1) - 1, 0, Rows - 1));
 				return;
 
 			case 'H':
 			case 'f':
-				_cursorRow = Math.Clamp(Parameter(0, 1) - 1, 0, Rows - 1);
+				MoveRow(Math.Clamp(Parameter(0, 1) - 1, 0, Rows - 1));
 				_cursorColumn = Math.Clamp(Parameter(1, 1) - 1, 0, Columns - 1);
 				return;
 

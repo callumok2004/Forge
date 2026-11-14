@@ -70,7 +70,7 @@ public sealed partial class EditorLenses
 		if (path is null) return;
 
 		foreach (Problem problem in problems) {
-			if (!string.Equals(problem.File, path, StringComparison.OrdinalIgnoreCase)) continue;
+			if (problem.Superseded || !string.Equals(problem.File, path, StringComparison.OrdinalIgnoreCase)) continue;
 
 			int line = Math.Max(0, problem.Line - 1);
 			int column = Math.Max(0, problem.Column - 1);

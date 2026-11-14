@@ -51,7 +51,7 @@ public enum DiagnosticSeverity : byte
 	Info,
 }
 
-public readonly record struct Diagnostic(string File, int Line, int Column, string Message, DiagnosticSeverity Severity, string? Code = null, int EndLine = 0, int EndColumn = 0, string? Href = null)
+public readonly record struct Diagnostic(string File, int Line, int Column, string Message, DiagnosticSeverity Severity, string? Code = null, int EndLine = 0, int EndColumn = 0, string? Href = null, bool Superseded = false)
 {
 	public bool IsError => Severity == DiagnosticSeverity.Error;
 }

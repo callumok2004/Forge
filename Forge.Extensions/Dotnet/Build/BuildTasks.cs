@@ -9,7 +9,7 @@ namespace Forge.Extensions.Dotnet.Build;
 
 public sealed class BuildTasks(SolutionWorkspace workspace, DotnetOutput output, DiagnosticsCoordinator diagnostics)
 {
-	private const string BuildLoggerArguments = "-consoleLoggerParameters:NoSummary;ForceNoAlign";
+	public const string LoggerArguments = "-consoleLoggerParameters:NoSummary;ForceNoAlign";
 
 	public Action? Started { get; init; }
 
@@ -24,7 +24,7 @@ public sealed class BuildTasks(SolutionWorkspace workspace, DotnetOutput output,
 			return;
 		}
 
-		string arguments = command == "build" ? $"{command} \"{target}\" {BuildLoggerArguments}" : $"{command} \"{target}\"";
+		string arguments = command == "build" ? $"{command} \"{target}\" {LoggerArguments}" : $"{command} \"{target}\"";
 
 		output.Log(host, $"{command} {Path.GetFileName(target)}");
 

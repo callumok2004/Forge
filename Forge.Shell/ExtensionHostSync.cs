@@ -498,7 +498,7 @@ public sealed class ExtensionHostSync
 		Dictionary<string, JsonArray> byFile = new(StringComparer.OrdinalIgnoreCase);
 
 		foreach (Problem problem in _workbench.Panel.Problems) {
-			if (string.IsNullOrEmpty(problem.File) || (only is not null && !string.Equals(problem.File, only, StringComparison.OrdinalIgnoreCase))) continue;
+			if (problem.Superseded || string.IsNullOrEmpty(problem.File) || (only is not null && !string.Equals(problem.File, only, StringComparison.OrdinalIgnoreCase))) continue;
 
 			if (!byFile.TryGetValue(problem.File, out JsonArray? list)) byFile[problem.File] = list = [];
 

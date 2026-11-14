@@ -91,6 +91,8 @@ public sealed class DiagnosticsCoordinator
 	}
 
 	private void OnWorkspacePublished(string file, IReadOnlyList<ServerDiagnostic> diagnostics) {
+		if (_server.Documents.IsOpen(file)) return;
+
 		lock (_sync) _workspace[file] = diagnostics;
 
 		Schedule();
@@ -121,7 +123,7 @@ public sealed class DiagnosticsCoordinator
 
 		lock (_sync) {
 			live = Live();
-			build = _build.Count == 0 ? [] : [.. _build.Where(Keep)];
+			build = _build.Count == 0 ? [] : [.. _build.Select(diagnostic => Keep(diagnostic) ? diagnostic : diagnostic with { Superseded = true })];
 		}
 
 		host.ReportProblems(Owner, false, live);
@@ -129,15 +131,15 @@ public sealed class DiagnosticsCoordinator
 		host.Refresh();
 	}
 
-	private Diagnostic[] Live() => Merge(_diagnostics, _workspace, _server.Documents.IsOpen);
+	private Diagnostic[] Live() => Merge(_diagnostics, _workspace);
 
-	internal static Diagnostic[] Merge(IReadOnlyDictionary<string, IReadOnlyList<ServerDiagnostic>> documents, IReadOnlyDictionary<string, IReadOnlyList<ServerDiagnostic>> workspace, Func<string, bool> isOpen) {
+	internal static Diagnostic[] Merge(IReadOnlyDictionary<string, IReadOnlyList<ServerDiagnostic>> documents, IReadOnlyDictionary<string, IReadOnlyList<ServerDiagnostic>> workspace) {
 		List<Diagnostic> all = [];
 
 		foreach (IReadOnlyList<ServerDiagnostic> file in documents.Values) Add(all, file);
 
 		foreach ((string path, IReadOnlyList<ServerDiagnostic> file) in workspace) {
-			if (!documents.ContainsKey(path) && !isOpen(path)) Add(all, file);
+			if (!documents.ContainsKey(path)) Add(all, file);
 		}
 
 		return [.. all];
