@@ -23,6 +23,7 @@ public sealed class ExtensionHostSync
 	private readonly Dictionary<string, JsonObject> _virtualUris = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, TerminalSession> _terminals = new(StringComparer.Ordinal);
 	private readonly ConditionalWeakTable<object, string> _tabIds = [];
+	private readonly Dictionary<string, int> _sentDiagnostics = new(StringComparer.OrdinalIgnoreCase);
 
 	private int _nextTabId;
 	private int _stateSignature;
@@ -54,10 +55,80 @@ public sealed class ExtensionHostSync
 
 		_stateSignature = 0;
 		Tick();
+		_sentDiagnostics.Clear();
+		_bridge.Notify("languages/setDiagnostics", new JsonObject { ["entries"] = new JsonArray() });
 		PushDiagnostics();
 	}
 
-	private void PushDiagnostics() => _bridge.Notify("languages/setDiagnostics", new JsonObject { ["entries"] = Diagnostics(null) });
+	private void PushDiagnostics() {
+		Dictionary<string, List<Problem>> byFile = new(StringComparer.OrdinalIgnoreCase);
+
+		foreach (Problem problem in _workbench.Panel.Problems) {
+			if (problem.Superseded || string.IsNullOrEmpty(problem.File)) continue;
+
+			if (!byFile.TryGetValue(problem.File, out List<Problem>? list)) byFile[problem.File] = list = [];
+
+			list.Add(problem);
+		}
+
+		JsonArray changed = [];
+
+		foreach ((string file, List<Problem> list) in byFile) {
+			int fingerprint = Fingerprint(list);
+
+			if (_sentDiagnostics.TryGetValue(file, out int sent) && sent == fingerprint) continue;
+
+			_sentDiagnostics[file] = fingerprint;
+
+			JsonArray entries = [];
+
+			foreach (Problem problem in list) entries.Add(ToHost(problem));
+
+			changed.Add(new JsonArray { HostEditor.UriFor(file), entries });
+		}
+
+		List<string>? cleared = null;
+
+		foreach (string file in _sentDiagnostics.Keys) {
+			if (!byFile.ContainsKey(file)) (cleared ??= []).Add(file);
+		}
+
+		foreach (string file in cleared ?? []) {
+			_sentDiagnostics.Remove(file);
+			changed.Add(new JsonArray { HostEditor.UriFor(file), new JsonArray() });
+		}
+
+		if (changed.Count > 0) _bridge.Notify("languages/updateDiagnostics", new JsonObject { ["entries"] = changed });
+	}
+
+	private static int Fingerprint(List<Problem> problems) {
+		HashCode hash = new();
+
+		foreach (Problem problem in problems) {
+			hash.Add(problem.Line);
+			hash.Add(problem.Column);
+			hash.Add(problem.EndLine);
+			hash.Add(problem.EndColumn);
+			hash.Add(problem.Severity);
+			hash.Add(problem.Build);
+			hash.Add(problem.Code, StringComparer.Ordinal);
+			hash.Add(problem.Message, StringComparer.Ordinal);
+		}
+
+		return hash.ToHashCode();
+	}
+
+	private static JsonObject ToHost(in Problem problem) {
+		JsonObject at = new() { ["line"] = Math.Max(0, problem.Line - 1), ["character"] = Math.Max(0, problem.Column - 1) };
+
+		return new JsonObject {
+			["range"] = new JsonObject { ["start"] = at.DeepClone(), ["end"] = at },
+			["message"] = problem.Message,
+			["severity"] = problem.Severity switch { DiagnosticSeverity.Error => 0, DiagnosticSeverity.Warning => 1, _ => 2 },
+			["source"] = problem.Build ? "build" : "csharp",
+			["code"] = problem.Code,
+		};
+	}
 
 	#region Documents
 
@@ -502,14 +573,7 @@ public sealed class ExtensionHostSync
 
 			if (!byFile.TryGetValue(problem.File, out JsonArray? list)) byFile[problem.File] = list = [];
 
-			JsonObject at = new() { ["line"] = Math.Max(0, problem.Line - 1), ["character"] = Math.Max(0, problem.Column - 1) };
-			list.Add(new JsonObject {
-				["range"] = new JsonObject { ["start"] = at.DeepClone(), ["end"] = at },
-				["message"] = problem.Message,
-				["severity"] = problem.Severity switch { DiagnosticSeverity.Error => 0, DiagnosticSeverity.Warning => 1, _ => 2 },
-				["source"] = problem.Build ? "build" : "csharp",
-				["code"] = problem.Code,
-			});
+			list.Add(ToHost(problem));
 		}
 
 		if (only is not null) return byFile.TryGetValue(only, out JsonArray? single) ? single : new JsonArray();

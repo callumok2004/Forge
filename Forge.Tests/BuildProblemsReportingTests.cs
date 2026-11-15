@@ -76,6 +76,92 @@ public class BuildProblemsReportingTests
 	}
 
 	[Fact]
+	public async Task StreamingBuildUpdatesAreBatched() {
+		(DiagnosticsCoordinator coordinator, ICommandHost host, RecordingHost recorder) = Create();
+		List<Diagnostic> growing = [];
+
+		for (int i = 1; i <= 2000; i++) {
+			growing.Add(new Diagnostic($@"C:\src\File{i % 40}.cs", i, 1, $"warning {i}", DiagnosticSeverity.Warning, "CS0168"));
+			coordinator.SetBuild(host, [.. growing], final: false);
+		}
+
+		await Task.Delay(600);
+
+		int streamed;
+
+		lock (recorder.Reports) streamed = recorder.Reports.Count(static report => report.Owner == MsBuildProblemMatcher.Owner);
+
+		Assert.InRange(streamed, 1, 10);
+		Assert.Equal(2000, recorder.LastBuild.Count);
+
+		coordinator.SetBuild(host, [.. growing]);
+		Assert.Equal(2000, recorder.LastBuild.Count);
+	}
+
+	[Fact]
+	public void MatcherSignalsOnlyNewDiagnostics() {
+		MsBuildProblemMatcher matcher = new();
+		const string Line = @"C:\src\A.cs(1,1): warning CS0168: unused";
+
+		Assert.True(matcher.Read(Line));
+		Assert.False(matcher.Read(Line));
+		Assert.False(matcher.Read("Build succeeded."));
+		Assert.Single(matcher.Diagnostics);
+	}
+
+	private const string Full = @"C:\src\A.cs(5,9): warning CS8600: Converting null literal or possible null value to non-nullable type.";
+	private const string Clipped = @"C:\src\A.cs(5,9): warning CS8600: Converting null literal or";
+
+	[Fact]
+	public void ClippedLineThenFullKeepsFull() {
+		MsBuildProblemMatcher matcher = new();
+
+		Assert.True(matcher.Read(Clipped));
+		Assert.True(matcher.Read(Full));
+
+		Assert.Equal("Converting null literal or possible null value to non-nullable type.", Assert.Single(matcher.Diagnostics).Message);
+		Assert.Equal(1, matcher.WarningCount);
+	}
+
+	[Fact]
+	public void FullLineThenClippedKeepsFull() {
+		MsBuildProblemMatcher matcher = new();
+
+		Assert.True(matcher.Read(Full));
+		Assert.False(matcher.Read(Clipped));
+
+		Assert.Equal("Converting null literal or possible null value to non-nullable type.", Assert.Single(matcher.Diagnostics).Message);
+		Assert.Equal(1, matcher.WarningCount);
+	}
+
+	[Fact]
+	public void DifferentMessagesAtSameLocationStaySeparate() {
+		MsBuildProblemMatcher matcher = new();
+
+		matcher.Read(@"C:\src\A.cs(5,9): warning CS8604: Possible null reference argument for parameter 'a' in 'void M(string a, string b)'.");
+		matcher.Read(@"C:\src\A.cs(5,9): warning CS8604: Possible null reference argument for parameter 'b' in 'void M(string a, string b)'.");
+
+		Assert.Equal(2, matcher.Diagnostics.Count);
+	}
+
+	[Fact]
+	public void ClippedLinesInterleavedWithManyWarnings() {
+		MsBuildProblemMatcher matcher = new();
+
+		for (int i = 1; i <= 500; i++) {
+			string full = $@"C:\src\File{i}.cs({i},3): warning CS8604: Possible null reference argument for parameter 'pMesh' in 'void MeshBuilder.Begin(Mesh pMesh)'.";
+
+			matcher.Read(full[..Math.Min(full.Length, 60 + (i % 30))]);
+			matcher.Read(full);
+			matcher.Read(full[..Math.Min(full.Length, 70)]);
+		}
+
+		Assert.Equal(500, matcher.Diagnostics.Count);
+		Assert.Equal(500, matcher.WarningCount);
+		Assert.All(matcher.Diagnostics, static diagnostic => Assert.EndsWith("(Mesh pMesh)'.", diagnostic.Message, StringComparison.Ordinal));
+	}
+
+	[Fact]
 	public void ManyBuildDiagnosticsAllReported() {
 		(DiagnosticsCoordinator coordinator, ICommandHost host, RecordingHost recorder) = Create();
 		Diagnostic[] many = [.. Enumerable.Range(1, 1809).Select(static i => new Diagnostic($@"C:\src\File{i % 40}.cs", i, 1, $"warning {i}", DiagnosticSeverity.Warning, "CS0168"))];

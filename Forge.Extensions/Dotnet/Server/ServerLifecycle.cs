@@ -31,6 +31,11 @@ public sealed class ServerLifecycle(RoslynLanguageClient server, SolutionWorkspa
 			Start(host);
 			host.Refresh();
 		}));
+
+		commands.Register(new Command("dotnet.analyzeSolution", "Run Full Solution Analysis", ".NET", host => {
+			diagnostics.StartWorkspace();
+			host.Refresh();
+		}));
 	}
 
 	public void Start(ICommandHost host) {
@@ -176,7 +181,6 @@ public sealed class ServerLifecycle(RoslynLanguageClient server, SolutionWorkspa
 
 			if (host.GetActiveFilePath() is { } open && ProjectDiscovery.IsSource(open)) diagnostics.Refresh(open, immediate: true);
 
-			diagnostics.StartWorkspace();
 			host.Refresh();
 		};
 

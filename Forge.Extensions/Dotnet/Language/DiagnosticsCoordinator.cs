@@ -46,12 +46,13 @@ public sealed class DiagnosticsCoordinator
 
 	public void StopWorkspace() => _server.Diagnostics.StopWorkspace();
 
-	public void SetBuild(ICommandHost host, IReadOnlyList<Diagnostic> diagnostics) {
+	public void SetBuild(ICommandHost host, IReadOnlyList<Diagnostic> diagnostics, bool final = true) {
 		_host ??= host;
 
 		lock (_sync) _build = diagnostics;
 
-		Publish();
+		if (final) Publish();
+		else Schedule();
 	}
 
 	public void Refresh(string path, bool immediate = false) {

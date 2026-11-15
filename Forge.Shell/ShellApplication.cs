@@ -196,14 +196,19 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			ColumnNumber = (workbench.ActiveView?.CaretColumn ?? 0) + 1,
 		};
 
-		debugger.TaskRunner = (label, commandLine, cwd, finished) => {
+		debugger.TaskRunner = (label, commandLine, cwd, matchers, finished) => {
 			ambient.Begin(AmbientSignal.Build);
 
-			Post(() => workbench.Panel.RunTask(label, commandLine, cwd ?? rootPath, null, exitCode => {
-				ambient.End(AmbientSignal.Build, exitCode == 0);
-				finished?.Invoke(exitCode);
-				window.Invalidate();
-			}));
+			Post(() => {
+				(Action<string>? lines, Action<int>? matched) = ProblemMatchers.Start(new CommandHost(workbench, window.Invalidate), matchers);
+
+				workbench.Panel.RunTask(label, commandLine, cwd ?? rootPath, lines, exitCode => {
+					matched?.Invoke(exitCode);
+					ambient.End(AmbientSignal.Build, exitCode == 0);
+					finished?.Invoke(exitCode);
+					window.Invalidate();
+				});
+			});
 
 			return true;
 		};

@@ -40,7 +40,7 @@ public sealed class DebugService : IDebug, IDisposable
 
 	public string WorkspaceFolder { get; private set; } = string.Empty;
 
-	public Func<string, string, string?, Action<int>, bool>? TaskRunner { get; set; }
+	public Func<string, string, string?, IReadOnlyList<string>, Action<int>, bool>? TaskRunner { get; set; }
 
 	public Func<ResolverContext>? ContextProvider { get; set; }
 
@@ -226,7 +226,7 @@ public sealed class DebugService : IDebug, IDisposable
 		};
 
 		session.RunInTerminalRequested += (commandLine, cwd) =>
-			TaskRunner?.Invoke(session.Configuration.Name, commandLine, cwd, null!);
+			TaskRunner?.Invoke(session.Configuration.Name, commandLine, cwd, [], null!);
 
 		_session = session;
 		_sessionNoDebug = noDebug;
@@ -268,7 +268,7 @@ public sealed class DebugService : IDebug, IDisposable
 
 			bool last = i == chain.Count - 1;
 
-			runner(step.Label, commandLine, step.Cwd ?? cwd ?? WorkspaceFolder,
+			runner(step.Label, commandLine, step.Cwd ?? cwd ?? WorkspaceFolder, step.ProblemMatchers,
 				last && finished is not null ? finished : _ => { });
 		}
 

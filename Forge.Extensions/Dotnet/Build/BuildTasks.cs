@@ -39,7 +39,7 @@ public sealed class BuildTasks(SolutionWorkspace workspace, DotnetOutput output,
 		diagnostics.SetBuild(host, []);
 
 		host.RunInTerminal($"dotnet {command}", $"dotnet {arguments}", Path.GetDirectoryName(target), line => {
-			if (matcher.Read(line)) diagnostics.SetBuild(host, [.. matcher.Diagnostics]);
+			if (matcher.Read(line)) diagnostics.SetBuild(host, [.. matcher.Diagnostics], final: false);
 
 			host.Refresh();
 		}, exitCode => {

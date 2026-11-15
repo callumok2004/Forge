@@ -234,21 +234,29 @@ public class TerminalScreenTests
 	}
 
 	[Fact]
-	public void BuildWarningMatchesThroughNarrowTerminal() {
-		TerminalScreen screen = Screen(40);
+	public void RewrittenRowIsOnlyReportedWhenFinal() {
+		TerminalScreen screen = Screen(120, 3);
 		List<string> lines = Fed(screen);
-		const string Warning = @"    C:\Users\me\source\repos\Source.NET\Source.Launcher\Program.cs(48,7): warning CS0649: Field 'Bootloader.isEditMode' is never assigned to, and will always have its default value false";
+		const string Partial = @"C:\src\A.cs(1,1): warning CS8600: Converting null literal or";
+		const string Full = @"C:\src\A.cs(1,1): warning CS8600: Converting null literal or possible null value to non-nullable type.";
 
-		screen.Write("\u001b[33m" + Warning + "\u001b[0m\r\n");
+		screen.Write("\u001b[1;1H" + Partial);
+		screen.Write("\u001b[2;1H  Project Building (1.2s)");
+		screen.Write("\u001b[1;1H" + Full);
+		screen.Write("\u001b[3;1H\r\n\r\n\r\n\r\n");
 
-		Assert.Single(lines);
-		Diagnostic? diagnostic = MsBuildProblemMatcher.Parse(lines[0]);
+		Assert.DoesNotContain(Partial, lines);
+		Assert.Contains(Full, lines);
+	}
 
-		Assert.NotNull(diagnostic);
-		Assert.Equal(@"C:\Users\me\source\repos\Source.NET\Source.Launcher\Program.cs", diagnostic.Value.File);
-		Assert.Equal(48, diagnostic.Value.Line);
-		Assert.Equal(7, diagnostic.Value.Column);
-		Assert.Equal("CS0649", diagnostic.Value.Code);
+	[Fact]
+	public void RowsScrolledIntoScrollbackAreReportedWithoutLineFeedAtCursor() {
+		TerminalScreen screen = Screen(80, 2);
+		List<string> lines = Fed(screen);
+
+		for (int i = 0; i < 10; i++) screen.Write($"\u001b[2;1Hline {i}\r\n");
+
+		for (int i = 0; i < 9; i++) Assert.Contains($"line {i}", lines);
 	}
 
 	[Fact]

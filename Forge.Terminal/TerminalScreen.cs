@@ -21,6 +21,7 @@ public sealed class TerminalScreen
 
 	private readonly List<TerminalCell[]> _lines = [];
 	private readonly HashSet<TerminalCell[]> _wrapped = new(ReferenceEqualityComparer.Instance);
+	private readonly HashSet<TerminalCell[]> _fed = new(ReferenceEqualityComparer.Instance);
 	private readonly int[] _parameters = new int[MaxParameters];
 
 	private State _state;
@@ -210,7 +211,10 @@ public sealed class TerminalScreen
 		_lines.Clear();
 		_lines.AddRange(result);
 		_wrapped.Clear();
+		_fed.Clear();
 		_wrapped.UnionWith(wrapped);
+
+		for (int i = 0; i < newCursorLine && i < result.Count; i++) _fed.Add(result[i]);
 
 		_cursorRow = newCursorLine - (_lines.Count - rows);
 		_cursorColumn = newCursorColumn;
@@ -300,7 +304,7 @@ public sealed class TerminalScreen
 				return;
 
 			case '\n':
-				if (LineFed is { } fed) fed(LogicalText(_lines.Count - Rows + _cursorRow));
+				Feed(_lines.Count - Rows + _cursorRow);
 
 				NextLine();
 				return;
@@ -389,10 +393,19 @@ public sealed class TerminalScreen
 		_state = State.Ground;
 	}
 
-	private void MoveRow(int row) {
-		if (row != _cursorRow && LineFed is { } fed && LogicalText(_lines.Count - Rows + _cursorRow) is { Length: > 0 } text) fed(text);
+	private void MoveRow(int row) => _cursorRow = row;
 
-		_cursorRow = row;
+	private void Feed(int index) {
+		if (LineFed is not { } fed || (uint)index >= (uint)_lines.Count) return;
+
+		(int first, int last) = LogicalLine(index);
+		bool fresh = false;
+
+		for (int row = first; row <= last; row++) fresh |= _fed.Add(_lines[row]);
+
+		if (!fresh) return;
+
+		fed(LogicalText(index));
 	}
 
 	public List<string> LogicalLines() {
@@ -523,6 +536,8 @@ public sealed class TerminalScreen
 
 		TerminalCell[] line = VisibleLine(_cursorRow);
 
+		if (_fed.Count > 0) _fed.Remove(line);
+
 		line[_cursorColumn].Character = character;
 		line[_cursorColumn].Foreground = _inverse ? _background : _foreground;
 		line[_cursorColumn].Background = _inverse ? _foreground : _background;
@@ -543,6 +558,11 @@ public sealed class TerminalScreen
 		}
 
 		_lines.Add(NewLine());
+
+		int retired = _lines.Count - Rows - 1;
+
+		if (retired >= 0 && !_wrapped.Contains(_lines[retired])) Feed(retired);
+
 		Trim();
 	}
 
@@ -551,7 +571,10 @@ public sealed class TerminalScreen
 
 		if (excess <= 0) return;
 
-		for (int i = 0; i < excess; i++) _wrapped.Remove(_lines[i]);
+		for (int i = 0; i < excess; i++) {
+			_wrapped.Remove(_lines[i]);
+			_fed.Remove(_lines[i]);
+		}
 
 		_lines.RemoveRange(0, excess);
 	}
@@ -576,7 +599,10 @@ public sealed class TerminalScreen
 				for (int row = 0; row < Rows; row++) Clear(VisibleLine(row), 0, Columns);
 
 				if (mode == 3 && _lines.Count > Rows) {
-					for (int i = 0; i < _lines.Count - Rows; i++) _wrapped.Remove(_lines[i]);
+					for (int i = 0; i < _lines.Count - Rows; i++) {
+						_wrapped.Remove(_lines[i]);
+						_fed.Remove(_lines[i]);
+					}
 
 					_lines.RemoveRange(0, _lines.Count - Rows);
 				}
@@ -645,6 +671,8 @@ public sealed class TerminalScreen
 	}
 
 	private void Clear(TerminalCell[] line, int start, int count) {
+		if (_fed.Count > 0) _fed.Remove(line);
+
 		for (int i = start; i < start + count && i < line.Length; i++) {
 			line[i].Character = ' ';
 			line[i].Foreground = 0;

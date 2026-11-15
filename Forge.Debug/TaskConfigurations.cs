@@ -17,6 +17,8 @@ public sealed record TaskDefinition(string Label, string Type, string? Command)
 
 	public bool DependsInOrder { get; init; }
 
+	public string[] ProblemMatchers { get; init; } = [];
+
 	public string CommandLine {
 		get {
 			if (Command is not { Length: > 0 } command) return string.Empty;
@@ -161,6 +163,25 @@ public sealed class TaskConfigurations
 				break;
 		}
 
+		List<string> matchers = [];
+
+		void AddMatcher(JsonNode? node) {
+			switch (node) {
+				case JsonValue value when value.TryGetValue(out string? name):
+					matchers.Add(name);
+					break;
+
+				case JsonObject matcher when matcher["base"] is JsonValue baseValue && baseValue.TryGetValue(out string? baseName):
+					matchers.Add(baseName);
+					break;
+			}
+		}
+
+		if (o["problemMatcher"] is JsonArray matcherArray) {
+			foreach (JsonNode? entry in matcherArray) AddMatcher(entry);
+		}
+		else AddMatcher(o["problemMatcher"]);
+
 		return new TaskDefinition(label, o["type"]?.GetValue<string>() ?? "shell",
 			o["command"]?.GetValue<string>()) {
 			Args = [.. args],
@@ -169,6 +190,7 @@ public sealed class TaskConfigurations
 			IsDefault = isDefault,
 			DependsOn = [.. dependsOn],
 			DependsInOrder = o["dependsOrder"]?.GetValue<string>() == "sequence",
+			ProblemMatchers = [.. matchers],
 		};
 	}
 }

@@ -35,6 +35,7 @@ public sealed class DotnetExtension : ForgeExtension
 		_lifecycle = new ServerLifecycle(_server, _workspace, diagnostics, _contexts, _workspaceCommands, new CodeActionRunner(_server, _output), _output, _settings);
 		_editor = new EditorCommands(_server, _output, _settings);
 		_grouping = new SolutionGrouping(_workspace, _output);
+		ProblemMatchers.Register(MsCompileMatcherRun.Name, host => new MsCompileMatcherRun(diagnostics, host));
 		_build = new BuildTasks(_workspace, _output, diagnostics) { Started = () => _server.Workspace.RefreshSourceGenerators(force: false), Finished = () => _server.Workspace.RefreshSourceGenerators(force: false) };
 	}
 

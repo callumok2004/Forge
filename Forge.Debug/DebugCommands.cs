@@ -138,7 +138,9 @@ public static class DebugCommands
 
 			if (step.CommandLine is not { Length: > 0 } commandLine) continue;
 
-			host.RunInTerminal(step.Label, commandLine, step.Cwd ?? rootPath, null, null);
+			(Action<string>? lines, Action<int>? finished) = ProblemMatchers.Start(host, step.ProblemMatchers);
+
+			host.RunInTerminal(step.Label, commandLine, step.Cwd ?? rootPath, lines, finished);
 		}
 	}
 

@@ -1726,6 +1726,23 @@ function convertDiagnostic(entry) {
 	return diagnostic;
 }
 
+documentHandlers["languages/updateDiagnostics"] = params => {
+	const changed = [];
+
+	for (const [target, list] of params?.entries ?? []) {
+		const uri = Uri.revive(target);
+		const key = uri.toString();
+
+		if (list?.length) diagnosticsByUri.set(key, { uri, list: list.map(convertDiagnostic) });
+		else diagnosticsByUri.delete(key);
+
+		changed.push(uri);
+	}
+
+	if (changed.length) emitter("languages.onDidChangeDiagnostics").fire({ uris: changed });
+	return null;
+};
+
 documentHandlers["languages/setDiagnostics"] = params => {
 	const changed = new Set(diagnosticsByUri.keys());
 	diagnosticsByUri.clear();

@@ -10,7 +10,7 @@ public sealed class MsBuildProblemMatcher
 	public const string Owner = "dotnet.build";
 
 	private readonly List<Diagnostic> _diagnostics = [];
-	private readonly HashSet<string> _seen = [with(StringComparer.Ordinal)];
+	private readonly Dictionary<string, List<int>> _byLocation = [with(StringComparer.OrdinalIgnoreCase)];
 
 	public IReadOnlyList<Diagnostic> Diagnostics => _diagnostics;
 
@@ -20,7 +20,7 @@ public sealed class MsBuildProblemMatcher
 
 	public void Clear() {
 		_diagnostics.Clear();
-		_seen.Clear();
+		_byLocation.Clear();
 		ErrorCount = 0;
 		WarningCount = 0;
 	}
@@ -28,10 +28,22 @@ public sealed class MsBuildProblemMatcher
 	public bool Read(string line) {
 		if (Parse(line) is not { } diagnostic) return false;
 
-		string key = $"{diagnostic.File}|{diagnostic.Line}|{diagnostic.Column}|{diagnostic.Message}";
+		string key = $"{diagnostic.File}|{diagnostic.Line}|{diagnostic.Column}|{diagnostic.Code}";
 
-		if (!_seen.Add(key)) return true;
+		if (!_byLocation.TryGetValue(key, out List<int>? indexes)) _byLocation[key] = indexes = [];
 
+		foreach (int index in indexes) {
+			string existing = _diagnostics[index].Message;
+
+			if (existing.StartsWith(diagnostic.Message, StringComparison.Ordinal)) return false;
+
+			if (!diagnostic.Message.StartsWith(existing, StringComparison.Ordinal)) continue;
+
+			_diagnostics[index] = diagnostic;
+			return true;
+		}
+
+		indexes.Add(_diagnostics.Count);
 		_diagnostics.Add(diagnostic);
 
 		if (diagnostic.Severity == DiagnosticSeverity.Error) ErrorCount++;
