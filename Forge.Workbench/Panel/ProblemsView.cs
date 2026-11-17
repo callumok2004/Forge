@@ -268,6 +268,8 @@ public sealed class ProblemsView : Panel
 	}
 
 	private string? ProjectIn(string directory) {
+		if (directory.Length == 0) return null;
+
 		if (_projects.TryGetValue(directory, out string? cached)) return cached;
 
 		string? name = null;
