@@ -21,6 +21,7 @@ public sealed class DebugService : IDebug, IDisposable
 	private string? _pendingLaunch;
 	private bool _ignoreBreakpointChanges;
 	private readonly HashSet<string> _sentPaths = new(StringComparer.OrdinalIgnoreCase);
+	private readonly Dictionary<int, (string Path, int Line)> _adapterBreakpoints = [];
 
 	private Action? _stateChanged;
 
@@ -191,6 +192,7 @@ public sealed class DebugService : IDebug, IDisposable
 		session.Output += value => _output?.Invoke(value);
 		session.Log += line => _output?.Invoke(new DebugOutput("console", line + "\n", null, 0));
 		session.ThreadsChanged += () => _modelChanged?.Invoke();
+		session.BreakpointChanged += OnBreakpointChanged;
 		session.ProcessStarted += pid => ProcessStarted?.Invoke(session.Id, resolved.Name, pid);
 
 		session.Stopped += (_, _) => {
@@ -540,6 +542,25 @@ public sealed class DebugService : IDebug, IDisposable
 		lock (_callStack) return _callStack.Count > 0 && _callStack[0].Id == frame.Id;
 	}
 
+	private void OnBreakpointChanged(JsonNode? breakpoint) {
+		if (breakpoint?["id"]?.GetValue<int>() is not { } id) return;
+
+		(string Path, int Line) target;
+
+		lock (_adapterBreakpoints) {
+			if (!_adapterBreakpoints.TryGetValue(id, out target)) return;
+		}
+
+		_ignoreBreakpointChanges = true;
+
+		try {
+			_breakpoints.Verify(target.Path, [(target.Line, breakpoint["verified"]?.GetValue<bool>() ?? false, breakpoint["line"]?.GetValue<int>(), breakpoint["message"]?.GetValue<string>())]);
+		}
+		finally {
+			_ignoreBreakpointChanges = false;
+		}
+	}
+
 	private Task SendBreakpointsAsync() =>
 		_session is { } session ? SendBreakpointsAsync(session) : Task.CompletedTask;
 
@@ -586,6 +607,12 @@ public sealed class DebugService : IDebug, IDisposable
 			if (response?["breakpoints"] is not JsonArray verified) continue;
 
 			List<(int, bool, int?, string?)> results = [];
+
+			lock (_adapterBreakpoints) {
+				for (int i = 0; i < verified.Count && i < lines.Count; i++) {
+					if (verified[i]?["id"]?.GetValue<int>() is { } id) _adapterBreakpoints[id] = (path, lines[i]);
+				}
+			}
 
 			for (int i = 0; i < verified.Count && i < lines.Count; i++) {
 				results.Add((lines[i],
