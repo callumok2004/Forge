@@ -617,6 +617,7 @@ public sealed class TerminalScreen
 		switch (mode) {
 			case 0:
 				Clear(line, _cursorColumn, Columns - _cursorColumn);
+				_wrapped.Remove(line);
 				return;
 
 			case 1:
@@ -625,6 +626,7 @@ public sealed class TerminalScreen
 
 			default:
 				Clear(line, 0, Columns);
+				_wrapped.Remove(line);
 				return;
 		}
 	}

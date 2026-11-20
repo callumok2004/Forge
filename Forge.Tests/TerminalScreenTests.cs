@@ -195,6 +195,17 @@ public class TerminalScreenTests
 	}
 
 	[Fact]
+	public void RewrittenWrappedLineNoLongerJoinsTheNextLine() {
+		TerminalScreen screen = Screen(10);
+		screen.Write("0123456789abc\r\nnext");
+		screen.Write("\u001b[2A\r\u001b[Kshort\r\n");
+
+		int index = FindLine(screen, "short");
+
+		Assert.Equal("short", screen.LogicalText(index));
+	}
+
+	[Fact]
 	public void ResizeNarrowerKeepsLogicalLine() {
 		TerminalScreen screen = Screen(80);
 		screen.Write(Long + "\r\nafter");
