@@ -54,6 +54,8 @@ public interface IDebug
 
 	bool ToggleBreakpoint(string path, int line);
 
+	SourceBreakpoint? FindBreakpoint(string path, int line);
+
 	void AddBreakpoint(SourceBreakpoint breakpoint);
 
 	void UpdateBreakpoint(string path, int line, string? condition, string? hitCondition, string? logMessage);

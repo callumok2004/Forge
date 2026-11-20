@@ -812,6 +812,29 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 			Refresh();
 		};
+
+		root.Editor.BreakpointMenu = (line, x, y) => {
+			if (workbench.ActiveFilePath is not { Length: > 0 } path) return;
+
+			void Edit(BreakpointEditMode mode) => new BreakpointEditor(debugger, path, line, mode).Open(root.Editor.TextLeft, root.Editor.LineBottom(line), root.Editor.ScreenX + root.Editor.Wide - root.Editor.TextLeft);
+
+			Menu menu = new();
+
+			if (debugger.FindBreakpoint(path, line) is { } existing) {
+				menu.Add(new MenuItem("Remove Breakpoint", null, () => debugger.RemoveBreakpoint(path, existing.Line)));
+				menu.Add(new MenuItem("Edit Breakpoint", null, () => Edit(existing.LogMessage is { Length: > 0 } ? BreakpointEditMode.LogMessage : existing.HitCondition is { Length: > 0 } ? BreakpointEditMode.HitCount : BreakpointEditMode.Expression)));
+				menu.Add(new MenuItem(existing.Enabled ? "Disable Breakpoint" : "Enable Breakpoint", null, () => debugger.EnableOrDisableBreakpoints(!existing.Enabled, path, existing.Line)));
+			}
+			else {
+				menu.Add(new MenuItem("Add Breakpoint", null, () => debugger.ToggleBreakpoint(path, line)));
+				menu.Add(new MenuItem("Add Conditional Breakpoint...", null, () => Edit(BreakpointEditMode.Expression)));
+				menu.Add(new MenuItem("Add Logpoint...", null, () => Edit(BreakpointEditMode.LogMessage)));
+			}
+
+			menu.Open(x, y);
+			Refresh();
+		};
+
 		workbench.Find.View = () => workbench.ActiveView;
 
 		workbench.Find.Revealed = found => {

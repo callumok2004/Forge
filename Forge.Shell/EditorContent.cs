@@ -47,6 +47,12 @@ public sealed class EditorContent : Panel
 
 	public Action<int>? BreakpointToggled { get; set; }
 
+	public Action<int, float, float>? BreakpointMenu { get; set; }
+
+	public float LineBottom(int line) => _workbench.ActiveView is { } view ? _workbench.EditorTop + view.TopOf(line - 1, view.LastLineHeight) - view.ScrollY + view.LastLineHeight : 0f;
+
+	public float TextLeft => _workbench.EditorLeft + _workbench.TextInset;
+
 	public Action<int>? ZoomRequested { get; set; }
 
 	public Func<bool>? WheelZooms { get; set; }
@@ -248,6 +254,14 @@ public sealed class EditorContent : Panel
 	private bool Press(MouseButton button, float x, float y, int clicks) {
 		_workbench.IntelliSense?.Dismiss();
 		RequestFocus();
+
+		if (button == MouseButton.Right && _workbench.ActiveDiff is null && _workbench.ActiveView is { } clicked && x - GutterOffset < TextView.GlyphMarginWidth) {
+			int line = clicked.Snapshot.GetLineAt(OffsetAt(clicked, x, y)) + 1;
+			(float menuX, float menuY) = GetAbsPos();
+			BreakpointMenu?.Invoke(line, menuX + x, menuY + y);
+			Pressed?.Invoke();
+			return true;
+		}
 
 		if (button != MouseButton.Left || _workbench.ActiveView is not { } view) {
 			Pressed?.Invoke();
