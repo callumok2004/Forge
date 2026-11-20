@@ -79,6 +79,9 @@ public sealed class ScmTree : Panel
 
 		_stale = false;
 		_rows.Clear();
+		_hover = -1;
+		_hoverAction = -1;
+		_pressed = -1;
 
 		if (_view.Repository is not { } repository) return;
 
@@ -302,7 +305,11 @@ public sealed class ScmTree : Panel
 		_pressed = RowAt(y);
 		_pressedAction = ActionAt(_pressed, x);
 
-		if (_pressed >= 0 && _pressedAction < 0) {
+		if (_pressed < 0 && _selectedKey is not null) {
+			_selectedKey = null;
+			Repaint();
+		}
+		else if (_pressed >= 0 && _pressedAction < 0) {
 			_selectedKey = _rows[_pressed].Key;
 			Repaint();
 		}
