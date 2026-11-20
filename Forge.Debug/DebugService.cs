@@ -323,7 +323,23 @@ public sealed class DebugService : IDebug, IDisposable
 
 	public SourceBreakpoint? FindBreakpoint(string path, int line) => _breakpoints.Find(path, line);
 
-	public bool ToggleBreakpoint(string path, int line) => _breakpoints.Toggle(path, line);
+	public Func<string, int, Task<int?>>? BreakpointLocation { get; set; }
+
+	public bool ToggleBreakpoint(string path, int line) {
+		if (_breakpoints.Find(path, line) is not null || BreakpointLocation is not { } locate) return _breakpoints.Toggle(path, line);
+
+		_ = PlaceBreakpointAsync(locate, path, line);
+		return true;
+	}
+
+	private async Task PlaceBreakpointAsync(Func<string, int, Task<int?>> locate, string path, int line) {
+		if (await locate(path, line).ConfigureAwait(false) is not { } resolved) {
+			Report($"Line {line} is not a valid location for a breakpoint.");
+			return;
+		}
+
+		if (_breakpoints.Find(path, resolved) is null) _breakpoints.Toggle(path, resolved);
+	}
 
 	public void AddBreakpoint(SourceBreakpoint breakpoint) => _breakpoints.Add(breakpoint);
 

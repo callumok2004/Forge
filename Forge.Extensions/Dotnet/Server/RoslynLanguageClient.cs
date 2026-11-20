@@ -35,7 +35,10 @@ public sealed partial class RoslynLanguageClient : IDisposable
 		Rename = new RenameRequests(this);
 		CodeActions = new CodeActionRequests(this);
 		CodeLenses = new CodeLensRequests(this);
+		Breakpoints = new BreakpointRequests(this);
 	}
+
+	public BreakpointRequests Breakpoints { get; }
 
 	public CodeActionRequests CodeActions { get; }
 

@@ -44,6 +44,8 @@ public interface ILanguageFeatures
 
 	Task<IReadOnlyList<CodeLensEntry>> CodeLensesAsync(string path) => Task.FromResult<IReadOnlyList<CodeLensEntry>>([]);
 
+	Task<int?> BreakpointLineAsync(string path, int line) => Task.FromResult<int?>(line);
+
 	Task<CodeLensTitle?> ResolveCodeLensAsync(string path, int index) => Task.FromResult<CodeLensTitle?>(null);
 
 	Task<CodeLensReferences?> ExecuteCodeLensAsync(string path, int index) => Task.FromResult<CodeLensReferences?>(null);

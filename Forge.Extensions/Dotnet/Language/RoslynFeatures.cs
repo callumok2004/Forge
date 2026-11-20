@@ -45,6 +45,12 @@ public sealed class RoslynFeatures(RoslynLanguageClient server, DotnetSettings s
 		return new SignatureHelp(active.Label, active.Parameters, active.Documentation, help.ParameterIndex, help.ActiveIndex, help.Overloads.Count);
 	}
 
+	public async Task<int?> BreakpointLineAsync(string path, int line) {
+		BreakableLine breakable = await server.Breakpoints.BreakableLineAsync(path, line).ConfigureAwait(false);
+
+		return breakable.Valid ? breakable.Line : null;
+	}
+
 	public async Task<string?> HoverAsync(string path, int line, int column) {
 		Task<string?> sizes = layout.HoverAsync(path, line, column);
 		string? hover = await server.Hover.RequestAsync(path, line, column).ConfigureAwait(false);

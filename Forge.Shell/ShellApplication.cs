@@ -715,6 +715,9 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		workbench.IntelliSense.Suggest.DetailsVisible = settings.SuggestDetailsVisible;
 
+		IntelliSense languageFeatures = workbench.IntelliSense;
+		debugger.BreakpointLocation = (path, line) => languageFeatures.FeaturesFor(path) is { } features ? features.BreakpointLineAsync(path, line) : Task.FromResult<int?>(line);
+
 		void ApplyZoom() {
 			float target = window.DpiScale * settings.ZoomFactor;
 

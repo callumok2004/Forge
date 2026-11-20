@@ -17,6 +17,13 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 
 	private readonly List<ILanguageFeatures> _providers = [];
 
+	public ILanguageFeatures? FeaturesFor(string path) {
+		foreach (ILanguageFeatures provider in _providers)
+			if (provider.Handles(path)) return provider;
+
+		return null;
+	}
+
 	public void AddFeatures(ILanguageFeatures features) {
 		if (!_providers.Contains(features)) _providers.Add(features);
 	}
