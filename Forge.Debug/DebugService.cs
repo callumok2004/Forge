@@ -17,7 +17,6 @@ public sealed class DebugService : IDebug, IDisposable
 	private int _focusedFrameId = -1;
 	private int _sessionCounter;
 	private bool _disposed;
-	private bool _acquiring;
 	private string? _pendingLaunch;
 	private bool _ignoreBreakpointChanges;
 	private readonly HashSet<string> _sentPaths = new(StringComparer.OrdinalIgnoreCase);
@@ -162,19 +161,7 @@ public sealed class DebugService : IDebug, IDisposable
 		}
 
 		if (DebugAdapters.StartInfoFor(resolved.Type, resolved.Cwd ?? WorkspaceFolder) is not { } adapter) {
-			if (DebugAdapters.For(resolved.Type) is not { Acquire: { } acquire }) {
-				Report($"No extension provides a debug adapter for \"{resolved.Type}\".");
-				return false;
-			}
-
-			if (_acquiring) {
-				Report("Still installing the debug adapter.");
-				return false;
-			}
-
-			_acquiring = true;
-			Report("Installing the debug adapter...");
-			_ = AcquireThenStartAsync(acquire, name, noDebug);
+			Report(DebugAdapters.For(resolved.Type) is { } missing ? $"The debug adapter for \"{resolved.Type}\" is missing at {missing.FileName}." : $"No extension provides a debug adapter for \"{resolved.Type}\".");
 			return false;
 		}
 
@@ -238,15 +225,6 @@ public sealed class DebugService : IDebug, IDisposable
 		_ = StartSessionAsync(session);
 		_stateChanged?.Invoke();
 		return true;
-	}
-
-	private async Task AcquireThenStartAsync(Func<Action<string>, Task<bool>> acquire,
-		string configurationName, bool noDebug) {
-		bool acquired = await acquire(Report).ConfigureAwait(false);
-
-		_acquiring = false;
-
-		if (acquired) StartDebugging(configurationName, noDebug, skipPreLaunch: true);
 	}
 
 	private bool RunTaskByLabel(string label, string? cwd, Action<int>? finished) {

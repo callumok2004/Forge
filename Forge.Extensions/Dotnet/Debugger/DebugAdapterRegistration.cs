@@ -6,13 +6,10 @@ public static class DebugAdapterRegistration
 {
 	private static readonly (string Type, string Label)[] Types = [("coreclr", ".NET Core"), ("clr", ".NET Framework"), ("dotnet", ".NET")];
 
-	public static void Register(string storageDirectory) {
-		string executable = NetCoreDbgAcquisition.ExecutablePath(storageDirectory);
+	private static string Executable => Path.Combine(AppContext.BaseDirectory, "Debugger", "dncdbg", "dncdbg.exe");
 
-		foreach ((string type, string label) in Types) {
-			DebugAdapters.Register(new DebugAdapterDescriptor(type, label, executable, ["--interpreter=vscode"]) {
-				Acquire = progress => NetCoreDbgAcquisition.AcquireAsync(storageDirectory, progress),
-			});
-		}
+	public static void Register() {
+		foreach ((string type, string label) in Types)
+			DebugAdapters.Register(new DebugAdapterDescriptor(type, label, Executable, ["--interpreter=vscode"]));
 	}
 }

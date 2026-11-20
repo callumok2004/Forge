@@ -1,7 +1,8 @@
-[submodule "native/netcoredbg"]
-	path = native/netcoredbg
-	url = https://github.com/callumok2004/netcoredbg.git
 [submodule "native/roslyn"]
 	path = native/roslyn
 	url = https://github.com/callumok2004/roslyn.git
+	branch = forge
+[submodule "native/dncdbg"]
+	path = native/dncdbg
+	url = https://github.com/callumok2004/dncdbg.git
 	branch = forge

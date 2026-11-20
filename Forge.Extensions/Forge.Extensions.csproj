@@ -29,25 +29,31 @@
 	</ItemGroup>
 
 	<PropertyGroup>
-		<NetCoreDbgRoot>$(MSBuildThisFileDirectory)..\native\netcoredbg\</NetCoreDbgRoot>
-		<NetCoreDbgBin>$(NetCoreDbgRoot)bin\</NetCoreDbgBin>
+		<DncDbgRoot>$(MSBuildThisFileDirectory)..\native\dncdbg\</DncDbgRoot>
+		<DncDbgBin>$(DncDbgRoot)bin\</DncDbgBin>
 	</PropertyGroup>
 
 	<ItemGroup>
-		<NetCoreDbgSource Include="$(NetCoreDbgRoot)src\**\*.cpp;$(NetCoreDbgRoot)src\**\*.h;$(NetCoreDbgRoot)src\**\*.cs;$(NetCoreDbgRoot)**\CMakeLists.txt" Exclude="$(NetCoreDbgRoot).coreclr\**;$(NetCoreDbgRoot)build\**" />
+		<DncDbgSource Include="$(DncDbgRoot)src\**\*.cpp;$(DncDbgRoot)src\**\*.h;$(DncDbgRoot)**\CMakeLists.txt" Exclude="$(DncDbgRoot)build\**" />
 	</ItemGroup>
 
-	<Target Name="BuildNetCoreDbg" BeforeTargets="BeforeBuild" Condition="Exists('$(NetCoreDbgRoot)CMakeLists.txt')" Inputs="@(NetCoreDbgSource)" Outputs="$(NetCoreDbgBin)netcoredbg.exe">
-		<Message Importance="high" Text="Building netcoredbg fork..." />
-		<Exec Condition="!Exists('$(NetCoreDbgRoot)build\CMakeCache.txt')" Command="cmake -S &quot;$(NetCoreDbgRoot.TrimEnd('\'))&quot; -B &quot;$(NetCoreDbgRoot)build&quot; -G &quot;Visual Studio 17 2022&quot; -A x64 -DCMAKE_INSTALL_PREFIX=&quot;$(NetCoreDbgBin.TrimEnd('\'))&quot;" />
-		<Exec Command="cmake --build &quot;$(NetCoreDbgRoot)build&quot; --config Release --target install -- -m -v:m" />
-		<Touch Files="$(NetCoreDbgBin)netcoredbg.exe" />
+	<Target Name="BuildDncDbg" BeforeTargets="BeforeBuild" Condition="Exists('$(DncDbgRoot)CMakeLists.txt')" Inputs="@(DncDbgSource)" Outputs="$(DncDbgBin)dncdbg.exe">
+		<Message Importance="high" Text="Building dncdbg fork..." />
+		<Exec Command="&quot;$(MSBuildProgramFiles32)\Microsoft Visual Studio\Installer\vswhere.exe&quot; -latest -prerelease -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath" ConsoleToMSBuild="true" StandardOutputImportance="low">
+			<Output TaskParameter="ConsoleOutput" PropertyName="DncDbgVsPath" />
+		</Exec>
+		<PropertyGroup>
+			<DncDbgDevCmd>call &quot;$(DncDbgVsPath)\Common7\Tools\VsDevCmd.bat&quot; -arch=amd64 -host_arch=amd64 -no_logo &amp;&amp; </DncDbgDevCmd>
+		</PropertyGroup>
+		<Exec Condition="!Exists('$(DncDbgRoot)build\CMakeCache.txt')" Command="$(DncDbgDevCmd)cmake -S &quot;$(DncDbgRoot.TrimEnd('\'))&quot; -B &quot;$(DncDbgRoot)build&quot; -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=&quot;$(DncDbgBin.TrimEnd('\'))&quot;" />
+		<Exec Command="$(DncDbgDevCmd)cmake --build &quot;$(DncDbgRoot)build&quot; --config Release --target install -- -m -v:m" />
+		<Touch Files="$(DncDbgBin)dncdbg.exe" />
 	</Target>
 
-	<Target Name="CopyNetCoreDbg" AfterTargets="BuildNetCoreDbg" BeforeTargets="AssignTargetPaths">
+	<Target Name="CopyDncDbg" AfterTargets="BuildDncDbg" BeforeTargets="AssignTargetPaths">
 		<ItemGroup>
-			<NetCoreDbgFile Include="$(NetCoreDbgBin)**\*" />
-			<None Include="@(NetCoreDbgFile)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="Debugger\netcoredbg\%(NetCoreDbgFile.RecursiveDir)%(NetCoreDbgFile.Filename)%(NetCoreDbgFile.Extension)" Visible="false" />
+			<DncDbgFile Include="$(DncDbgBin)**\*" />
+			<None Include="@(DncDbgFile)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="Debugger\dncdbg\%(DncDbgFile.RecursiveDir)%(DncDbgFile.Filename)%(DncDbgFile.Extension)" Visible="false" />
 		</ItemGroup>
 	</Target>
 

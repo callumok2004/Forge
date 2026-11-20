@@ -53,7 +53,7 @@ public sealed class DotnetExtension : ForgeExtension
 	}
 
 	public override void Register(ICommandRegistry commands) {
-		DebugAdapterRegistration.Register(_settings.StorageDirectory);
+		DebugAdapterRegistration.Register();
 
 		commands.Register(new Command("dotnet.build", "Build", ".NET", host => _build.Run(host, "build")));
 		commands.Register(new Command("dotnet.restore", "Restore", ".NET", host => _build.Run(host, "restore")));

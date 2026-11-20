@@ -2,11 +2,8 @@ using System.Diagnostics;
 
 namespace Forge.Debug;
 
-public sealed record DebugAdapterDescriptor(string Type, string Label, string FileName,
-	IReadOnlyList<string> Arguments)
+public sealed record DebugAdapterDescriptor(string Type, string Label, string FileName, IReadOnlyList<string> Arguments)
 {
-	public Func<Action<string>, Task<bool>>? Acquire { get; init; }
-
 	public bool Exists => File.Exists(FileName);
 }
 
