@@ -96,6 +96,8 @@ public interface IDebug
 
 	Task<DebugVariable?> EvaluateAsync(string expression, string context);
 
+	bool HexDisplay { get; set; }
+
 	IReadOnlyList<string> GetWatchExpressions();
 
 	void AddWatchExpression(string expression);

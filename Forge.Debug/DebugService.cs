@@ -476,11 +476,21 @@ public sealed class DebugService : IDebug, IDisposable
 	public Task<IReadOnlyList<DebugScope>> ScopesAsync(int frameId) =>
 		_session?.ScopesAsync(frameId) ?? Task.FromResult<IReadOnlyList<DebugScope>>([]);
 
+	public bool HexDisplay {
+		get;
+		set {
+			if (field == value) return;
+
+			field = value;
+			_modelChanged?.Invoke();
+		}
+	}
+
 	public Task<IReadOnlyList<DebugVariable>> VariablesAsync(int variablesReference) =>
-		_session?.VariablesAsync(variablesReference) ?? Task.FromResult<IReadOnlyList<DebugVariable>>([]);
+		_session?.VariablesAsync(variablesReference, HexDisplay) ?? Task.FromResult<IReadOnlyList<DebugVariable>>([]);
 
 	public Task<DebugVariable?> EvaluateAsync(string expression, string context) =>
-		_session?.EvaluateAsync(expression, GetFocusedFrame()?.Id, context)
+		_session?.EvaluateAsync(expression, GetFocusedFrame()?.Id, context, HexDisplay)
 			?? Task.FromResult<DebugVariable?>(null);
 
 	private void WithThread(Func<DebugSession, int, Task> action) {

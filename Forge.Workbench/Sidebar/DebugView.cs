@@ -3,6 +3,7 @@ using Forge.Common.Render;
 using Forge.Common.UI;
 using Forge.Core;
 using Forge.Theming;
+using Forge.UI.Controls;
 
 namespace Forge.Workbench;
 
@@ -244,7 +245,20 @@ public sealed class DebugView : Panel
 		_hover = -1;
 	}
 
-	public override bool OnMousePressed(MouseButton button, float x, float y) => true;
+	public override bool OnMousePressed(MouseButton button, float x, float y) {
+		if (button != MouseButton.Right || Debugger is not { } debugger) return true;
+
+		Menu menu = new();
+		menu.Add(new MenuItem("Hex Display", null, () => {
+			debugger.HexDisplay = !debugger.HexDisplay;
+			Reset();
+			Changed?.Invoke();
+		}) { Checked = debugger.HexDisplay });
+
+		(float absX, float absY) = GetAbsPos();
+		menu.Open(absX + x, absY + y);
+		return true;
+	}
 
 	public override bool OnMouseReleased(MouseButton button, float x, float y) {
 		EnsureRows();

@@ -218,11 +218,12 @@ public sealed class DebugSession : IDisposable
 		return scopes;
 	}
 
-	public async Task<IReadOnlyList<DebugVariable>> VariablesAsync(int variablesReference,
-		CancellationToken cancellationToken = default) {
-		JsonNode? body = await SafeAsync("variables",
-			new JsonObject { ["variablesReference"] = variablesReference }, cancellationToken)
-			.ConfigureAwait(false);
+	public async Task<IReadOnlyList<DebugVariable>> VariablesAsync(int variablesReference, bool hex = false, CancellationToken cancellationToken = default) {
+		JsonObject arguments = new() { ["variablesReference"] = variablesReference };
+
+		if (hex) arguments["format"] = new JsonObject { ["hex"] = true };
+
+		JsonNode? body = await SafeAsync("variables", arguments, cancellationToken).ConfigureAwait(false);
 
 		List<DebugVariable> variables = [];
 
@@ -246,9 +247,10 @@ public sealed class DebugSession : IDisposable
 		return variables;
 	}
 
-	public async Task<DebugVariable?> EvaluateAsync(string expression, int? frameId, string context,
-		CancellationToken cancellationToken = default) {
+	public async Task<DebugVariable?> EvaluateAsync(string expression, int? frameId, string context, bool hex = false, CancellationToken cancellationToken = default) {
 		JsonObject arguments = new() { ["expression"] = expression, ["context"] = context };
+
+		if (hex) arguments["format"] = new JsonObject { ["hex"] = true };
 
 		if (frameId is { } frame) arguments["frameId"] = frame;
 
