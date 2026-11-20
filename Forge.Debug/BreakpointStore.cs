@@ -31,6 +31,8 @@ public sealed class BreakpointStore
 	}
 
 	public SourceBreakpoint? Find(string path, int line) {
+		path = Forge.Core.PathKey.Normalize(path);
+
 		lock (_sync) {
 			foreach (SourceBreakpoint breakpoint in _source)
 				if (breakpoint.EffectiveLine == line && Same(breakpoint.Path, path)) return breakpoint;
@@ -40,6 +42,8 @@ public sealed class BreakpointStore
 	}
 
 	public IReadOnlyList<SourceBreakpoint> For(string path) {
+		path = Forge.Core.PathKey.Normalize(path);
+
 		lock (_sync) {
 			List<SourceBreakpoint> matches = [];
 
@@ -65,6 +69,8 @@ public sealed class BreakpointStore
 	}
 
 	public bool Toggle(string path, int line) {
+		path = Forge.Core.PathKey.Normalize(path);
+
 		bool added;
 
 		lock (_sync) {
@@ -85,6 +91,8 @@ public sealed class BreakpointStore
 	}
 
 	public void Add(SourceBreakpoint breakpoint) {
+		breakpoint = breakpoint with { Path = Forge.Core.PathKey.Normalize(breakpoint.Path) };
+
 		lock (_sync) {
 			int index = IndexOf(breakpoint.Path, breakpoint.Line);
 
@@ -96,6 +104,8 @@ public sealed class BreakpointStore
 	}
 
 	public void Update(string path, int line, string? condition, string? hitCondition, string? logMessage) {
+		path = Forge.Core.PathKey.Normalize(path);
+
 		lock (_sync) {
 			int index = IndexOf(path, line);
 
@@ -115,6 +125,8 @@ public sealed class BreakpointStore
 	}
 
 	public void Remove(string path, int line) {
+		path = Forge.Core.PathKey.Normalize(path);
+
 		lock (_sync) {
 			int index = IndexOf(path, line);
 
@@ -136,6 +148,8 @@ public sealed class BreakpointStore
 	}
 
 	public void SetEnabled(bool enabled, string? path, int line) {
+		if (path is not null) path = Forge.Core.PathKey.Normalize(path);
+
 		lock (_sync) {
 			if (path is null) {
 				for (int i = 0; i < _source.Count; i++) _source[i] = _source[i] with { Enabled = enabled };
@@ -160,6 +174,8 @@ public sealed class BreakpointStore
 	}
 
 	public void Verify(string path, IReadOnlyList<(int Line, bool Verified, int? ActualLine, string? Message)> results) {
+		path = Forge.Core.PathKey.Normalize(path);
+
 		lock (_sync) {
 			foreach ((int line, bool verified, int? actual, string? message) in results) {
 				int index = IndexOf(path, line);
@@ -264,10 +280,16 @@ public sealed class BreakpointStore
 					foreach (JsonNode? entry in source) {
 						if (entry?["path"]?.GetValue<string>() is not { } file) continue;
 
+						file = Forge.Core.PathKey.Normalize(file);
+
 						if (within is { Length: > 0 } && !file.StartsWith(within.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
 
+						int line = entry["line"]?.GetValue<int>() ?? 1;
+
+						if (_source.Exists(existing => existing.Line == line && Same(existing.Path, file))) continue;
+
 						_source.Add(new SourceBreakpoint(file,
-							entry["line"]?.GetValue<int>() ?? 1,
+							line,
 							entry["condition"]?.GetValue<string>(),
 							entry["hitCondition"]?.GetValue<string>(),
 							entry["logMessage"]?.GetValue<string>(),

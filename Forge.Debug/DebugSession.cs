@@ -31,6 +31,8 @@ public sealed class DebugSession : IDisposable
 
 	public DebugCapabilities Capabilities { get; private set; } = new();
 
+	private readonly TaskCompletionSource _capabilitiesRead = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
 	public DebugState State { get; private set; } = DebugState.Inactive;
 
 	public int? StoppedThreadId { get; private set; }
@@ -93,6 +95,7 @@ public sealed class DebugSession : IDisposable
 				.ConfigureAwait(false);
 
 			Capabilities = ReadCapabilities(body);
+			_capabilitiesRead.TrySetResult();
 
 			JsonObject launch = Configuration.Raw is { } raw
 				? (JsonObject)raw.DeepClone()
@@ -109,6 +112,7 @@ public sealed class DebugSession : IDisposable
 			Log?.Invoke(exception is OperationCanceledException
 				? $"{Configuration.Name}: the adapter did not respond within 20 seconds."
 				: $"{Configuration.Name} failed to start: {exception.Message}");
+			_capabilitiesRead.TrySetResult();
 			Terminate(exception.Message);
 			return false;
 		}
@@ -127,6 +131,8 @@ public sealed class DebugSession : IDisposable
 	}
 
 	private async Task InitializedAsync() {
+		await _capabilitiesRead.Task.WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+
 		if (SendBreakpoints is { } send) {
 			try {
 				await send(this).ConfigureAwait(false);

@@ -911,6 +911,8 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	}
 
 	public void OpenFile(string path) {
+		path = PathKey.Normalize(path);
+
 		for (int i = 0; i < _documents.Count; i++) {
 			if (string.Equals(_documents[i].Path, path, StringComparison.OrdinalIgnoreCase)) {
 				Activate(i);
@@ -1013,6 +1015,8 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	}
 
 	public int IndexOf(string path) {
+		path = PathKey.Normalize(path);
+
 		for (int i = 0; i < _documents.Count; i++) {
 			if (string.Equals(_documents[i].Path, path, StringComparison.OrdinalIgnoreCase)) return i;
 		}
