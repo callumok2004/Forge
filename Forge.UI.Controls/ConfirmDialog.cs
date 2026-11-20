@@ -77,6 +77,8 @@ public sealed class ConfirmDialog : Panel
 		dialog.RequestFocus();
 	}
 
+	public override bool DimsBackground => true;
+
 	public override bool DismissOnOutsideClick => false;
 
 	public override bool DismissOnFocusLost => false;
@@ -167,8 +169,6 @@ public sealed class ConfirmDialog : Panel
 	}
 
 	public override void PaintBackground(IPainter painter) {
-		if (Ui is { } ui) painter.FillRectangle(0f, 0f, ui.GetViewportWidth(), ui.GetViewportHeight(), new Color(0f, 0f, 0f, 0.3f));
-
 		float scale = Scale;
 		float radius = Radius * scale;
 		painter.FillRoundedRectangle(ScreenX + (2f * scale), ScreenY + (4f * scale), Wide, Tall, radius, Theme.WidgetShadow);

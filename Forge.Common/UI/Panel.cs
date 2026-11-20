@@ -409,6 +409,8 @@ public class Panel
 		Ui?.RemovePopup(this);
 	}
 
+	public virtual bool DimsBackground => false;
+
 	public virtual bool DismissOnOutsideClick => true;
 
 	public virtual bool DismissOnFocusLost => DismissOnOutsideClick;

@@ -4,6 +4,7 @@ using Forge.Common.Render;
 using Forge.Common.UI;
 using Forge.Core;
 using Forge.Core.Native;
+using Forge.Theming;
 
 namespace Forge.UI.Framework;
 
@@ -377,6 +378,8 @@ public sealed class UiSystem : IUiSystem
 
 		_popups.Add((popup, modal));
 
+		if (popup.DimsBackground) RepaintViewport();
+
 		if (popup.KeyboardInputEnabled) SetFocus(popup);
 	}
 
@@ -386,6 +389,8 @@ public sealed class UiSystem : IUiSystem
 		if (index < 0) return;
 
 		_popups.RemoveAt(index);
+
+		if (popup.DimsBackground) RepaintViewport();
 
 		if (_focus is not null && (ReferenceEquals(_focus, popup) || _focus.HasParent(popup))) SetFocus(_popups.Count > 0 ? _popups[^1].Panel : _focusBeforePopups);
 
@@ -469,10 +474,18 @@ public sealed class UiSystem : IUiSystem
 		foreach ((Panel popup, _) in _popups) popup.Solve();
 	}
 
+	private static readonly Color ModalBackdrop = new(0f, 0f, 0f, 0.3f);
+
+	private void RepaintViewport() => Repaint(PixelRect.FromSize((int)MathF.Ceiling(Root.Wide), (int)MathF.Ceiling(Root.Tall)));
+
 	public void Paint(IPainter painter, PixelRect damage) {
 		Root.PaintTraverse(painter, damage, 0f, 0f);
 
-		foreach ((Panel popup, _) in _popups) popup.PaintTraverse(painter, damage, 0f, 0f);
+		foreach ((Panel popup, _) in _popups) {
+			if (popup.DimsBackground) painter.FillRectangle(damage.Left, damage.Top, damage.Width, damage.Height, ModalBackdrop);
+
+			popup.PaintTraverse(painter, damage, 0f, 0f);
+		}
 
 		PaintDebugOverlay(painter);
 	}
