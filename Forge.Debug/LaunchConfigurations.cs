@@ -26,6 +26,7 @@ public sealed class LaunchConfigurations
 	public static LaunchConfigurations Load(string workspaceFolder) {
 		LaunchConfigurations launch = new() { Path = FileFor(workspaceFolder) };
 		Dictionary<string, List<LaunchOption>> extra = new(StringComparer.Ordinal);
+		Dictionary<string, JsonObject> settings = new(StringComparer.Ordinal);
 
 		foreach (string layer in Forge.Core.WorkspaceConfig.Layers(workspaceFolder, "launch.json")) {
 			JsonNode? root;
@@ -75,12 +76,26 @@ public sealed class LaunchConfigurations
 					target.AddRange(ReadOptions(list, layer, inline: false));
 				}
 			}
+
+			if (root?["settings"] is JsonObject layerSettings) {
+				foreach ((string name, JsonNode? values) in layerSettings) {
+					if (values is not JsonObject overrides) continue;
+
+					if (!settings.TryGetValue(name, out JsonObject? target)) settings[name] = target = [];
+
+					foreach ((string key, JsonNode? value) in overrides) target[key] = value?.DeepClone();
+				}
+			}
 		}
 
 		for (int i = 0; i < launch._configurations.Count; i++) {
 			DebugConfiguration configuration = launch._configurations[i];
 
-			if (extra.TryGetValue(configuration.Name, out List<LaunchOption>? added)) launch._configurations[i] = configuration with { Options = [.. configuration.Options, .. added] };
+			if (extra.TryGetValue(configuration.Name, out List<LaunchOption>? added)) configuration = configuration with { Options = [.. configuration.Options, .. added] };
+
+			if (settings.TryGetValue(configuration.Name, out JsonObject? overrides)) configuration = configuration with { Settings = overrides };
+
+			launch._configurations[i] = configuration;
 		}
 
 		return launch;
@@ -171,6 +186,31 @@ public sealed class LaunchConfigurations
 				["args"] = new JsonArray([.. args.Select(static arg => (JsonNode?)JsonValue.Create(arg))]),
 				["enabled"] = true,
 			});
+
+			Save(path, root);
+			return true;
+		}
+		catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException) {
+			return false;
+		}
+	}
+
+	public static bool WriteSetting(string workspaceFolder, string configuration, string key, JsonNode? value) {
+		string path = System.IO.Path.Combine(workspaceFolder, Forge.Core.WorkspaceConfig.ForgeFolder, "launch.json");
+
+		try {
+			if (ReadRoot(path) is not { } root) return false;
+
+			if (root["settings"] is not JsonObject settings) root["settings"] = settings = [];
+
+			if (settings[configuration] is not JsonObject overrides) settings[configuration] = overrides = [];
+
+			if (value is null) overrides.Remove(key);
+			else overrides[key] = value;
+
+			if (overrides.Count == 0) settings.Remove(configuration);
+
+			if (settings.Count == 0) root.Remove("settings");
 
 			Save(path, root);
 			return true;
@@ -280,6 +320,10 @@ public sealed class LaunchConfigurations
 		}
 
 		raw?.Remove("options");
+
+		if (raw is not null) {
+			foreach ((string key, JsonNode? value) in configuration.Settings) raw[key] = value?.DeepClone();
+		}
 
 		return configuration with {
 			Program = raw?["program"]?.GetValue<string>() ?? Resolve(configuration.Program, context),

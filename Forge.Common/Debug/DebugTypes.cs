@@ -108,6 +108,16 @@ public sealed record DebugConfiguration(string Name, string Type, string Request
 	public System.Text.Json.Nodes.JsonObject? Raw { get; init; }
 
 	public IReadOnlyList<LaunchOption> Options { get; init; } = [];
+
+	public System.Text.Json.Nodes.JsonObject Settings { get; init; } = [];
+
+	public bool Flag(string key, bool fallback) {
+		System.Text.Json.Nodes.JsonNode? node = Settings[key] ?? Raw?[key];
+
+		return node is System.Text.Json.Nodes.JsonValue value && value.TryGetValue(out bool flag) ? flag : fallback;
+	}
+
+	public string? Text(string key) => (Settings[key] ?? Raw?[key]) is System.Text.Json.Nodes.JsonValue value && value.TryGetValue(out string? text) ? text : null;
 }
 
 public sealed record LaunchOption(string Label, IReadOnlyList<string> Args, string? Value, bool Enabled, string Source, bool Inline, int Index)

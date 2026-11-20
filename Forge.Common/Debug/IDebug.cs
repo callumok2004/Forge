@@ -24,6 +24,8 @@ public interface IDebug
 
 	void RemoveLaunchOption(string configuration, int index);
 
+	void SetLaunchSetting(string configuration, string key, System.Text.Json.Nodes.JsonNode? value);
+
 	void ReloadConfigurations();
 
 	bool StartDebugging(string? configurationName, bool noDebug);

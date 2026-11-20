@@ -18,9 +18,15 @@ public sealed class LaunchPanel : Panel
 	private const float ValueWidth = 96f;
 	private const float CheckSize = 14f;
 
-	private enum RowKind { Header, Configuration, Option, Empty, Separator, Edit, Add, Adding }
+	private enum RowKind { Header, Configuration, Option, Setting, Empty, Separator, Edit, Add, Adding }
 
 	private readonly record struct Row(RowKind Kind, string Text, string Detail, int Index);
+
+	private static readonly (string Key, string Label, bool Default)[] Settings = [("console", "Console", false), ("justMyCode", "Just My Code", true), ("stopAtEntry", "Stop at Entry", false)];
+
+	private const string DebugConsole = "internalConsole";
+
+	private const string ExternalWindow = "externalTerminal";
 
 	private readonly IDebug _debugger;
 	private readonly Action _edit;
@@ -121,6 +127,13 @@ public sealed class LaunchPanel : Panel
 			else _rows.Add(new Row(RowKind.Add, "Add Option...", string.Empty, -1));
 		}
 
+		if (Selected is not null) {
+			_rows.Add(new Row(RowKind.Separator, string.Empty, string.Empty, -1));
+			_rows.Add(new Row(RowKind.Header, "Debugger", string.Empty, -1));
+
+			for (int i = 0; i < Settings.Length; i++) _rows.Add(new Row(RowKind.Setting, Settings[i].Label, string.Empty, i));
+		}
+
 		_rows.Add(new Row(RowKind.Separator, string.Empty, string.Empty, -1));
 		_rows.Add(new Row(RowKind.Edit, "Edit Configurations...", string.Empty, -1));
 		InvalidateLayout();
@@ -207,7 +220,19 @@ public sealed class LaunchPanel : Panel
 		return -1;
 	}
 
-	private static bool Interactive(RowKind kind) => kind is RowKind.Configuration or RowKind.Option or RowKind.Edit or RowKind.Add;
+	private static bool Interactive(RowKind kind) => kind is RowKind.Configuration or RowKind.Option or RowKind.Setting or RowKind.Edit or RowKind.Add;
+
+	private static bool IsConsole(int index) => Settings[index].Key == "console";
+
+	private static string ConsoleOf(DebugConfiguration configuration) => configuration.Text("console") ?? DebugConsole;
+
+	private static bool FlagOf(DebugConfiguration configuration, int index) => configuration.Flag(Settings[index].Key, Settings[index].Default);
+
+	private void ToggleSetting(DebugConfiguration configuration, int index) {
+		string key = Settings[index].Key;
+		System.Text.Json.Nodes.JsonNode value = IsConsole(index) ? System.Text.Json.Nodes.JsonValue.Create(ConsoleOf(configuration) == DebugConsole ? ExternalWindow : DebugConsole) : System.Text.Json.Nodes.JsonValue.Create(!FlagOf(configuration, index));
+		_debugger.SetLaunchSetting(configuration.Name, key, value);
+	}
 
 	private float RemoveLeft(int index) => Wide - ((PaddingX + RemoveSize + (_values.ContainsKey(index) ? ValueWidth + 4f : 0f)) * Scale);
 
@@ -261,6 +286,12 @@ public sealed class LaunchPanel : Panel
 				LaunchOption option = selected.Options[row.Index];
 				string? value = _values.TryGetValue(row.Index, out TextEntry? entry) ? entry.GetString() : option.Value;
 				_debugger.SetLaunchOption(selected.Name, row.Index, !option.Enabled, value);
+				Rebuild();
+				break;
+
+			case RowKind.Setting when Selected is { } configured:
+				Commit();
+				ToggleSetting(configured, row.Index);
 				Rebuild();
 				break;
 
@@ -346,6 +377,25 @@ public sealed class LaunchPanel : Panel
 					painter.DrawText(font, row.Text, textLeft, baseline, Theme.MenuForeground.WithAlpha(enabled ? 1f : 0.7f));
 					painter.DrawText(small, row.Detail, textLeft + font.Measure(row.Text) + (8f * scale), middle - (small.GetLineHeight() / 2f) + small.GetBaseline(), Theme.DescriptionForeground);
 					painter.PopClip();
+					break;
+
+				case RowKind.Setting when selected is not null && IsConsole(row.Index):
+					string mode = ConsoleOf(selected) == ExternalWindow ? "External Window" : "Debug Console";
+					painter.DrawText(font, row.Text, left + ((CheckSize + 8f) * scale), baseline, Theme.MenuForeground);
+					painter.DrawText(font, mode, ScreenX + Wide - (PaddingX * scale) - font.Measure(mode), baseline, Theme.DescriptionForeground);
+					break;
+
+				case RowKind.Setting when selected is not null:
+					bool on = FlagOf(selected, row.Index);
+					float check = CheckSize * scale;
+					float checkTop = middle - (check / 2f);
+
+					painter.FillRoundedRectangle(left, checkTop, check, check, 3f * scale, on ? Theme.FocusBorder : Theme.CheckboxBackground);
+					painter.StrokeRoundedRectangle(left, checkTop, check, check, 3f * scale, scale, Theme.CheckboxBorder);
+
+					if (on) painter.DrawIcon(Codicon.Check, left + (check / 2f), middle, check * 0.85f, Theme.MenuForeground);
+
+					painter.DrawText(font, row.Text, left + check + (8f * scale), baseline, Theme.MenuForeground);
 					break;
 
 				case RowKind.Empty:

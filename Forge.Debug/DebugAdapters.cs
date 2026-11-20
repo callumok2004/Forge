@@ -4,6 +4,8 @@ namespace Forge.Debug;
 
 public sealed record DebugAdapterDescriptor(string Type, string Label, string FileName, IReadOnlyList<string> Arguments)
 {
+	public IReadOnlyDictionary<string, string> LaunchDefaults { get; init; } = new Dictionary<string, string>();
+
 	public bool Exists => File.Exists(FileName);
 }
 

@@ -106,6 +106,15 @@ public sealed class DebugService : IDebug, IDisposable
 		ReloadConfigurations();
 	}
 
+	public void SetLaunchSetting(string configuration, string key, JsonNode? value) {
+		if (!LaunchConfigurations.WriteSetting(WorkspaceFolder, configuration, key, value)) {
+			Report($"Could not update \"{key}\" in .forge/launch.json.");
+			return;
+		}
+
+		ReloadConfigurations();
+	}
+
 	public void ReloadConfigurations() {
 		_launch = LaunchConfigurations.Load(WorkspaceFolder);
 
@@ -166,6 +175,11 @@ public sealed class DebugService : IDebug, IDisposable
 		}
 
 		if (noDebug && resolved.Raw is { } raw) raw["noDebug"] = true;
+
+		if (resolved.Raw is { } launch && DebugAdapters.For(resolved.Type) is { } descriptor) {
+			foreach ((string key, string value) in descriptor.LaunchDefaults)
+				if (!launch.ContainsKey(key)) launch[key] = value;
+		}
 
 		DebugSession session = new($"session-{++_sessionCounter}", resolved, adapter);
 
