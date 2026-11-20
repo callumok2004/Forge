@@ -101,9 +101,9 @@ public sealed class SuggestDetails : Panel
 
 			if (font.Measure(text.AsSpan(start, i - start + 1)) <= width) continue;
 
-			int end = lastSpace > start ? lastSpace : i;
+			int end = lastSpace > start ? lastSpace + 1 : i;
 			into.Add(text[start..end]);
-			start = lastSpace > start ? end + 1 : end;
+			start = end;
 			lastSpace = -1;
 		}
 

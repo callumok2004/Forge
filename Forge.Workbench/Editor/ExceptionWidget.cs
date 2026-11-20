@@ -111,10 +111,10 @@ public sealed class ExceptionWidget : Panel
 				while (cut > 1 && font.Measure(line.AsSpan(0, cut)) > width) cut--;
 
 				int space = isCode ? -1 : line.LastIndexOf(' ', cut - 1);
-				int split = space > 0 ? space : cut;
+				int split = space > 0 ? space + 1 : cut;
 
 				_lines.Add((line[..split], isCode, continues));
-				line = line[split..].TrimStart();
+				line = line[split..];
 				continues = true;
 			}
 

@@ -86,14 +86,55 @@ public sealed class TextSelection
 
 	public void Extend(float x, float y) => _focus = PositionAt(x, y);
 
+	private (int First, int Last) LogicalLine(int run) {
+		int first = run;
+		int last = run;
+
+		while (first > 0 && _runs[first].Joined && _runs[first - 1].Selectable) first--;
+
+		while (last + 1 < _runs.Count && _runs[last + 1].Joined && _runs[last + 1].Selectable) last++;
+
+		return (first, last);
+	}
+
+	private string Separator(int run) => _runs[run].Y == _runs[run - 1].Y ? " " : string.Empty;
+
 	public void SelectWord(float x, float y) {
 		(int run, int offset) = PositionAt(x, y);
 
 		if (run < 0) return;
 
-		(int start, int end) = Forge.Common.UI.WordRange.At(_runs[run].Text, offset, Forge.Common.UI.WordRange.EditorSeparators);
-		_anchor = (run, start);
-		_focus = (run, end);
+		(int first, int last) = LogicalLine(run);
+		StringBuilder text = new();
+		int position = 0;
+
+		for (int i = first; i <= last; i++) {
+			if (i > first) text.Append(Separator(i));
+
+			if (i == run) position = text.Length + offset;
+
+			text.Append(_runs[i].Text);
+		}
+
+		(int start, int end) = Forge.Common.UI.WordRange.At(text.ToString(), position, Forge.Common.UI.WordRange.EditorSeparators);
+		_anchor = Locate(first, last, start);
+		_focus = Locate(first, last, end);
+	}
+
+	private (int Run, int Offset) Locate(int first, int last, int position) {
+		int consumed = 0;
+
+		for (int i = first; i <= last; i++) {
+			if (i > first) consumed += Separator(i).Length;
+
+			int length = _runs[i].Text.Length;
+
+			if (position <= consumed + length) return (i, Math.Max(0, position - consumed));
+
+			consumed += length;
+		}
+
+		return (last, _runs[last].Text.Length);
 	}
 
 	public void SelectLine(float x, float y) {
@@ -101,8 +142,9 @@ public sealed class TextSelection
 
 		if (run < 0) return;
 
-		_anchor = (run, 0);
-		_focus = (run, _runs[run].Text.Length);
+		(int first, int last) = LogicalLine(run);
+		_anchor = (first, 0);
+		_focus = (last, _runs[last].Text.Length);
 	}
 
 	public void SelectAll() {
