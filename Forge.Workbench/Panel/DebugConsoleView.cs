@@ -260,25 +260,38 @@ public sealed class DebugConsoleView : Panel
 
 				int from = _entries.Count;
 
-			foreach (Entry entry in _pending) {
-				if (entry.Kind == EntryKind.Output && _entries.Count > 0 && _entries[^1] is { Kind: EntryKind.Output, Open: true } last && last.Color.Equals(entry.Color)) {
-					if (entry.Spans is { } incoming) {
-						last.Spans ??= [];
+			foreach (Entry pending in _pending) {
+				foreach (Entry entry in Lines(pending)) {
+					if (entry.Kind == EntryKind.Output && _entries.Count > 0 && _entries[^1] is { Kind: EntryKind.Output, Open: true } last && last.Color.Equals(entry.Color)) {
+						if (entry.Spans is { } incoming) {
+							last.Spans ??= [];
 
-						foreach (ColorSpan span in incoming) last.Spans.Add(span with { Start = span.Start + last.Text.Length });
+							foreach (ColorSpan span in incoming) last.Spans.Add(span with { Start = span.Start + last.Text.Length });
+						}
+
+						last.Text += entry.Text;
+						last.Open = !last.Text.EndsWith('\n');
+						from = Math.Min(from, _entries.Count - 1);
+
+						if (!last.Open && _entries.Count > 1 && _entries[^2] is { Kind: EntryKind.Output, Open: false } before && Repeats(before, last)) {
+							before.Count += last.Count;
+							_entries.RemoveAt(_entries.Count - 1);
+							from = Math.Min(from, _entries.Count - 1);
+						}
+
+						continue;
 					}
 
-					last.Text += entry.Text;
-					from = Math.Min(from, _entries.Count - 1);
-				}
-				else if (entry.Kind == EntryKind.Output && _entries.Count > 0 && _entries[^1] is { Kind: EntryKind.Output, Open: false } previous && previous.Color.Equals(entry.Color) && previous.Text == entry.Text && SameSpans(previous.Spans, entry.Spans)) {
-					previous.Count++;
-					from = Math.Min(from, _entries.Count - 1);
-					continue;
-				}
-				else _entries.Add(entry);
+					if (entry.Kind == EntryKind.Output && _entries.Count > 0 && _entries[^1] is { Kind: EntryKind.Output, Open: false } previous && entry.Text.EndsWith('\n') && Repeats(previous, entry)) {
+						previous.Count++;
+						from = Math.Min(from, _entries.Count - 1);
+						continue;
+					}
 
-				if (entry.Kind == EntryKind.Output) _entries[^1].Open = !_entries[^1].Text.EndsWith('\n');
+					_entries.Add(entry);
+
+					if (entry.Kind == EntryKind.Output) entry.Open = !entry.Text.EndsWith('\n');
+				}
 			}
 
 			_pending.Clear();
@@ -291,6 +304,42 @@ public sealed class DebugConsoleView : Panel
 		}
 
 		Repaint();
+	}
+
+	private static bool Repeats(Entry previous, Entry entry) => previous.Color.Equals(entry.Color) && previous.Text == entry.Text && SameSpans(previous.Spans, entry.Spans);
+
+	private static IEnumerable<Entry> Lines(Entry entry) {
+		if (entry.Kind != EntryKind.Output) {
+			yield return entry;
+			yield break;
+		}
+
+		string text = entry.Text;
+		int start = 0;
+
+		while (start < text.Length) {
+			int end = text.IndexOf('\n', start);
+			end = end < 0 ? text.Length : end + 1;
+
+			if (start == 0 && end == text.Length) {
+				yield return entry;
+				yield break;
+			}
+
+			Entry line = new(EntryKind.Output, text[start..end], entry.Color);
+
+			if (entry.Spans is { } spans) {
+				foreach (ColorSpan span in spans) {
+					int from = Math.Max(span.Start, start);
+					int to = Math.Min(span.Start + span.Length, end);
+
+					if (to > from) (line.Spans ??= []).Add(new ColorSpan(from - start, to - from, span.Color));
+				}
+			}
+
+			yield return line;
+			start = end;
+		}
 	}
 
 	private static bool SameSpans(List<ColorSpan>? left, List<ColorSpan>? right) => (left is null || left.Count == 0) ? right is null || right.Count == 0 : right is not null && left.SequenceEqual(right);
