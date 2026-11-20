@@ -24,12 +24,18 @@ public sealed class ListPanel : Panel
 	public Action<int>? DoubleActivated { get; set; }
 
 	public override bool OnMouseDoublePressed(MouseButton button, float x, float y) {
+		if (button != MouseButton.Left) return true;
+
+		OnMousePressed(button, x, y);
+
 		int row = RowAt(y);
 
 		if (row >= 0 && button == MouseButton.Left) DoubleActivated?.Invoke(row);
 
 		return true;
 	}
+
+	public override bool OnMouseTriplePressed(MouseButton button, float x, float y) => button != MouseButton.Left || OnMousePressed(button, x, y);
 
 	public Action<int>? Hovered { get; set; }
 
