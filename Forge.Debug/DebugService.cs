@@ -52,7 +52,7 @@ public sealed class DebugService : IDebug, IDisposable
 
 	public void Attach(string workspaceFolder, string breakpointStatePath) {
 		WorkspaceFolder = workspaceFolder;
-		_breakpoints.Load(breakpointStatePath);
+		_breakpoints.Load(Forge.Core.UserData.WorkspaceFile(workspaceFolder, "breakpoints.json"), breakpointStatePath, workspaceFolder);
 		ReloadConfigurations();
 	}
 
@@ -419,6 +419,30 @@ public sealed class DebugService : IDebug, IDisposable
 
 		_modelChanged?.Invoke();
 	}
+
+	public int? GetFocusedThread() => FocusedThreadId;
+
+	public Task<IReadOnlyList<DebugStackFrame>> ThreadStackAsync(int threadId) =>
+		_session?.StackTraceAsync(threadId, 0, 200) ?? Task.FromResult<IReadOnlyList<DebugStackFrame>>([]);
+
+	public async Task FocusThreadFrameAsync(int threadId, int frameId) {
+		if (_session is not { } session) return;
+
+		if (threadId != FocusedThreadId) {
+			IReadOnlyList<DebugStackFrame> frames = await session.StackTraceAsync(threadId, 0, 200).ConfigureAwait(false);
+			FocusedThreadId = threadId;
+
+			lock (_callStack) {
+				_callStack.Clear();
+				_callStack.AddRange(frames);
+			}
+		}
+
+		FocusStackFrame(frameId);
+	}
+
+	public Task<string?> SetVariableAsync(int variablesReference, string name, string value) =>
+		_session?.SetVariableAsync(variablesReference, name, value, HexDisplay) ?? Task.FromResult<string?>(null);
 
 	public IReadOnlyList<string> GetWatchExpressions() {
 		lock (_watches) return [.. _watches];

@@ -168,6 +168,15 @@ public sealed class DebugSession : IDisposable
 		ThreadsChanged?.Invoke();
 	}
 
+	public async Task<string?> SetVariableAsync(int variablesReference, string name, string value, bool hex, CancellationToken cancellationToken = default) {
+		JsonObject arguments = new() { ["variablesReference"] = variablesReference, ["name"] = name, ["value"] = value };
+
+		if (hex) arguments["format"] = new JsonObject { ["hex"] = true };
+
+		JsonNode? body = await SafeAsync("setVariable", arguments, cancellationToken).ConfigureAwait(false);
+		return body?["value"]?.GetValue<string>();
+	}
+
 	public async Task<IReadOnlyList<DebugStackFrame>> StackTraceAsync(int threadId,
 		int startFrame = 0, int levels = 0, CancellationToken cancellationToken = default) {
 		JsonObject arguments = new() { ["threadId"] = threadId, ["startFrame"] = startFrame };

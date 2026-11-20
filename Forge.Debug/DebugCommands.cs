@@ -27,6 +27,10 @@ public static class DebugCommands
 	public const string RemoveAllBreakpoints = "workbench.debug.viewlet.action.removeAllBreakpoints";
 	public const string ToggleBreakpointsActivated = "workbench.debug.viewlet.action.toggleBreakpointsActivatedAction";
 	public const string RemoveAllWatch = "workbench.debug.viewlet.action.removeAllWatchExpressions";
+	public const string AddWatch = "workbench.debug.viewlet.action.addWatchExpression";
+	public const string CollapseWatch = "workbench.debug.viewlet.action.collapseWatchExpressions";
+	public const string CollapseVariables = "workbench.debug.viewlet.action.collapseVariables";
+	public const string CollapseCallStack = "workbench.debug.viewlet.action.collapseCallStack";
 	public const string FocusRepl = "workbench.debug.action.focusRepl";
 	public const string ToggleRepl = "workbench.debug.action.toggleRepl";
 	public const string CallStackTop = "workbench.action.debug.callStackTop";

@@ -20,6 +20,15 @@ public static class UserData
 
 	public static string WorkspacesDirectory => Path.Combine(Directory, "workspaces");
 
+	public static string WorkspaceKey(string root) {
+		string normalised = root.TrimEnd(Path.DirectorySeparatorChar).ToLowerInvariant();
+		byte[] hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(normalised));
+
+		return Convert.ToHexString(hash, 0, 8).ToLowerInvariant();
+	}
+
+	public static string WorkspaceFile(string root, string name) => Path.Combine(WorkspacesDirectory, WorkspaceKey(root), name);
+
 	public static string DebuggersPath => Path.Combine(Directory, "debuggers");
 
 	public static string ExtensionsDirectory => Path.Combine(Directory, "extensions");

@@ -86,7 +86,7 @@ public sealed class NavigationHistory(Workbench workbench)
 			view.PushUndoStop();
 			view.MoveTo(Math.Min(entry.Anchor, length), extend: false);
 			view.MoveTo(Math.Min(entry.Caret, length), extend: true);
-			workbench.RevealCaret?.Invoke();
+			(workbench.RevealCaretCentered ?? workbench.RevealCaret)?.Invoke();
 
 			_current = new Entry(entry.Path, view.SelectionAnchor, view.CaretOffset, Math.Min(view.Snapshot.GetLineAt(view.SelectionAnchor), view.Snapshot.GetLineAt(view.CaretOffset)));
 		}

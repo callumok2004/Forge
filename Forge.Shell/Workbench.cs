@@ -322,6 +322,8 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	public Action? RevealCaret { get; set; }
 
+	public Action? RevealCaretCentered { get; set; }
+
 	public DebugStopPresenter? DebugStops { get; set; }
 
 	public PeekPresenter? Peek { get; set; }
@@ -722,7 +724,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		if (lineHeight > 0f) diff.Sync(lineHeight, _scale);
 
 		if (lineHeight > 0f && viewport > 0f) view.RevealLineInCenter(line, lineHeight, viewport);
-		else RevealCaret?.Invoke();
+		else (RevealCaretCentered ?? RevealCaret)?.Invoke();
 	}
 
 	private readonly Dictionary<TextView, DiffEditor> _diffEditors = [];
@@ -1053,7 +1055,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		view.MoveTo(Math.Clamp(start + length, start, view.Snapshot.Length), extend: true);
 
 		if (view.LastLineHeight > 0f && view.LastViewportHeight > 0f) view.RevealLineInCenter(index, view.LastLineHeight, view.LastViewportHeight);
-		else RevealCaret?.Invoke();
+		else (RevealCaretCentered ?? RevealCaret)?.Invoke();
 	}
 
 	public void ReplaceInFile(string path, IReadOnlyList<(Forge.Search.TextMatch Match, string Replacement)> edits) {
@@ -1149,7 +1151,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 		view.PushUndoStop();
 		view.MoveTo(Math.Clamp(span.Start + Math.Max(0, column - 1), span.Start, span.End), extend: false);
-		RevealCaret?.Invoke();
+		(RevealCaretCentered ?? RevealCaret)?.Invoke();
 	}
 
 	public bool EditActiveDocument(Func<string, string?> transform) {

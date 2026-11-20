@@ -134,4 +134,8 @@ public enum Codicon : ushort
 	Record = 0xEBA7,
 	Table = 0xEBB7,
 	GraphLine = 0xEBE2,
+	Edit = 0xEA73,
+	ActivateBreakpoints = 0xEA97,
+	CloseAll = 0xEAC1,
+	DebugStackframeActive = 0xEB89,
 }

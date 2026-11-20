@@ -97,13 +97,7 @@ public sealed class WorkspaceMemory
 		}
 	}
 
-	private static string PathFor(string root) {
-		string normalised = root.TrimEnd(Path.DirectorySeparatorChar).ToLowerInvariant();
-		byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalised));
-		string name = Convert.ToHexString(hash, 0, 8).ToLowerInvariant();
-
-		return Path.Combine(UserData.WorkspacesDirectory, name + ".json");
-	}
+	private static string PathFor(string root) => Path.Combine(UserData.WorkspacesDirectory, UserData.WorkspaceKey(root) + ".json");
 }
 
 public sealed record EditorViewState(int Anchor, int Caret, float ScrollTop);

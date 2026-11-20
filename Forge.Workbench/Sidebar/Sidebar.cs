@@ -41,7 +41,13 @@ public sealed class Sidebar : Panel, IViewPart
 
 	public SearchView Search { get; } = new();
 
-	public DebugView Debug { get; } = new();
+	public VariablesView Variables { get; } = new();
+
+	public WatchView Watch { get; } = new();
+
+	public CallStackView CallStack { get; } = new();
+
+	public BreakpointsView Breakpoints { get; } = new();
 
 	public float Width {
 		get;

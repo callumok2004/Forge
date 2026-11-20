@@ -67,6 +67,14 @@ public sealed class ShellContext(Workbench workbench, AppWindow window, RenderDe
 		RefreshEditor();
 	}
 
+	public void RevealCaretCentered() {
+		if (Workbench.FocusedView is not { } view) return;
+
+		view.RevealLineInCenterIfOutsideViewport(view.CaretLine, Painter.GetCode().GetLineHeight(), Workbench.EditorHeight(Device.Height));
+		view.EnsureCaretVisible(Painter.GetCode(), Workbench.TextWidth(Device.Width), Workbench.EditorHeight(Device.Height));
+		RefreshEditor();
+	}
+
 	public void ScrollToMatch(bool found) {
 		if (found) RevealCaret();
 	}

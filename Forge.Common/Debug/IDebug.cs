@@ -88,6 +88,14 @@ public interface IDebug
 
 	void FocusStackFrame(int frameId);
 
+	int? GetFocusedThread();
+
+	Task<IReadOnlyList<DebugStackFrame>> ThreadStackAsync(int threadId);
+
+	Task FocusThreadFrameAsync(int threadId, int frameId);
+
+	Task<string?> SetVariableAsync(int variablesReference, string name, string value);
+
 	DebugCapabilities GetCapabilities();
 
 	Task<IReadOnlyList<DebugScope>> ScopesAsync(int frameId);

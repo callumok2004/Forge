@@ -140,7 +140,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		workbench.TitleBar.BranchName = workbench.BranchName;
 
 		AttachRepository();
-		workbench.Sidebar.SourceControl.LoadState(UserData.SourceControlStatePath);
+		workbench.Sidebar.SourceControl.LoadState(UserData.WorkspaceFile(rootPath, "source-control.txt"));
 
 		void AttachRepository() {
 			workbench.Repository = GitRepository.Open(rootPath);
@@ -305,11 +305,12 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			window.Invalidate();
 		});
 
-		workbench.Sidebar.Debug.Debugger = debugger;
-		workbench.Sidebar.Debug.ScopesLoader = debugger.ScopesAsync;
-		workbench.Sidebar.Debug.VariablesLoader = debugger.VariablesAsync;
-		workbench.Sidebar.Debug.Changed = window.Invalidate;
-		workbench.Sidebar.Debug.OpenBreakpoint = (path, line) => workbench.GoTo(path, line, 1);
+		workbench.Sidebar.Variables.Debugger = debugger;
+		workbench.Sidebar.Watch.Debugger = debugger;
+		workbench.Sidebar.CallStack.Debugger = debugger;
+		workbench.Sidebar.Breakpoints.Debugger = debugger;
+		workbench.Sidebar.Breakpoints.RootPath = () => workbench.RootPath;
+		workbench.Sidebar.Breakpoints.Open = (path, line) => workbench.GoTo(path, line, 1);
 
 		workbench.BreakpointMarkFor = line => {
 			if (workbench.ActiveFilePath is not { Length: > 0 } path) return BreakpointMark.None;
@@ -476,7 +477,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		views.Register(new ViewContainer(Sidebar.ExplorerId, folder.Length > 0 ? folder : "Explorer", Codicon.Files, ViewLocation.Sidebar, 0) { VectorIcon = explorerIcon });
 		views.Register(new ViewContainer(Sidebar.SearchId, "Search", Codicon.Search, ViewLocation.Sidebar, ActivityBar.SearchOrder));
 		views.Register(new ViewContainer(Sidebar.SourceControlId, "Source Control", Codicon.SourceControl, ViewLocation.Sidebar, 20));
-		views.Register(new ViewContainer(Sidebar.RunId, "Run and Debug", Codicon.DebugAlt, ViewLocation.Sidebar, 30));
+		views.Register(new ViewContainer(Sidebar.RunId, "Debug", Codicon.DebugAlt, ViewLocation.Sidebar, 30));
 
 		views.AddView(new ViewDescriptor("workbench.explorer.fileView", "Folders", Sidebar.ExplorerId, () => workbench.Sidebar.Explorer) {
 			Actions = [
@@ -487,7 +488,10 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		views.AddView(new ViewDescriptor("workbench.view.search.view", "Search", Sidebar.SearchId, () => workbench.Sidebar.Search) { TitleControls = () => [.. workbench.Sidebar.Search.HeaderActions] });
 		views.AddView(new ViewDescriptor("workbench.scm", "Changes", Sidebar.SourceControlId, () => workbench.Sidebar.SourceControl, 0) { TitleControls = () => [.. workbench.Sidebar.SourceControl.HeaderActions] });
 		views.AddView(new ViewDescriptor("workbench.scm.history", "Graph", Sidebar.SourceControlId, () => workbench.Sidebar.Graph, 2) { Actions = [new ViewAction("workbench.scm.history.refresh", Codicon.Refresh, "Refresh")] });
-		views.AddView(new ViewDescriptor("workbench.debug.variablesView", "Run and Debug", Sidebar.RunId, () => workbench.Sidebar.Debug));
+		views.AddView(new ViewDescriptor("workbench.debug.variablesView", "Variables", Sidebar.RunId, () => workbench.Sidebar.Variables, 10) { Actions = [new ViewAction(DebugCommands.CollapseVariables, Codicon.CollapseAll, "Collapse All")] });
+		views.AddView(new ViewDescriptor("workbench.debug.watchExpressionsView", "Watch", Sidebar.RunId, () => workbench.Sidebar.Watch, 20) { Actions = [new ViewAction(DebugCommands.AddWatch, Codicon.Add, "Add Expression"), new ViewAction(DebugCommands.CollapseWatch, Codicon.CollapseAll, "Collapse All"), new ViewAction(DebugCommands.RemoveAllWatch, Codicon.CloseAll, "Remove All Expressions")] });
+		views.AddView(new ViewDescriptor("workbench.debug.callStackView", "Call Stack", Sidebar.RunId, () => workbench.Sidebar.CallStack, 30) { Actions = [new ViewAction(DebugCommands.CollapseCallStack, Codicon.CollapseAll, "Collapse All")] });
+		views.AddView(new ViewDescriptor("workbench.debug.breakPointsView", "Breakpoints", Sidebar.RunId, () => workbench.Sidebar.Breakpoints, 40) { Actions = [new ViewAction(DebugCommands.ToggleBreakpointsActivated, Codicon.ActivateBreakpoints, "Toggle Activate Breakpoints"), new ViewAction(DebugCommands.RemoveAllBreakpoints, Codicon.CloseAll, "Remove All Breakpoints")] });
 		views.ShowContainer(Sidebar.ExplorerId);
 	}
 
@@ -824,10 +828,12 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			Refresh();
 		};
 
+		void OpenBreakpointEditor(string path, int line, BreakpointEditMode mode) => new BreakpointEditor(debugger, path, line, mode).Open(root.Editor.TextLeft, root.Editor.LineBottom(line), root.Editor.ScreenX + root.Editor.Wide - root.Editor.TextLeft);
+
 		root.Editor.BreakpointMenu = (line, x, y) => {
 			if (workbench.ActiveFilePath is not { Length: > 0 } path) return;
 
-			void Edit(BreakpointEditMode mode) => new BreakpointEditor(debugger, path, line, mode).Open(root.Editor.TextLeft, root.Editor.LineBottom(line), root.Editor.ScreenX + root.Editor.Wide - root.Editor.TextLeft);
+			void Edit(BreakpointEditMode mode) => OpenBreakpointEditor(path, line, mode);
 
 			Menu menu = new();
 
@@ -866,6 +872,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			languageUi.Navigation.LinkChanged = root.Editor.SyncLink;
 		}
 		workbench.RevealCaret = context.RevealCaret;
+		workbench.RevealCaretCentered = context.RevealCaretCentered;
 		root.Editor.RequestFocus();
 
 		workbench.Panel.WorkspaceRoot = workbench.RootPath;
@@ -907,6 +914,11 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			menu.Open(x, y);
 			Refresh();
 		};
+
+		Registry.Register(new Command(DebugCommands.AddWatch, "Add Expression", "Debug", _ => workbench.Sidebar.Watch.Add()));
+		Registry.Register(new Command(DebugCommands.CollapseWatch, "Collapse All", "Debug", _ => workbench.Sidebar.Watch.CollapseAll()));
+		Registry.Register(new Command(DebugCommands.CollapseVariables, "Collapse All", "Debug", _ => workbench.Sidebar.Variables.CollapseAll()));
+		Registry.Register(new Command(DebugCommands.CollapseCallStack, "Collapse All", "Debug", _ => workbench.Sidebar.CallStack.CollapseAll()));
 
 		GitCommands.Register(Registry, context);
 		WorkbenchCommands.Register(Registry, context);

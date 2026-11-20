@@ -237,11 +237,20 @@ public sealed class BreakpointStore
 		Notify();
 	}
 
-	public void Load(string path) {
+	public void Load(string path, string? legacyPath = null, string? workspaceFolder = null) {
 		_path = path;
 
-		if (!File.Exists(path)) return;
+		bool migrate = !File.Exists(path) && legacyPath is not null && File.Exists(legacyPath);
+		string source = migrate ? legacyPath! : path;
 
+		if (!File.Exists(source)) return;
+
+		Read(source, migrate ? workspaceFolder : null);
+
+		if (migrate) Save();
+	}
+
+	private void Read(string path, string? within) {
 		try {
 			if (JsonNode.Parse(File.ReadAllText(path)) is not JsonObject root) return;
 
@@ -254,6 +263,8 @@ public sealed class BreakpointStore
 				if (root["source"] is JsonArray source) {
 					foreach (JsonNode? entry in source) {
 						if (entry?["path"]?.GetValue<string>() is not { } file) continue;
+
+						if (within is { Length: > 0 } && !file.StartsWith(within.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
 
 						_source.Add(new SourceBreakpoint(file,
 							entry["line"]?.GetValue<int>() ?? 1,

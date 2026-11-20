@@ -614,7 +614,7 @@ public sealed class ExtensionHostSync
 				if (FindDocument(parameters?["uri"]) is { } revealed && _workbench.IndexOf(revealed) is >= 0 and int revealIndex) {
 					TextView view = _workbench.ViewAt(revealIndex);
 					view.MoveTo(OffsetOf(view.Snapshot, parameters?["range"]?["start"]), extend: false);
-					_workbench.RevealCaret?.Invoke();
+					(_workbench.RevealCaretCentered ?? _workbench.RevealCaret)?.Invoke();
 				}
 
 				break;

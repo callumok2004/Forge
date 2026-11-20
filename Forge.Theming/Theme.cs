@@ -195,6 +195,14 @@ public static class Theme
 	public static readonly Color DebugFocusedFrameBackground = Color.Parse("#7abd7a4d");
 	public static readonly Color DebugToolBarBackground = Color.Parse("#121722");
 	public static readonly Color DebugStatusBarBackground = Color.Parse("#0a0d12");
+	public static readonly Color DebugTokenName = Color.Parse("#c586c0");
+	public static readonly Color DebugTokenValue = Color.Parse("#cccccc");
+	public static readonly Color DebugTokenString = Color.Parse("#ce9178");
+	public static readonly Color DebugTokenBoolean = Color.Parse("#4e94ce");
+	public static readonly Color DebugTokenNumber = Color.Parse("#b5cea8");
+	public static readonly Color DebugTokenError = Color.Parse("#f48771");
+	public static readonly Color DebugStateLabelBackground = Color.Parse("#88888844");
+	public static readonly Color DebugValueChanged = Color.Parse("#569cd650");
 
 	public static readonly Color ChartsRed = Color.Parse("#ff8a8a");
 	public static readonly Color ChartsYellow = Color.Parse("#e3b341");
