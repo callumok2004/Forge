@@ -49,6 +49,7 @@ public sealed class BreakpointEditor : Panel
 		_drafts[2] = existing?.LogMessage ?? string.Empty;
 
 		_entry.Submitted = Commit;
+		_entry.FocusLost = static () => { };
 		AddChild(_entry);
 		ShowMode();
 	}
@@ -72,9 +73,20 @@ public sealed class BreakpointEditor : Panel
 		Repaint();
 	}
 
-	private void CycleMode() {
+	private void OpenModes() {
+		Menu menu = new();
+
+		for (int i = 0; i < ModeLabels.Length; i++) {
+			BreakpointEditMode mode = (BreakpointEditMode)i;
+			menu.Add(new MenuItem(ModeLabels[i], null, () => SetMode(mode)) { Checked = mode == _mode });
+		}
+
+		menu.Open(ScreenX + (PaddingX * Scale), ScreenY + Tall);
+	}
+
+	private void SetMode(BreakpointEditMode mode) {
 		_drafts[(int)_mode] = _entry.GetString();
-		_mode = (BreakpointEditMode)(((int)_mode + 1) % ModeLabels.Length);
+		_mode = mode;
 		ShowMode();
 		_entry.RequestFocus();
 	}
@@ -115,7 +127,7 @@ public sealed class BreakpointEditor : Panel
 	}
 
 	public override bool OnMousePressed(MouseButton button, float x, float y) {
-		if (button == MouseButton.Left && InMode(x)) CycleMode();
+		if (button == MouseButton.Left && InMode(x)) OpenModes();
 
 		return true;
 	}
