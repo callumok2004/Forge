@@ -146,7 +146,7 @@ if (-not $iscc) {
 	if (-not (Test-Path $iscc)) { throw 'Inno Setup install failed' }
 }
 
-$defines = @("/DVersion=$version", "/DSourceDir=$app", "/DOutputDir=$out", "/DAssetsDir=$assets")
+$defines = @("/DVersion=$version", "/DSourceDir=$app", "/DOutputDir=$out", "/DAssetsDir=$assets", "/DCompressionThreads=$([Environment]::ProcessorCount)")
 if ($hasAppx) { $defines += @('/DHasAppx', "/DCertThumbprint=$thumbprint") }
 
 & $iscc /Q @defines (Join-Path $installer 'forge.iss')

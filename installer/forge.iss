@@ -30,6 +30,9 @@ UninstallDisplayName={#NameLong}
 Compression=lzma2/ultra64
 SolidCompression=yes
 LZMAUseSeparateProcess=yes
+#ifdef CompressionThreads
+LZMANumBlockThreads={#CompressionThreads}
+#endif
 ChangesEnvironment=yes
 ChangesAssociations=yes
 MinVersion=10.0.19041
