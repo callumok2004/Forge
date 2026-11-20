@@ -87,6 +87,8 @@ public sealed class ExceptionWidget : Panel
 			if (info.Description is { Length: > 0 } description) Wrap(fonts.GetUi(), description, inner, isCode: false);
 
 			if (info.StackTrace is { Length: > 0 } stack) Wrap(fonts.GetCode(), stack, inner, isCode: true);
+
+			BuildRuns(info, fonts, scale);
 		}
 
 		float height = (BorderThickness * 2f * scale) + (Padding * scale) + (ActionSize * scale) + (Padding * scale);
@@ -95,7 +97,6 @@ public sealed class ExceptionWidget : Panel
 
 		if (_lines.Count > 0) height += SectionGap * scale;
 
-		BuildRuns(info, fonts, scale);
 		return height;
 	}
 

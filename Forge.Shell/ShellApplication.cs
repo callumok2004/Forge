@@ -644,8 +644,15 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		Action<PixelRect>? notePaint = null;
 
 		bool frameRequested = false;
+		int uiThread = Environment.CurrentManagedThreadId;
 
 		void Damage(PixelRect rect) {
+			if (Environment.CurrentManagedThreadId != uiThread) {
+				uiWork.Enqueue(() => Damage(rect));
+				window.Invalidate(new PixelRect(0, 0, 1, 1));
+				return;
+			}
+
 			pending.Add(rect);
 			notePaint?.Invoke(rect);
 

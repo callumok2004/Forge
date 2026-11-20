@@ -106,6 +106,20 @@ public sealed class DebugService : IDebug, IDisposable
 		ReloadConfigurations();
 	}
 
+	private static string StackText(IReadOnlyList<DebugStackFrame> frames) {
+		System.Text.StringBuilder text = new();
+
+		foreach (DebugStackFrame frame in frames) {
+			if (text.Length > 0) text.Append('\n');
+
+			text.Append("   at ").Append(frame.Name);
+
+			if (frame.SourcePath is { Length: > 0 } path) text.Append(" in ").Append(path).Append(":line ").Append(frame.Line);
+		}
+
+		return text.ToString();
+	}
+
 	public void SetLaunchSetting(string configuration, string key, JsonNode? value) {
 		if (!LaunchConfigurations.WriteSetting(WorkspaceFolder, configuration, key, value)) {
 			Report($"Could not update \"{key}\" in .forge/launch.json.");
@@ -514,6 +528,8 @@ public sealed class DebugService : IDebug, IDisposable
 			_focusedFrameId = focused.Id;
 
 			DebugExceptionInfo? exception = session.StopReason == "exception" ? await session.ExceptionInfoAsync(thread).ConfigureAwait(false) : null;
+
+			if (exception is not null) exception = exception with { StackTrace = StackText(frames) };
 
 			if (focused.SourcePath is { Length: > 0 } path) RevealSource?.Invoke(new DebugReveal(path, focused.Line, focused.Column, focused == frames[0], exception));
 		}

@@ -19,7 +19,6 @@
 		<SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
 		<EnableWindowsTargeting>true</EnableWindowsTargeting>
 		<InvariantGlobalization>true</InvariantGlobalization>
-		<UseSystemResourceKeys>true</UseSystemResourceKeys>
 	</PropertyGroup>
 
 	<PropertyGroup>
@@ -45,6 +44,7 @@
 		<Optimize>true</Optimize>
 		<DebugType>portable</DebugType>
 		<TieredPGO>true</TieredPGO>
+		<UseSystemResourceKeys>true</UseSystemResourceKeys>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)'=='Debug'">
