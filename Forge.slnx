@@ -1,7 +1,11 @@
 <Solution>
   <Folder Name="/1. Foundation/">
-    <Project Path="Forge.Common/Forge.Common.csproj" />
-    <Project Path="Forge.Core/Forge.Core.csproj" />
+    <Project Path="Forge.Common/Forge.Common.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="Forge.Core/Forge.Core.csproj">
+      <Platform Project="x64" />
+    </Project>
     <Project Path="Forge.Text/Forge.Text.csproj">
       <Platform Project="x64" />
     </Project>
