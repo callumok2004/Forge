@@ -9,7 +9,7 @@
 			"program": "${workspaceFolder}/artifacts/bin/Forge.App/Debug/net11.0/Forge.exe",
 			"args": [],
 			"cwd": "${workspaceFolder}",
-			"console": "externalTerminal",
+			"console": "internalConsole",
 			"stopAtEntry": false
 		},
 		{
@@ -20,7 +20,7 @@
 			"program": "${workspaceFolder}/artifacts/bin/Forge.App/Release/net11.0/Forge.exe",
 			"args": [],
 			"cwd": "${workspaceFolder}",
-			"console": "externalTerminal",
+			"console": "internalConsole",
 			"stopAtEntry": false
 		},
 		{
@@ -33,7 +33,7 @@
 				"${input:openFolder}"
 			],
 			"cwd": "${workspaceFolder}",
-			"console": "externalTerminal",
+			"console": "internalConsole",
 			"stopAtEntry": false
 		},
 		{
