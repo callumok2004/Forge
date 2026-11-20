@@ -2,7 +2,9 @@
 	path = native/roslyn
 	url = https://github.com/callumok2004/roslyn.git
 	branch = forge
+	upstream = https://github.com/dotnet/roslyn.git
 [submodule "native/dncdbg"]
 	path = native/dncdbg
 	url = https://github.com/callumok2004/dncdbg.git
 	branch = forge
+	upstream = https://github.com/viewizard/dncdbg.git

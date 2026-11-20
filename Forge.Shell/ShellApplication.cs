@@ -220,6 +220,10 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		workbench.Post = Post;
 
+#if FORGE_DEBUG
+		NativeForkCheck.Start(workbench);
+#endif
+
 		IOutputChannel gitChannel = workbench.Panel.Channel("Git");
 		Git.GitProcess.Log = line => uiWork.Enqueue(() => gitChannel.AppendRaw(line));
 
