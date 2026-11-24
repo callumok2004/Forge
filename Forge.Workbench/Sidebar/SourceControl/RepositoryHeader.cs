@@ -17,7 +17,10 @@ public sealed class RepositoryHeader : Panel
 	private const float PaddingRight = 8f;
 	private const float CountMargin = 6f;
 
-	private readonly RepositorySection _section;
+	private readonly SourceControlView _view;
+	private readonly IGitRepository _repository;
+	private readonly RepositorySection? _section;
+	private readonly Action<KeyModifiers>? _selected;
 	private readonly Label _name;
 	private readonly Button _branch;
 	private readonly Button _sync;
@@ -26,10 +29,15 @@ public sealed class RepositoryHeader : Panel
 	private readonly ActionButton _more;
 	private readonly CountBadge _count;
 
-	public RepositoryHeader(RepositorySection section) {
+	public RepositoryHeader(RepositorySection section) : this(section.View, section.Repository, section, null) {
+	}
+
+	public RepositoryHeader(SourceControlView view, IGitRepository repository, RepositorySection? section, Action<KeyModifiers>? selected) {
+		_view = view;
+		_repository = repository;
 		_section = section;
+		_selected = selected;
 		Name = "RepositoryHeader";
-		Dock = DockType.Top;
 		Cursor = CursorCode.Hand;
 
 		_count = Add(new CountBadge { Name = "Count", Dock = DockType.Right });
@@ -40,6 +48,10 @@ public sealed class RepositoryHeader : Panel
 		_sync = Add(StatusAction("Sync", "git.sync"));
 		_branch = Add(StatusAction("Branch", "git.checkout"));
 		_name = Add(new Label { Name = "RepositoryName", Dock = DockType.Fill, Foreground = Theme.Foreground });
+
+		foreach (Button button in (ReadOnlySpan<Button>)[_refresh, _commit, _sync, _branch]) {
+			if (button.Command is { } command) button.Action = () => _view.RunCommand(command, _repository);
+		}
 	}
 
 	public static float HeightFor(float scale) => Height * scale;
@@ -71,14 +83,13 @@ public sealed class RepositoryHeader : Panel
 
 	private void OpenMore() {
 		(float x, float y) = _more.GetAbsPos();
-		ApplicationMenu.Build(GitMenus.More).Open(x, y + _more.Tall);
+		ApplicationMenu.Build(GitMenus.More, command => () => _view.RunCommand(command, _repository)).Open(x, y + _more.Tall);
 	}
 
 	public void Sync(IGitRepository repository) {
 		Span<char> buffer = stackalloc char[128];
 
-		ReadOnlySpan<char> root = repository.GetRootPath().AsSpan().TrimEnd(Path.DirectorySeparatorChar);
-		_name.SetText(Path.GetFileName(root));
+		_name.SetText(_view.LabelOf(repository));
 
 		string branch = repository.GetBranch() ?? "HEAD";
 		int written = Write(buffer, "$(git-branch) ");
@@ -101,7 +112,13 @@ public sealed class RepositoryHeader : Panel
 		written += Write(buffer[written..], "↑");
 		_sync.SetText(buffer[..written]);
 
-		_count.Count = repository.GetStaged().Count + repository.GetUnstaged().Count + repository.GetMerge().Count;
+		int count = repository.GetStaged().Count + repository.GetUnstaged().Count + repository.GetMerge().Count;
+		_count.Count = count;
+		_count.Visible = _view.ProviderCountBadge switch {
+			"visible" => true,
+			"auto" => count > 0,
+			_ => false,
+		};
 	}
 
 	private static int Write(Span<char> destination, ReadOnlySpan<char> text) {
@@ -113,7 +130,7 @@ public sealed class RepositoryHeader : Panel
 		float scale = Scale;
 		float height = Height * scale;
 
-		DockPadding = new Thickness((TwistieWidth + IconSize + IconPadding + Metrics.Space4) * scale, 0f, PaddingRight * scale, 0f);
+		DockPadding = new Thickness((Indent + IconSize + IconPadding + Metrics.Space4) * scale, 0f, PaddingRight * scale, 0f);
 
 		_count.SetSize(_count.PreferredWidth, height);
 		_count.DockMargin = new Thickness(CountMargin * scale, 0f, 0f, 0f);
@@ -139,13 +156,25 @@ public sealed class RepositoryHeader : Panel
 	public override bool OnMousePressed(MouseButton button, float x, float y) => true;
 
 	public override bool OnMouseReleased(MouseButton button, float x, float y) {
-		if (x >= 0f && y >= 0f && x < Wide && y < Tall) _section.Toggle();
+		if (button != MouseButton.Left || x < 0f || y < 0f || x >= Wide || y >= Tall) return true;
+
+		if (_section is { } section) section.Toggle();
+		else _selected?.Invoke(Ui?.GetModifiers() ?? KeyModifiers.None);
 
 		return true;
 	}
 
+	private float Indent => _section is null ? RowIndent : TwistieWidth;
+
+	private const float RowIndent = 8f;
+
+	public bool Selected { get; set; }
+
+	public bool Focused { get; set; }
+
 	public override void PaintBackground(IPainter painter) {
-		if (IsCursorOver) painter.FillRectangle(ScreenX, ScreenY, Wide, Tall, Theme.ListHoverBackground);
+		if (Selected) painter.FillRectangle(ScreenX, ScreenY, Wide, Tall, Focused ? Theme.ListActiveSelectionBackground : Theme.ListInactiveSelectionBackground);
+		else if (IsCursorOver) painter.FillRectangle(ScreenX, ScreenY, Wide, Tall, Theme.ListHoverBackground);
 	}
 
 	public override void Paint(IPainter painter) {
@@ -153,7 +182,9 @@ public sealed class RepositoryHeader : Panel
 		float centreY = ScreenY + (Tall / 2f);
 		float iconSize = IconSize * scale;
 
-		painter.DrawIcon(_section.Expanded ? Codicon.ChevronDown : Codicon.ChevronRight, ScreenX + (TwistieWidth * scale / 2f), centreY, iconSize, Theme.Foreground);
-		painter.DrawIcon(Codicon.Repo, ScreenX + (TwistieWidth * scale) + (iconSize / 2f), centreY, iconSize, Theme.Foreground);
+		if (_section is { } section) painter.DrawIcon(section.Expanded ? Codicon.ChevronDown : Codicon.ChevronRight, ScreenX + (TwistieWidth * scale / 2f), centreY, iconSize, Theme.Foreground);
+
+		bool selectedIcon = _view.ShowsSelectedIcon && _view.IsVisible(_repository);
+		painter.DrawIcon(selectedIcon ? Codicon.RepoSelected : Codicon.Repo, ScreenX + (Indent * scale) + (iconSize / 2f), centreY, iconSize, Theme.Foreground);
 	}
 }

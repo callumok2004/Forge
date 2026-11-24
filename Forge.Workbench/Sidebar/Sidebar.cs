@@ -26,7 +26,7 @@ public sealed class Sidebar : Panel, IViewPart
 		MouseInputEnabled = false;
 
 		_header = new Panel { Name = "SidebarHeader", Dock = DockType.Top, MouseInputEnabled = false };
-		_title = new Label { Name = "SidebarTitle", Dock = DockType.Fill, Font = FontRole.UiStrong, Foreground = Theme.SidebarTitleForeground, Padding = new Thickness(Metrics.Space8 + Metrics.Space4, 0f, 0f, 0f) };
+		_title = new TitleLabel(() => _host?.Active?.ViewsMenu(), interactive: true) { Name = "SidebarTitle", Dock = DockType.Fill, Font = FontRole.UiStrong, Foreground = Theme.SidebarTitleForeground, Padding = new Thickness(Metrics.Space8 + Metrics.Space4, 0f, 0f, 0f) };
 		_header.AddChild(_title);
 		AddChild(_header);
 
@@ -38,6 +38,8 @@ public sealed class Sidebar : Panel, IViewPart
 	public SourceControlView SourceControl { get; } = new();
 
 	public ScmGraphView Graph { get; } = new();
+
+	public RepositoriesView RepositoryList => field ??= new RepositoriesView(SourceControl);
 
 	public SearchView Search { get; } = new();
 
@@ -62,13 +64,12 @@ public sealed class Sidebar : Panel, IViewPart
 		set => Explorer.SelectedPath = value;
 	}
 
-	public IGitRepository? Repository {
+	public IGitRepositories? Repositories {
 		get;
 		set {
 			field = value;
-			Explorer.Repository = value;
-			SourceControl.Repository = value;
-			Graph.Repository = value;
+			Explorer.Repositories = value;
+			SourceControl.Repositories = value;
 			Repaint();
 		}
 	}
@@ -201,5 +202,23 @@ public sealed class ViewPartHost(Panel part, Panel? header, Action changed)
 			action.SetSize(size, size);
 			action.DockMargin = new Thickness(0f, (headerHeight - size) / 2f, 0f, (headerHeight - size) / 2f);
 		}
+	}
+}
+
+public sealed class TitleLabel : Label
+{
+	private readonly Func<Menu?> _menu;
+
+	public TitleLabel(Func<Menu?> menu, bool interactive) {
+		_menu = menu;
+		MouseInputEnabled = interactive;
+	}
+
+	public override bool OnMousePressed(MouseButton button, float x, float y) {
+		if (button != MouseButton.Right || _menu() is not { } views) return false;
+
+		(float absX, float absY) = GetAbsPos();
+		views.Open(absX + x, absY + y);
+		return true;
 	}
 }

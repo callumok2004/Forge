@@ -42,16 +42,24 @@ public static class GitCommands
 
 		void Add(string id, string title, Action action, string? keybinding = null, Func<bool>? when = null) => registry.Register(new Command(id, title, "Git", _ => action(), keybinding, when ?? HasRepository));
 
-		foreach (GitInvocation invocation in Invocations) Add(invocation.Id, invocation.Title, () => Run(workbench, context, root => GitProcess.Run(root, invocation.Arguments) is not null));
+		foreach (GitInvocation invocation in Invocations) Add(invocation.Id, invocation.Title, () => Run(workbench, context, (_, root) => GitProcess.Run(root, invocation.Arguments) is not null));
 
-		Add("git.refresh", "Refresh", () => Run(workbench, context, static _ => true));
+		Add("git.refresh", "Refresh", () => Run(workbench, context, static (_, _) => true));
 		Add("git.commit", "Commit", () => Commit(workbench, context, all: false));
 		Add("git.commitStaged", "Commit Staged", () => Commit(workbench, context, all: false));
 		Add("git.commitAll", "Commit All", () => Commit(workbench, context, all: true));
-		Add("git.commitNoVerify", "Commit (No Verify)", () => Run(workbench, context, root => GitProcess.Run(root, "commit", "--no-verify", "-m", view.Message) is not null && Cleared(view)));
+		Add("git.commitNoVerify", "Commit (No Verify)", () => WithRepository(workbench, context, repository => {
+			string message = view.MessageFor(repository);
+
+			Run(context, repository, (_, root) => GitProcess.Run(root, "commit", "--no-verify", "-m", message) is not null && Cleared(workbench, repository, message));
+		}));
 		Add("git.commitAndPush", "Commit & Push", () => Commit(workbench, context, all: false, then: ["push"]));
 		Add("git.commitAndSync", "Commit & Sync", () => Commit(workbench, context, all: false, then: ["pull", "--tags", "--rebase"]));
-		Add("git.publish", "Publish Branch", () => Run(workbench, context, root => GitProcess.Run(root, "push", "--set-upstream", "origin", workbench.Repository?.GetBranch() ?? "HEAD") is not null));
+		Add("git.publish", "Publish Branch", () => Run(workbench, context, static (repository, root) => GitProcess.Run(root, "push", "--set-upstream", "origin", repository.GetBranch() ?? "HEAD") is not null));
+		Add("git.close", "Close Repository", () => WithRepository(workbench, context, repository => {
+			workbench.Repositories?.Close(repository);
+			context.Refresh();
+		}));
 		Add("git.showOutput", "Show Git Output", () => {
 			workbench.Panel.Show(PanelView.Output);
 			IOutputChannels channels = ForgeDllMain.Channels;
@@ -59,18 +67,32 @@ public static class GitCommands
 		});
 
 		Add("git.cleanAll", "Discard All Changes", () => {
-			Forge.UI.Controls.ConfirmDialog.Show("Are you sure you want to discard ALL changes?", "This action is irreversible!", "Discard All Changes", () => {
-				Run(workbench, context, static root => GitProcess.Run(root, "checkout", "--", ".") is not null);
+			WithRepository(workbench, context, repository => Forge.UI.Controls.ConfirmDialog.Show("Are you sure you want to discard ALL changes?", "This action is irreversible!", "Discard All Changes", () => {
+				Run(context, repository, static (_, root) => GitProcess.Run(root, "checkout", "--", ".") is not null);
 				context.Refresh();
-			});
+			}));
 		});
 
-		Add("scm.acceptInput", "Commit", () => context.Run("git.commit"));
+		Add("scm.acceptInput", "Commit", () => {
+			if (view.FocusedInputRepository() is { } focused) view.RunCommand("git.commit", focused);
+			else context.Run("git.commit");
+		});
 
 		registry.Register(new Command("workbench.scm.action.setTreeViewMode", "View as Tree", "Source Control", _ => view.TreeView = true));
 		registry.Register(new Command("workbench.scm.action.setListViewMode", "View as List", "Source Control", _ => view.TreeView = false));
 
-		view.RunGit = command => Run(workbench, context, _ => workbench.Repository is { } repository && command(repository));
+		view.RunGit = (repository, command) => Run(context, repository, (target, _) => command(target));
+		view.CommandRequested = (command, repository) => {
+			workbench.CommandRepository = repository;
+
+			try {
+				context.Run(command);
+			}
+			finally {
+				workbench.CommandRepository = null;
+			}
+		};
+		view.RepositoryFocused = workbench.FocusRepository;
 		view.FileOpened = path => {
 			workbench.OpenFile(path);
 			context.Refresh();
@@ -78,7 +100,7 @@ public static class GitCommands
 		ScmGraphView graph = workbench.Sidebar.Graph;
 		graph.Changed = context.Refresh;
 		graph.ChangesOpened = (title, from, to) => {
-			if (workbench.Repository is not { } repository) return;
+			if (graph.Repository is not { } repository) return;
 
 			string root = repository.GetRootPath();
 
@@ -95,7 +117,9 @@ public static class GitCommands
 			}, null);
 		};
 		graph.ChangeOpened = (commit, change) => {
-			workbench.OpenCommitChange(commit, change);
+			if (graph.Repository is not { } repository) return;
+
+			workbench.OpenCommitChange(repository.GetRootPath(), commit, change);
 			context.Refresh();
 		};
 		registry.Register(new Command("workbench.scm.history.refresh", "Refresh", "Source Control", _ => {
@@ -109,36 +133,37 @@ public static class GitCommands
 		};
 	}
 
-	private static bool Cleared(SourceControlView view) {
-		view.ClearMessage();
+	private static bool Cleared(Workbench workbench, IGitRepository repository, string message) {
+		workbench.Post(() => {
+			if (workbench.Sidebar.SourceControl.MessageFor(repository) == message) workbench.Sidebar.SourceControl.ClearMessage(repository);
+		});
+
 		return true;
 	}
 
-	private static void Commit(Workbench workbench, ShellContext context, bool all, string[]? then = null) {
-		if (workbench.Repository is not { } repository) return;
-
+	private static void Commit(Workbench workbench, ShellContext context, bool all, string[]? then = null) => WithRepository(workbench, context, repository => {
 		SourceControlView view = workbench.Sidebar.SourceControl;
-		string message = view.Message;
+		string message = view.MessageFor(repository);
 
 		if (message.Trim().Length == 0) {
-			view.Input.RequestFocus();
+			view.InputFor(repository)?.RequestFocus();
 			return;
 		}
 
-		if (view.Committing) return;
+		if (view.IsCommitting(repository)) return;
 
 		bool smart = all || (repository.GetStaged().Count == 0 && context.Settings.GetBoolean("git.enableSmartCommit") == true);
 		string root = repository.GetRootPath();
 
-		view.Committing = true;
+		view.SetCommitting(repository, true);
 
 		ThreadPool.UnsafeQueueUserWorkItem(_ => {
 			bool committed = smart ? GitProcess.RunUntimed(root, "commit", "-a", "-m", message) is not null : repository.Commit(message);
 
 			workbench.Post(() => {
-				view.Committing = false;
+				view.SetCommitting(repository, false);
 
-				if (committed && view.Message == message) view.ClearMessage();
+				if (committed && view.MessageFor(repository) == message) view.ClearMessage(repository);
 
 				context.Refresh();
 			});
@@ -148,17 +173,61 @@ public static class GitCommands
 			repository.Refresh();
 			context.Refresh();
 		}, null);
-	}
+	});
 
-	private static void Run(Workbench workbench, ShellContext context, Func<string, bool> command) {
-		if (workbench.Repository is not { } repository) return;
+	private static void Run(Workbench workbench, ShellContext context, Func<IGitRepository, string, bool> command) => WithRepository(workbench, context, repository => Run(context, repository, command));
 
+	private static void Run(ShellContext context, IGitRepository repository, Func<IGitRepository, string, bool> command) {
 		string root = repository.GetRootPath();
 
 		ThreadPool.UnsafeQueueUserWorkItem(_ => {
-			command(root);
+			command(repository, root);
 			repository.Refresh();
 			context.Refresh();
 		}, null);
+	}
+
+	public static void WithRepository(Workbench workbench, ShellContext context, Action<IGitRepository> action) {
+		if (workbench.CommandRepository is { } chosen) {
+			workbench.CommandRepository = null;
+			action(chosen);
+			return;
+		}
+
+		IReadOnlyList<IGitRepository> all = workbench.Repositories?.GetAll() ?? [];
+
+		if (all.Count == 0) return;
+
+		if (all.Count == 1) {
+			action(all[0]);
+			return;
+		}
+
+		List<IGitRepository> picks = [.. all];
+
+		if (workbench.RepositoryFor(workbench.ActiveDocument?.SourcePath) is { } active && picks.Remove(active)) picks.Insert(0, active);
+
+		QuickPickItem[] items = [.. picks.Select(static repository => new QuickPickItem(System.IO.Path.GetFileName(repository.GetRootPath()), Description(repository)))];
+
+		workbench.QuickInput.Show(new Forge.Commands.ListQuickPick("Choose a repository", items, index => {
+			if (index >= 0 && index < picks.Count) action(picks[index]);
+
+			context.Refresh();
+		}));
+	}
+
+	private static string Description(IGitRepository repository) {
+		string head = repository.GetBranch() ?? "HEAD";
+
+		if (repository.GetUnstaged().Count > 0) head += "*";
+
+		if (repository.GetStaged().Count > 0) head += "+";
+
+		if (repository.GetMerge().Count > 0) head += "!";
+
+		int behind = repository.GetBehind();
+		int ahead = repository.GetAhead();
+
+		return behind > 0 || ahead > 0 ? $"{head} {behind}↓ {ahead}↑" : head;
 	}
 }

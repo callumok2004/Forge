@@ -38,6 +38,8 @@ public sealed class GitRepository : IGitRepository
 		_changed += handler;
 	}
 
+	public static GitRepository At(string root) => new(Path.GetFullPath(root));
+
 	public static GitRepository? Open(string workspacePath) {
 		if (!Directory.Exists(workspacePath) || !GitProcess.IsAvailable) return null;
 

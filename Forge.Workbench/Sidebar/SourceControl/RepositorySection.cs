@@ -5,43 +5,63 @@ namespace Forge.Workbench;
 
 public sealed class RepositorySection : Panel
 {
-	private readonly SourceControlView _view;
-	private readonly RepositoryHeader _header;
+	public const float DefaultSize = 220f;
+	public const float MinimumBodySize = 66f;
 
-	public RepositorySection(SourceControlView view) {
+	private readonly SourceControlView _view;
+
+	public RepositorySection(SourceControlView view, IGitRepository repository, bool expanded, float size) {
 		_view = view;
+		Repository = repository;
+		Expanded = expanded;
+		Size = size;
 		Name = "RepositorySection";
-		Dock = DockType.Fill;
 		MouseInputEnabled = false;
 
-		_header = new RepositoryHeader(this);
-		Tree = new ScmTree(view);
+		Header = new RepositoryHeader(this);
+		Tree = new ScmTree(view, this) { Visible = expanded };
 
-		AddChild(_header);
+		AddChild(Header);
 		AddChild(Tree);
 	}
 
+	public IGitRepository Repository { get; }
+
+	public SourceControlView View => _view;
+
+	public RepositoryHeader Header { get; }
+
 	public ScmTree Tree { get; }
 
-	private string Key => $"section:{_view.RootPath}";
+	public string Key => Repository.GetRootPath();
 
-	public bool Expanded => !_view.IsCollapsed(Key);
+	public bool Expanded { get; private set; }
 
-	public void Toggle() {
-		_view.Toggle(Key);
-		Tree.Visible = Expanded;
-		_header.Repaint();
+	public float Size { get; set; }
+
+	public void Toggle() => SetExpanded(!Expanded);
+
+	public void SetExpanded(bool expanded) {
+		if (Expanded == expanded) return;
+
+		Expanded = expanded;
+		Tree.Visible = expanded;
+		Header.Repaint();
+		_view.SectionsChanged();
 	}
 
-	public void Sync(IGitRepository repository) {
-		_header.Sync(repository);
-		Tree.Visible = Expanded;
+	public void RunCommand(string command) => _view.RunCommand(command, Repository);
+
+	public void Sync() {
+		Header.Sync(Repository);
 		Tree.Invalidate();
 		Repaint();
 	}
 
 	public override void PerformLayout() {
-		_header.SetSize(Wide, RepositoryHeader.HeightFor(Scale));
-		base.PerformLayout();
+		float header = RepositoryHeader.HeightFor(Scale);
+
+		Header.SetBounds(0f, 0f, Wide, header);
+		Tree.SetBounds(0f, header, Wide, Math.Max(0f, Tall - header));
 	}
 }

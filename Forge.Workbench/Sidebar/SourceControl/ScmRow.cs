@@ -32,13 +32,13 @@ public sealed record ScmRowAction(Codicon Icon, string Title, Action<ScmTree, Sc
 
 	public static readonly ScmRowAction Discard = new(Codicon.Discard, "Discard Changes", static (tree, row) => tree.Discard(row));
 
-	public static readonly ScmRowAction StageAll = new(Codicon.Add, "Stage All Changes", static (tree, _) => tree.PostCommand("git.stageAll"));
+	public static readonly ScmRowAction StageAll = new(Codicon.Add, "Stage All Changes", static (tree, _) => tree.RunCommand("git.stageAll"));
 
-	public static readonly ScmRowAction StageAllMerge = new(Codicon.Add, "Stage All Merge Changes", static (tree, _) => tree.PostCommand("git.stageAllMerge"));
+	public static readonly ScmRowAction StageAllMerge = new(Codicon.Add, "Stage All Merge Changes", static (tree, _) => tree.RunCommand("git.stageAllMerge"));
 
-	public static readonly ScmRowAction UnstageAll = new(Codicon.Remove, "Unstage All Changes", static (tree, _) => tree.PostCommand("git.unstageAll"));
+	public static readonly ScmRowAction UnstageAll = new(Codicon.Remove, "Unstage All Changes", static (tree, _) => tree.RunCommand("git.unstageAll"));
 
-	public static readonly ScmRowAction DiscardAll = new(Codicon.Discard, "Discard All Changes", static (tree, _) => tree.PostCommand("git.cleanAll"));
+	public static readonly ScmRowAction DiscardAll = new(Codicon.Discard, "Discard All Changes", static (tree, _) => tree.RunCommand("git.cleanAll"));
 
 	public static readonly ScmRowAction[] ChangesGroup = [DiscardAll, StageAll];
 

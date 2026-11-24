@@ -4,6 +4,7 @@ using Forge.Common.Commands;
 using Forge.Common.Debug;
 using Forge.Common.Editor;
 using Forge.Common.Extensions;
+using Forge.Common.Git;
 using Forge.Common.Language;
 using Forge.Common.Render;
 using Forge.Common.UI;
@@ -139,27 +140,68 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		workbench.BranchName = GitWorkspaceInfo.ReadBranchName(rootPath);
 		workbench.TitleBar.BranchName = workbench.BranchName;
 
-		AttachRepository();
-		workbench.Sidebar.SourceControl.LoadState(UserData.WorkspaceFile(rootPath, "source-control.txt"));
+		workbench.Sidebar.SourceControl.LoadState(UserData.WorkspaceFile(rootPath, "source-control.txt"), UserData.WorkspaceFile(rootPath, "scm-sections.json"));
+		AttachRepositories();
 
-		void AttachRepository() {
-			workbench.Repository = GitRepository.Open(rootPath);
-			workbench.Sidebar.Repository = workbench.Repository;
-			workbench.Sidebar.SourceControl.SetRoot(workbench.Repository?.GetRootPath() ?? rootPath);
+		void AttachRepositories() {
+			string closedPath = UserData.WorkspaceFile(rootPath, "closed-repositories.json");
+			string parentsPath = Path.Combine(UserData.Directory, "parent-repositories.json");
+			GitRepositories repositories = new(rootPath, RepositoryDiscovery.Options(settings), RepositoryDiscovery.ReadSet(closedPath), RepositoryDiscovery.ReadSet(parentsPath));
+			HashSet<IGitRepository> hooked = [];
 
-			if (workbench.Repository is not { } repository) return;
+			repositories.ClosedChanged = () => RepositoryDiscovery.WriteSet(closedPath, repositories.Closed);
+			workbench.Repositories = repositories;
+			workbench.Sidebar.Repositories = repositories;
 
-			repository.OnChanged(() => {
-				workbench.BranchName = repository.GetBranch() ?? workbench.BranchName;
+			void ApplyScmSettings() {
+				SourceControlView view = workbench.Sidebar.SourceControl;
+				view.ProviderCountBadge = Settings.Current.GetString("scm.providerCountBadge") is "auto" or "visible" ? Settings.Current.GetString("scm.providerCountBadge")! : "hidden";
+				view.SelectionMode = Settings.Current.GetString("scm.repositories.selectionMode") == "single" ? "single" : "multiple";
+				view.SortOrder = Settings.Current.GetString("scm.repositories.sortOrder") is "name" or "path" ? Settings.Current.GetString("scm.repositories.sortOrder")! : "discovery time";
+				view.MarkStale();
+			}
+
+			ApplyScmSettings();
+			Settings.Current.Changed += _ => Post(ApplyScmSettings);
+
+			void SyncBranch() {
+				workbench.BranchName = workbench.Repository?.GetBranch() ?? GitWorkspaceInfo.ReadBranchName(rootPath);
 				workbench.TitleBar.BranchName = workbench.BranchName;
-				workbench.RefreshDiff(window.Invalidate);
-				workbench.RefreshGitDiffs(window.Invalidate);
+				workbench.Sidebar.Graph.Repository = workbench.Repository;
+			}
+
+			repositories.OnChanged(() => Post(() => {
+				foreach (IGitRepository repository in repositories.GetAll()) {
+					if (!hooked.Add(repository)) continue;
+
+					repository.OnChanged(() => Post(() => {
+						if (ReferenceEquals(repository, workbench.Repository)) SyncBranch();
+
+						workbench.RefreshDiff(window.Invalidate);
+						workbench.RefreshGitDiffs(window.Invalidate);
+						window.Invalidate();
+					}));
+				}
+
+				workbench.TrackActiveEditorRepository();
+				SyncBranch();
+				workbench.Sidebar.SourceControl.MarkStale();
 				window.Invalidate();
-			});
+			}));
 
-			ThreadPool.UnsafeQueueUserWorkItem(_ => repository.Refresh(), null);
+			workbench.ActiveRepositoryChanged += SyncBranch;
 
-			workbench.ActiveDocumentChanged += () => workbench.RefreshDiff(window.Invalidate);
+			ThreadPool.UnsafeQueueUserWorkItem(_ => {
+				repositories.Discover();
+				Post(() => RepositoryDiscovery.Notify(workbench, repositories, parentsPath, window.Invalidate));
+			}, null);
+
+			workbench.ActiveDocumentChanged += () => {
+				workbench.TrackActiveEditorRepository();
+				workbench.RefreshDiff(window.Invalidate);
+
+				if (workbench.ActiveDocument?.Path is { } opened && workbench.RepositoryFor(opened) is null) ThreadPool.UnsafeQueueUserWorkItem(_ => repositories.OpenFor(opened), null);
+			};
 			workbench.ActiveDocumentChanged += () => {
 				if (workbench.Panel.ProblemsView.Scope != ErrorListScope.EntireSolution) workbench.Panel.ProblemsView.Sync();
 			};
@@ -423,10 +465,10 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		index.StartScan();
 
 		using WorkspaceWatcher watcher = new(rootPath, (directories, git) => {
-			if (git && workbench.Repository is { } watched) watched.Refresh();
-			else if (git) Post(() => {
-				if (workbench.Repository is null) AttachRepository();
-			});
+			if (git.Count > 0 && workbench.Repositories is { } repositories) {
+				repositories.RefreshFor(git);
+				repositories.OpenPossible(git);
+			}
 
 			if (directories.Count > 0) Post(() => {
 				workbench.Sidebar.Explorer.Reload(directories);
@@ -466,6 +508,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		builder.Inject();
 
 		AppDomain.CurrentDomain.ProcessExit += (_, _) => workbench.ExtensionHost?.UnloadAll();
+		window.Events.Closed += workbench.Sidebar.SourceControl.SaveState;
 
 		window.Show();
 
@@ -500,6 +543,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			],
 		});
 		views.AddView(new ViewDescriptor("workbench.view.search.view", "Search", Sidebar.SearchId, () => workbench.Sidebar.Search) { TitleControls = () => [.. workbench.Sidebar.Search.HeaderActions] });
+		views.AddView(new ViewDescriptor("workbench.scm.repositories", "Repositories", Sidebar.SourceControlId, () => workbench.Sidebar.RepositoryList, -1) { HideByDefault = true });
 		views.AddView(new ViewDescriptor("workbench.scm", "Changes", Sidebar.SourceControlId, () => workbench.Sidebar.SourceControl, 0) { TitleControls = () => [.. workbench.Sidebar.SourceControl.HeaderActions] });
 		views.AddView(new ViewDescriptor("workbench.scm.history", "Graph", Sidebar.SourceControlId, () => workbench.Sidebar.Graph, 2) { Actions = [new ViewAction("workbench.scm.history.refresh", Codicon.Refresh, "Refresh")] });
 		views.AddView(new ViewDescriptor("workbench.debug.variablesView", "Variables", Sidebar.RunId, () => workbench.Sidebar.Variables, 10) { Actions = [new ViewAction(DebugCommands.CollapseVariables, Codicon.CollapseAll, "Collapse All")] });
@@ -705,8 +749,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			views.ContainerShown = id => {
 				if (id != Sidebar.SourceControlId) return;
 
-				workbench.Sidebar.SourceControl.SetRoot(workbench.Repository?.GetRootPath() ?? rootPath);
-				Registry.Execute("git.refresh", new CommandHost(workbench, Refresh));
+				foreach (Forge.Common.Git.IGitRepository repository in workbench.Repositories?.GetAll() ?? []) repository.Refresh();
 			};
 			workbench.ActivityBar.ContainerSelected = views.ToggleContainer;
 		}

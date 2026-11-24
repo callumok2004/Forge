@@ -115,7 +115,24 @@
 		"category": "Extensions",
 		"title": "Git",
 		"properties": {
-			"git.enableSmartCommit": { "type": "boolean", "default": false, "description": "Commit all changes when there are no staged changes." }
+			"git.enableSmartCommit": { "type": "boolean", "default": false, "description": "Commit all changes when there are no staged changes." },
+			"git.autoRepositoryDetection": { "type": ["boolean", "string"], "default": true, "enum": [true, false, "subFolders", "openEditors"], "enumDescriptions": ["Scan for both subfolders of the current opened folder and parent folders of open files.", "Disable automatic repository scanning.", "Scan for subfolders of the currently opened folder.", "Scan for parent folders of open files."], "description": "Configures when repositories should be automatically detected." },
+			"git.repositoryScanMaxDepth": { "type": "number", "default": 1, "description": "Controls the depth used when scanning workspace folders for Git repositories when `git.autoRepositoryDetection` is set to `true` or `subFolders`. Can be set to `-1` for no limit." },
+			"git.repositoryScanIgnoredFolders": { "type": "array", "items": { "type": "string" }, "default": ["node_modules"], "description": "List of folders that are ignored while scanning for Git repositories when `git.autoRepositoryDetection` is set to `true` or `subFolders`." },
+			"git.scanRepositories": { "type": "array", "items": { "type": "string" }, "default": [], "description": "List of paths to search for Git repositories in." },
+			"git.detectSubmodules": { "type": "boolean", "default": true, "description": "Controls whether to automatically detect Git submodules." },
+			"git.detectSubmodulesLimit": { "type": "number", "default": 10, "description": "Controls the limit of Git submodules detected." },
+			"git.ignoredRepositories": { "type": "array", "items": { "type": "string" }, "default": [], "description": "List of Git repositories to ignore." },
+			"git.openRepositoryInParentFolders": { "type": "string", "default": "prompt", "enum": ["always", "never", "prompt"], "enumDescriptions": ["Always open a repository in parent folders of workspaces or open files.", "Never open a repository in parent folders of workspaces or open files.", "Prompt before opening a repository the parent folders of workspaces or open files."], "description": "Control whether a repository in parent folders of workspaces or open files should be opened." }
+		}
+	},
+	{
+		"category": "Features",
+		"title": "Source Control",
+		"properties": {
+			"scm.providerCountBadge": { "type": "string", "default": "hidden", "enum": ["hidden", "auto", "visible"], "enumDescriptions": ["Hide Source Control Provider count badges.", "Only show count badge for Source Control Provider when non-zero.", "Show Source Control Provider count badges."], "description": "Controls the count badges on Source Control Provider headers. These headers appear in the Source Control view when there is more than one provider or when the `scm.alwaysShowRepositories` setting is enabled, and in the Source Control Repositories view." },
+			"scm.repositories.sortOrder": { "type": "string", "default": "discovery time", "enum": ["discovery time", "name", "path"], "enumDescriptions": ["Repositories in the Source Control Repositories view are sorted by discovery time. Repositories in the Source Control view are sorted in the order that they were selected.", "Repositories in the Source Control Repositories and Source Control views are sorted by repository name.", "Repositories in the Source Control Repositories and Source Control views are sorted by repository path."], "description": "Controls the sort order of the repositories in the source control repositories view." },
+			"scm.repositories.selectionMode": { "type": "string", "default": "multiple", "enum": ["multiple", "single"], "enumDescriptions": ["Multiple repositories can be selected at the same time.", "Only one repository can be selected at a time."], "description": "Controls the selection mode of the repositories in the Source Control Repositories view." }
 		}
 	}
 ]

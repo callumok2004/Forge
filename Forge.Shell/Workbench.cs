@@ -142,7 +142,34 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	public string? BranchName { get; set; }
 
-	public IGitRepository? Repository { get; set; }
+	public GitRepositories? Repositories { get; set; }
+
+	private IGitRepository? _activeRepository;
+
+	public IGitRepository? Repository {
+		get {
+			if (Repositories?.GetAll() is not { Count: > 0 } all) return null;
+
+			return _activeRepository is { } active && all.Contains(active) ? active : all[0];
+		}
+	}
+
+	public IGitRepository? RepositoryFor(string? path) => path is { Length: > 0 } && !path.Contains("://", StringComparison.Ordinal) ? Repositories?.For(path) : null;
+
+	public event Action? ActiveRepositoryChanged;
+
+	public void FocusRepository(IGitRepository? repository) {
+		if (repository is null || ReferenceEquals(repository, _activeRepository)) return;
+
+		_activeRepository = repository;
+		ActiveRepositoryChanged?.Invoke();
+	}
+
+	public void TrackActiveEditorRepository() {
+		if (RepositoryFor(ActiveDocument?.SourcePath) is { } repository) FocusRepository(repository);
+	}
+
+	public IGitRepository? CommandRepository { get; set; }
 
 	public IExtensionRegistry? Extensions { get; set; }
 
@@ -242,7 +269,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	public GitDiff Diff { get; } = new();
 
 	public void RefreshDiff(Action refreshed) {
-		if (Repository is not { } repository || ActiveDocument?.Path is not { } path) {
+		if (ActiveDocument?.Path is not { } path || RepositoryFor(path) is not { } repository) {
 			Diff.Clear();
 			return;
 		}
@@ -254,16 +281,13 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	}
 
 	public void RefreshGitDiffs(Action refreshed) {
-		if (Repository is not { } repository) return;
-
-		string root = repository.GetRootPath();
-		List<(Document Document, DiffEditor Diff, string OriginalSpec, string? ModifiedSpec)> targets = [];
+		List<(Document Document, DiffEditor Diff, string Root, string OriginalSpec, string? ModifiedSpec)> targets = [];
 
 		for (int i = 0; i < _documents.Count; i++) {
 			if (_panes[i] is not null || !_diffEditors.TryGetValue(_views[i], out DiffEditor? diff) || _documents[i].DiffOriginalUri is not { } original || GitSpec(original) is not { } originalSpec) continue;
 
-			string? modifiedSpec = _documents[i].VirtualUri is { } uri && GitSpec(uri) is { } spec ? spec : null;
-			targets.Add((_documents[i], diff, originalSpec, modifiedSpec));
+			string? modifiedSpec = _documents[i].VirtualUri is { } uri && GitSpec(uri) is { } spec ? spec.Spec : null;
+			targets.Add((_documents[i], diff, originalSpec.Root, originalSpec.Spec, modifiedSpec));
 		}
 
 		if (targets.Count == 0) return;
@@ -271,7 +295,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		ThreadPool.UnsafeQueueUserWorkItem(_ => {
 			List<(Document, DiffEditor, string, string?)> texts = [];
 
-			foreach ((Document document, DiffEditor diff, string originalSpec, string? modifiedSpec) in targets) texts.Add((document, diff, GitText(root, originalSpec), modifiedSpec is null ? null : GitText(root, modifiedSpec)));
+			foreach ((Document document, DiffEditor diff, string root, string originalSpec, string? modifiedSpec) in targets) texts.Add((document, diff, GitText(root, originalSpec), modifiedSpec is null ? null : GitText(root, modifiedSpec)));
 
 			Post(() => {
 				foreach ((Document document, DiffEditor diff, string original, string? modified) in texts) {
@@ -293,19 +317,24 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		}, null);
 	}
 
-	private static string? GitSpec(string uri) {
+	private (string Root, string Spec)? GitSpec(string uri) {
 		if (!uri.StartsWith("git:/", StringComparison.Ordinal)) return null;
 
 		int query = uri.LastIndexOf('?');
 
 		if (query < 0) return null;
 
-		string relative = uri[5..query];
+		string path = uri[5..query].Replace('/', System.IO.Path.DirectorySeparatorChar);
+
+		if (RepositoryFor(path) is not { } repository) return null;
+
+		string root = repository.GetRootPath();
+		string relative = System.IO.Path.GetRelativePath(root, path).Replace('\\', '/');
 		string reference = uri[(query + 1)..];
 
 		return reference switch {
-			"" or "~" => ":" + relative,
-			"HEAD" => "HEAD:" + relative,
+			"" or "~" => (root, ":" + relative),
+			"HEAD" => (root, "HEAD:" + relative),
 			_ => null,
 		};
 	}
@@ -734,7 +763,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	public DiffEditor? ActiveDiff => ActiveView is { } view && _diffEditors.TryGetValue(view, out DiffEditor? diff) && !diff.Inline ? diff : null;
 
 	private void StageHunk(Document document, DiffEditor diff, LineHunk hunk) {
-		if (Repository is not { } repository || document.SourcePath is not { } path) return;
+		if (document.SourcePath is not { } path || RepositoryFor(path) is not { } repository) return;
 
 		string root = repository.GetRootPath();
 		string relative = System.IO.Path.GetRelativePath(root, path).Replace('\\', '/');
@@ -760,7 +789,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	});
 
 	private void OpenGitChangeCore(string path, GitFileStatus status, bool staged) {
-		if (Repository is not { } repository) return;
+		if (RepositoryFor(path) is not { } repository) return;
 
 		string root = repository.GetRootPath();
 		string relative = System.IO.Path.GetRelativePath(root, path).Replace('\\', '/');
@@ -775,7 +804,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 		if (status == GitFileStatus.Deleted) {
 			string reference = staged ? "HEAD" : string.Empty;
-			string uri = GitUri(relative, "deleted" + reference);
+			string uri = GitUri(root, relative, "deleted" + reference);
 
 			if (FindVirtual(uri) is not { } deleted) deleted = Document.Virtual(uri, name + (staged ? " (Index)" : " (Deleted)"), string.Empty);
 
@@ -786,7 +815,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 			if (before.Length == 0 && !staged) before = GitText(root, "HEAD:" + relative);
 
-			ShowDiff(deleted, GitUri(relative, reference), before, previousLineHeight, previousViewport);
+			ShowDiff(deleted, GitUri(root, relative, reference), before, previousLineHeight, previousViewport);
 			return;
 		}
 
@@ -795,25 +824,22 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 			if (index is null || status == GitFileStatus.Added) return;
 
-			ShowDiff(index, GitUri(relative, "HEAD"), GitText(root, "HEAD:" + relative), previousLineHeight, previousViewport);
+			ShowDiff(index, GitUri(root, relative, "HEAD"), GitText(root, "HEAD:" + relative), previousLineHeight, previousViewport);
 			return;
 		}
 
-		if (OpenDiffTab(path, GitUri(relative, "~"), name + " (Working Tree)") is not { } document) return;
+		if (OpenDiffTab(path, GitUri(root, relative, "~"), name + " (Working Tree)") is not { } document) return;
 
-		ShowDiff(document, GitUri(relative, "~"), GitText(root, ":" + relative), previousLineHeight, previousViewport);
+		ShowDiff(document, GitUri(root, relative, "~"), GitText(root, ":" + relative), previousLineHeight, previousViewport);
 	}
 
-	public void OpenCommitChange(GitCommit commit, GitCommitChange change) => AsPreview(true, () => {
-		if (Repository is not { } repository) return false;
-
-		string root = repository.GetRootPath();
+	public void OpenCommitChange(string root, GitCommit commit, GitCommitChange change) => AsPreview(true, () => {
 		string relative = System.IO.Path.GetRelativePath(root, change.Path).Replace('\\', '/');
 		string originalRelative = change.OriginalPath is { } previous ? System.IO.Path.GetRelativePath(root, previous).Replace('\\', '/') : relative;
 		string parent = commit.Parents.Length > 0 ? commit.Parents[0] : string.Empty;
 		string shortParent = parent.Length > 7 ? parent[..7] : parent;
 		string title = System.IO.Path.GetFileName(change.Path) + " (" + (shortParent.Length > 0 ? shortParent : commit.ShortId + "^") + " ↔ " + commit.ShortId + ")";
-		string uri = GitUri(relative, commit.Id);
+		string uri = GitUri(root, relative, commit.Id);
 		float previousLineHeight = ActiveView?.LastLineHeight ?? 0f;
 		float previousViewport = ActiveView?.LastViewportHeight ?? 0f;
 
@@ -824,7 +850,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		ViewAt(_documents.IndexOf(document)).Highlighter.SetLanguage(Forge.Syntax.Languages.ForPath(change.Path));
 
 		string before = parent.Length == 0 || change.Status == GitFileStatus.Added ? string.Empty : GitText(root, parent + ":" + originalRelative);
-		ShowDiff(document, GitUri(originalRelative, parent), before, previousLineHeight, previousViewport);
+		ShowDiff(document, GitUri(root, originalRelative, parent), before, previousLineHeight, previousViewport);
 		return true;
 	});
 
@@ -856,7 +882,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	}
 
 	private Document? OpenGitVersion(string root, string relative, string reference, string title) {
-		string uri = GitUri(relative, reference);
+		string uri = GitUri(root, relative, reference);
 
 		if (FindVirtual(uri) is not { } document) {
 			document = Document.Virtual(uri, title, GitText(root, (reference.Length == 0 ? ":" : reference + ":") + relative));
@@ -874,7 +900,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		return null;
 	}
 
-	private static string GitUri(string relative, string reference) => "git:/" + relative + "?" + reference;
+	private static string GitUri(string root, string relative, string reference) => "git:/" + System.IO.Path.GetFullPath(System.IO.Path.Combine(root, relative)).Replace('\\', '/') + "?" + reference;
 
 	private static string GitText(string root, string spec) {
 		string text = Git.GitProcess.Run(root, "show", spec) ?? string.Empty;
@@ -1038,7 +1064,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 	public bool ApplyWorkspaceEdit(WorkspaceEdit edit) {
 		bool applied = new WorkspaceEditApplier(this).Apply(edit);
 
-		Repository?.Refresh();
+		Repositories?.RefreshFor([.. edit.Operations.SelectMany(static operation => operation.NewPath is { } target ? (string[])[operation.Path, target] : [operation.Path])]);
 		ActiveDocumentChanged?.Invoke();
 		return applied;
 	}
@@ -1524,7 +1550,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 		if (mode != "file" && !features.FormatsRanges) return null;
 
-		string? root = mode == "file" ? null : Repository?.GetRootPath();
+		string? root = mode == "file" ? null : RepositoryFor(path)?.GetRootPath();
 		string text = document.Buffer.GetText();
 		int version = document.Buffer.Version;
 		TaskCompletionSource<bool> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1622,7 +1648,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 		if (document.Path is { } savedPath && _documentObservers.Length > 0) PublishDocument(DocumentEvent.Saved, savedPath, document.Buffer.GetText());
 
-		Repository?.Refresh();
+		RepositoryFor(document.SourcePath)?.Refresh();
 		ActiveDocumentChanged?.Invoke();
 		return true;
 	}
@@ -1660,7 +1686,9 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		Sidebar.SourceControl.SyncIfStale();
 		Sidebar.Graph.SyncIfStale();
 
-		int changes = Repository is { } counted ? counted.GetStaged().Count + counted.GetUnstaged().Count + counted.GetMerge().Count : 0;
+		int changes = 0;
+
+		foreach (IGitRepository counted in Repositories?.GetAll() ?? []) changes += counted.GetStaged().Count + counted.GetUnstaged().Count + counted.GetMerge().Count;
 
 		if (changes != _sourceControlBadge) {
 			_sourceControlBadge = changes;
@@ -1706,7 +1734,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 			Decorations.UpdateVisible(view, trailing, IntelliSense?.Occurrences.For(ActiveFilePath, view.Buffer.Version) ?? [], firstLine, firstLine + (int)(height / lineHeight) + 1);
 		}
 
-		Lenses.Apply(view, ActiveFilePath, Panel.Problems, Repository, false);
+		Lenses.Apply(view, ActiveFilePath, Panel.Problems, RepositoryFor(ActiveFilePath), false);
 		view.Lightbulb = IntelliSense?.Actions.Current is { } bulb ? new TextView.LightbulbMark(bulb.Line, bulb.Column, bulb.InGutter, bulb.AutoFix) : null;
 		view.BreakpointProvider = BreakpointMarkFor;
 		view.ExecutionLine = ExecutionLineFor?.Invoke(ActiveFilePath ?? string.Empty) ?? -1;

@@ -101,11 +101,13 @@ public static class ApplicationMenu
 		]),
 	];
 
-	public static Menu Build(MenuEntry[] entries) {
+	public static Menu Build(MenuEntry[] entries) => Build(entries, null);
+
+	public static Menu Build(MenuEntry[] entries, Func<string, Action>? bind) {
 		Menu menu = new();
 
 		foreach (MenuEntry entry in entries)
-			menu.Add(entry.IsSeparator ? MenuItem.Separator() : new MenuItem(entry.Label, entry.CommandId, submenu: entry.Children is { } children ? Build(children) : null));
+			menu.Add(entry.IsSeparator ? MenuItem.Separator() : new MenuItem(entry.Label, entry.CommandId, action: bind is not null && entry.CommandId is { } command && entry.Children is null ? bind(command) : null, submenu: entry.Children is { } children ? Build(children, bind) : null));
 
 		return menu;
 	}

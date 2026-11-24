@@ -9,12 +9,11 @@ public sealed class WorkspaceWatcher : IDisposable
 	private readonly FileSystemWatcher _watcher;
 	private readonly ConcurrentDictionary<string, byte> _directories = new(StringComparer.OrdinalIgnoreCase);
 	private readonly Timer _settle;
-	private readonly Action<IReadOnlyCollection<string>, bool> _changed;
+	private readonly ConcurrentDictionary<string, byte> _gitPaths = new(StringComparer.OrdinalIgnoreCase);
+	private readonly Action<IReadOnlyCollection<string>, IReadOnlyCollection<string>> _changed;
 	private readonly string _root;
 
-	private volatile bool _gitChanged;
-
-	public WorkspaceWatcher(string root, Action<IReadOnlyCollection<string>, bool> changed) {
+	public WorkspaceWatcher(string root, Action<IReadOnlyCollection<string>, IReadOnlyCollection<string>> changed) {
 		_root = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar);
 		_changed = changed;
 		_settle = new Timer(_ => Flush(), null, Timeout.Infinite, Timeout.Infinite);
@@ -40,13 +39,11 @@ public sealed class WorkspaceWatcher : IDisposable
 
 	private void Note(string path) {
 		ReadOnlySpan<char> relative = path.AsSpan(Math.Min(path.Length, _root.Length)).TrimStart(Path.DirectorySeparatorChar);
-		int separator = relative.IndexOf(Path.DirectorySeparatorChar);
-		ReadOnlySpan<char> top = separator < 0 ? relative : relative[..separator];
 
-		if (top.Equals(".git", StringComparison.OrdinalIgnoreCase)) {
-			if (!IsGitStateChange(separator < 0 ? default : relative[(separator + 1)..])) return;
+		if (GitInternal(relative, out ReadOnlySpan<char> inside)) {
+			if (!IsGitStateChange(inside)) return;
 
-			_gitChanged = true;
+			_gitPaths.TryAdd(path, 0);
 			_settle.Change(SettleMilliseconds, Timeout.Infinite);
 			return;
 		}
@@ -55,14 +52,52 @@ public sealed class WorkspaceWatcher : IDisposable
 
 		if (Path.GetDirectoryName(path) is { } directory) _directories.TryAdd(directory, 0);
 
-		_gitChanged = true;
+		_gitPaths.TryAdd(path, 0);
 		_settle.Change(SettleMilliseconds, Timeout.Infinite);
 	}
 
-	private static bool IsGitStateChange(ReadOnlySpan<char> path) {
+	private static bool GitInternal(ReadOnlySpan<char> relative, out ReadOnlySpan<char> inside) {
+		foreach (Range segment in relative.Split(Path.DirectorySeparatorChar)) {
+			if (!relative[segment].Equals(".git", StringComparison.OrdinalIgnoreCase)) continue;
+
+			int end = segment.End.GetOffset(relative.Length);
+			inside = end >= relative.Length ? default : relative[(end + 1)..];
+			return true;
+		}
+
+		inside = default;
+		return false;
+	}
+
+	public static bool IsGitStateChange(ReadOnlySpan<char> path) {
+		while (path.StartsWith("modules" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) {
+			int state = StateStart(path[8..]);
+
+			if (state < 0) return false;
+
+			path = path[(8 + state)..];
+		}
+
 		if (path.EndsWith(".lock", StringComparison.OrdinalIgnoreCase)) return false;
 
 		return path.Equals("HEAD", StringComparison.OrdinalIgnoreCase) || path.Equals("index", StringComparison.OrdinalIgnoreCase) || path.Equals("packed-refs", StringComparison.OrdinalIgnoreCase) || path.EndsWith("_HEAD", StringComparison.OrdinalIgnoreCase) || path.StartsWith("refs", StringComparison.OrdinalIgnoreCase);
+	}
+
+	private static int StateStart(ReadOnlySpan<char> path) {
+		int offset = 0;
+
+		while (offset < path.Length) {
+			int separator = path[offset..].IndexOf(Path.DirectorySeparatorChar);
+			ReadOnlySpan<char> segment = separator < 0 ? path[offset..] : path.Slice(offset, separator);
+
+			if (offset > 0 && (segment.Equals("HEAD", StringComparison.OrdinalIgnoreCase) || segment.Equals("index", StringComparison.OrdinalIgnoreCase) || segment.Equals("packed-refs", StringComparison.OrdinalIgnoreCase) || segment.EndsWith("_HEAD", StringComparison.OrdinalIgnoreCase) || segment.Equals("refs", StringComparison.OrdinalIgnoreCase) || segment.Equals("modules", StringComparison.OrdinalIgnoreCase) || segment.Equals("objects", StringComparison.OrdinalIgnoreCase) || segment.Equals("logs", StringComparison.OrdinalIgnoreCase))) return offset;
+
+			if (separator < 0) return -1;
+
+			offset += separator + 1;
+		}
+
+		return -1;
 	}
 
 	private static bool IsIgnored(ReadOnlySpan<char> relative) {
@@ -76,10 +111,10 @@ public sealed class WorkspaceWatcher : IDisposable
 		string[] directories = [.. _directories.Keys];
 		_directories.Clear();
 
-		bool git = _gitChanged;
-		_gitChanged = false;
+		string[] git = [.. _gitPaths.Keys];
+		_gitPaths.Clear();
 
-		if (directories.Length > 0 || git) _changed(directories, git);
+		if (directories.Length > 0 || git.Length > 0) _changed(directories, git);
 	}
 
 	public void Dispose() {

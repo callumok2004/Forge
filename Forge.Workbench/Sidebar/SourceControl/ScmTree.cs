@@ -39,16 +39,39 @@ public sealed class ScmTree : Panel
 	private int _pressedAction = -1;
 	private string? _selectedKey;
 
-	public ScmTree(SourceControlView view) {
+	private readonly RepositorySection _section;
+
+	public ScmTree(SourceControlView view, RepositorySection section) {
 		_view = view;
+		_section = section;
 		Name = "ScmTree";
-		Dock = DockType.Fill;
 
 		_input = new TextEntry { Name = "ScmInput", Multiline = true, TextChanged = InvalidateInput, ContextKey = ContextKeys.ScmInputFocused };
-		_commit = new SplitButton { Name = "ScmCommit", Command = "git.commit", DropdownMenu = static () => ApplicationMenu.Build(GitMenus.Commit) };
+		_commit = new SplitButton { Name = "ScmCommit", Command = "git.commit", Action = () => section.RunCommand("git.commit"), DropdownMenu = () => ApplicationMenu.Build(GitMenus.Commit, command => () => section.RunCommand(command)) };
 
 		AddChild(_input);
 		AddChild(_commit);
+	}
+
+	public IGitRepository Repository => _section.Repository;
+
+	public bool Committing {
+		get;
+		set {
+			if (field == value) return;
+
+			field = value;
+			Invalidate();
+			Repaint();
+		}
+	}
+
+	public void RunCommand(string command) => _section.RunCommand(command);
+
+	private string TrimRoot(string folder) {
+		string root = Repository.GetRootPath();
+
+		return folder.StartsWith(root, StringComparison.OrdinalIgnoreCase) ? folder[root.Length..].TrimStart(Path.DirectorySeparatorChar) : folder;
 	}
 
 	public TextEntry Input => _input;
@@ -83,7 +106,7 @@ public sealed class ScmTree : Panel
 		_hoverAction = -1;
 		_pressed = -1;
 
-		if (_view.Repository is not { } repository) return;
+		IGitRepository repository = Repository;
 
 		AddGroup(repository.GetMerge(), ScmGroup.Merge, "Merge Changes", ScmRowAction.MergeGroup);
 		AddGroup(repository.GetStaged(), ScmGroup.Staged, "Staged Changes", ScmRowAction.StagedGroup);
@@ -97,7 +120,7 @@ public sealed class ScmTree : Panel
 		Span<char> buffer = stackalloc char[96];
 		int written = Write(buffer, "$(check) Commit");
 		_commit.SetText(buffer[..written]);
-		_commit.Enabled = !_view.Committing && (repository.GetStaged().Count > 0 || repository.GetUnstaged().Count > 0);
+		_commit.Enabled = !Committing && (repository.GetStaged().Count > 0 || repository.GetUnstaged().Count > 0);
 
 		string branch = repository.GetBranch() ?? "HEAD";
 		written = Write(buffer, "Message (commit on '");
@@ -114,7 +137,7 @@ public sealed class ScmTree : Panel
 	private void AddGroup(IReadOnlyList<GitEntry> entries, ScmGroup group, string title, ScmRowAction[] actions) {
 		if (entries.Count == 0) return;
 
-		string groupKey = $"group:{title}";
+		string groupKey = $"group:{Repository.GetRootPath()}:{title}";
 		_rows.Add(new ScmRow(ScmRowKind.Group, group, 1, title, groupKey, default, entries.Count, actions));
 
 		if (_view.IsCollapsed(groupKey)) return;
@@ -133,12 +156,12 @@ public sealed class ScmTree : Panel
 		_sorted.Sort(static (left, right) => string.Compare(left.Path, right.Path, StringComparison.OrdinalIgnoreCase));
 
 		ScmRowAction[] folderActions = staged ? ScmRowAction.StagedFolder : ScmRowAction.ChangedFolder;
-		string root = _view.RootPath;
+		string root = Repository.GetRootPath();
 		string previous = string.Empty;
 		string? hiddenUnder = null;
 
 		foreach (GitEntry entry in _sorted) {
-			string folder = _view.TrimRoot(Path.GetDirectoryName(entry.Path) ?? string.Empty);
+			string folder = TrimRoot(Path.GetDirectoryName(entry.Path) ?? string.Empty);
 
 			if (hiddenUnder is not null && (folder.Equals(hiddenUnder, StringComparison.OrdinalIgnoreCase) || folder.StartsWith(hiddenUnder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))) continue;
 
@@ -189,9 +212,9 @@ public sealed class ScmTree : Panel
 
 	public void OpenChange(in ScmRow row) => _view.ChangeOpened?.Invoke(row.Entry, row.Staged);
 
-	public void Stage(ScmRow row) => _view.Run(repository => repository.Stage(row.Entry.Path));
+	public void Stage(ScmRow row) => _view.Run(Repository, repository => repository.Stage(row.Entry.Path));
 
-	public void Unstage(ScmRow row) => _view.Run(repository => repository.Unstage(row.Entry.Path));
+	public void Unstage(ScmRow row) => _view.Run(Repository, repository => repository.Unstage(row.Entry.Path));
 
 	public void Discard(ScmRow row) {
 		string name = row.Kind == ScmRowKind.Folder ? row.Label : Path.GetFileName(row.Entry.Path);
@@ -200,7 +223,7 @@ public sealed class ScmTree : Panel
 		string message = untracked ? $"Are you sure you want to DELETE the following untracked file: '{name}'?" : $"Are you sure you want to discard changes in '{name}'?";
 		string primary = untracked ? "Delete File" : row.Kind == ScmRowKind.Folder ? "Discard Changes" : "Discard File";
 
-		ConfirmDialog.Show(message, untracked ? "This is IRREVERSIBLE!\nThis file will be FOREVER LOST if you proceed." : "This action is irreversible!", primary, () => _view.Run(repository => repository.Discard(row.Entry.Path, untracked)));
+		ConfirmDialog.Show(message, untracked ? "This is IRREVERSIBLE!\nThis file will be FOREVER LOST if you proceed." : "This action is irreversible!", primary, () => _view.Run(Repository, repository => repository.Discard(row.Entry.Path, untracked)));
 	}
 
 	#endregion
@@ -301,6 +324,7 @@ public sealed class ScmTree : Panel
 
 	public override bool OnMousePressed(MouseButton button, float x, float y) {
 		EnsureRows();
+		_view.RepositoryFocused?.Invoke(Repository);
 
 		_pressed = RowAt(y);
 		_pressedAction = ActionAt(_pressed, x);
@@ -421,7 +445,7 @@ public sealed class ScmTree : Panel
 
 				painter.DrawFileIcon(row.Label, content + (iconSize / 2f), centreY, iconSize);
 
-				string? description = _view.TreeView ? null : _view.TrimRoot(Path.GetDirectoryName(row.Entry.Path) ?? string.Empty);
+				string? description = _view.TreeView ? null : TrimRoot(Path.GetDirectoryName(row.Entry.Path) ?? string.Empty);
 				PaintLabel(painter, painter.GetUi(), row.Label, description, content + iconSize + (IconGap * scale), top, height, labelRight, color, row.Entry.Status == GitFileStatus.Deleted);
 
 				string letter = GitStatusLetter.Of(row.Entry.Status);

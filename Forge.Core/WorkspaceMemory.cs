@@ -102,7 +102,7 @@ public sealed class WorkspaceMemory
 
 public sealed record EditorViewState(int Anchor, int Caret, float ScrollTop);
 
-public sealed record ViewPaneState(float Weight, bool Collapsed);
+public sealed record ViewPaneState(float Weight, bool Collapsed, bool? Hidden = null);
 
 [JsonSourceGenerationOptions(WriteIndented = true)]
 [JsonSerializable(typeof(WorkspaceMemory))]

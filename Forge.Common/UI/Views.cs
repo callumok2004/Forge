@@ -25,6 +25,10 @@ public sealed record ViewDescriptor(string Id, string Name, string ContainerId, 
 	public IReadOnlyList<ViewAction> Actions { get; init; } = [];
 
 	public Func<IReadOnlyList<Panel>>? TitleControls { get; init; }
+
+	public bool HideByDefault { get; init; }
+
+	public bool CanToggleVisibility { get; init; } = true;
 }
 
 public sealed record ViewAction(string Command, Codicon Icon, string Title)

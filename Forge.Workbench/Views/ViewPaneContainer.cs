@@ -21,7 +21,49 @@ public sealed class ViewPaneContainer : Panel
 
 	public ViewContainer Container { get; }
 
-	public IReadOnlyList<ViewDescriptor> Views => [.. _panes.Select(static pane => pane.Descriptor)];
+	private readonly List<ViewDescriptor> _hidden = [];
+
+	public IReadOnlyList<ViewDescriptor> Views => [.. _panes.Select(static pane => pane.Descriptor).Concat(_hidden).OrderBy(static descriptor => descriptor.Order)];
+
+	public bool IsVisible(string viewId) => _panes.Exists(pane => pane.Descriptor.Id == viewId);
+
+	public void SetViewVisible(string viewId, bool visible) {
+		if (visible) {
+			if (_hidden.Find(descriptor => descriptor.Id == viewId) is not { } descriptor) return;
+
+			_hidden.Remove(descriptor);
+			Remember(descriptor.Id, hidden: false);
+			Create(descriptor);
+			return;
+		}
+
+		if (_panes.Find(pane => pane.Descriptor.Id == viewId) is not { } pane || !pane.Descriptor.CanToggleVisibility || _panes.Count == 1) return;
+
+		Remember(pane);
+		Remember(viewId, hidden: true);
+		Remove(viewId);
+		_hidden.Add(pane.Descriptor);
+	}
+
+	private static void Remember(string viewId, bool hidden) {
+		Forge.Core.ViewPaneState state = SavedStates.TryGetValue(viewId, out Forge.Core.ViewPaneState? saved) ? saved : new Forge.Core.ViewPaneState(1f, false);
+		SavedStates[viewId] = state with { Hidden = hidden };
+	}
+
+	public Menu ViewsMenu() {
+		Menu menu = new();
+
+		foreach (ViewDescriptor descriptor in Views) {
+			if (!descriptor.CanToggleVisibility) continue;
+
+			bool visible = IsVisible(descriptor.Id);
+			string id = descriptor.Id;
+
+			menu.Add(new MenuItem(descriptor.Name, action: () => SetViewVisible(id, !visible)) { Checked = visible });
+		}
+
+		return menu;
+	}
 
 	public bool IsEmpty => _panes.Count == 0;
 
@@ -32,8 +74,19 @@ public sealed class ViewPaneContainer : Panel
 	public IReadOnlyList<Panel> TitleActions => _panes.Count == 1 ? _panes[0].Controls : [];
 
 	public void Add(ViewDescriptor descriptor) {
-		if (_panes.Exists(pane => pane.Descriptor.Id == descriptor.Id)) return;
+		if (_panes.Exists(pane => pane.Descriptor.Id == descriptor.Id) || _hidden.Exists(hidden => hidden.Id == descriptor.Id)) return;
 
+		bool hidden = SavedStates.TryGetValue(descriptor.Id, out Forge.Core.ViewPaneState? state) && state.Hidden is { } stored ? stored : descriptor.HideByDefault;
+
+		if (hidden && descriptor.CanToggleVisibility) {
+			_hidden.Add(descriptor);
+			return;
+		}
+
+		Create(descriptor);
+	}
+
+	private void Create(ViewDescriptor descriptor) {
 		Pane pane = new(this, descriptor);
 
 		if (SavedStates.TryGetValue(descriptor.Id, out Forge.Core.ViewPaneState? saved)) {
@@ -83,7 +136,7 @@ public sealed class ViewPaneContainer : Panel
 
 	public static Dictionary<string, Forge.Core.ViewPaneState> SavedStates { get; set; } = [];
 
-	private static void Remember(Pane pane) => SavedStates[pane.Descriptor.Id] = new Forge.Core.ViewPaneState(pane.Weight, pane.Collapsed);
+	private static void Remember(Pane pane) => SavedStates[pane.Descriptor.Id] = new Forge.Core.ViewPaneState(pane.Weight, pane.Collapsed, SavedStates.TryGetValue(pane.Descriptor.Id, out Forge.Core.ViewPaneState? previous) ? previous.Hidden : null);
 
 	public void SyncActions() {
 		foreach (Pane pane in _panes) pane.SyncVisibility();
@@ -318,6 +371,12 @@ public sealed class ViewPaneContainer : Panel
 		public override void OnCursorExited() => Repaint();
 
 		public override bool OnMousePressed(MouseButton button, float x, float y) {
+			if (button == MouseButton.Right) {
+				(float absX, float absY) = GetAbsPos();
+				_owner.ViewsMenu().Open(absX + x, absY + y);
+				return true;
+			}
+
 			if (button != MouseButton.Left) return false;
 
 			_owner.Toggle(_pane.Descriptor.Id);

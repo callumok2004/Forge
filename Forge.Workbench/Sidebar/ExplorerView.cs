@@ -81,9 +81,11 @@ public sealed partial class ExplorerView : Panel
 	}
 
 	private GitFileStatus StatusOf(FileNode node) {
-		if (Repository is not { } repository) return GitFileStatus.Unchanged;
+		if (Repositories is not { } repositories) return GitFileStatus.Unchanged;
 
-		if (!node.IsGroup) return node.IsDirectory ? repository.StatusOfDirectory(node.FullPath) : repository.StatusOf(node.FullPath);
+		if (!node.IsGroup && !node.IsDirectory) return repositories.For(node.FullPath)?.StatusOf(node.FullPath) ?? GitFileStatus.Unchanged;
+
+		if (!node.IsGroup) return DirectoryStatus(repositories, node.FullPath);
 
 		if (node.Children is null) return GitFileStatus.Unchanged;
 
@@ -94,6 +96,26 @@ public sealed partial class ExplorerView : Panel
 		}
 
 		return GitFileStatus.Unchanged;
+	}
+
+	private static GitFileStatus DirectoryStatus(IGitRepositories repositories, string directory) {
+		GitFileStatus own = repositories.For(directory)?.StatusOfDirectory(directory) ?? GitFileStatus.Unchanged;
+
+		if (own is not (GitFileStatus.Unchanged or GitFileStatus.Ignored)) return own;
+
+		string prefix = directory.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+
+		foreach (IGitRepository nested in repositories.GetAll()) {
+			string root = nested.GetRootPath();
+
+			if (!root.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+
+			if (nested.GetMerge().Count > 0) return GitFileStatus.Conflicted;
+
+			if (nested.GetUnstaged().Count > 0 || nested.GetStaged().Count > 0) return GitFileStatus.Modified;
+		}
+
+		return own;
 	}
 
 	public ExplorerView() {
@@ -107,7 +129,7 @@ public sealed partial class ExplorerView : Panel
 		InitializeActions();
 	}
 
-	public IGitRepository? Repository { get; set; }
+	public IGitRepositories? Repositories { get; set; }
 
 	public Action<string>? FileOpened { get; set; }
 
