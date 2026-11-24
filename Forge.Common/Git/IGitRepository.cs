@@ -4,6 +4,7 @@ public interface IGitRepository
 {
 	string GetRootPath();
 	string? GetBranch();
+	GitRepositoryKind Kind { get; }
 
 	int GetAhead();
 	int GetBehind();

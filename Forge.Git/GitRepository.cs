@@ -16,12 +16,34 @@ public sealed class GitRepository : IGitRepository
 	private int _running;
 
 	private Action? _changed;
+	private GitRepositoryKind? _kind;
 
 	private GitRepository(string root) => _rootPath = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
 	public string GetRootPath() => _rootPath;
 
 	public string? GetBranch() => _snapshot.Branch;
+
+	public GitRepositoryKind Kind => _kind ?? GitRepositoryKind.Repository;
+
+	public static GitRepositoryKind DetectKind(string root) {
+		if (GitProcess.Run(root, "rev-parse", "--git-dir", "--git-common-dir", "--show-superproject-working-tree") is not { } output) return GitRepositoryKind.Repository;
+
+		return KindOf(root, output);
+	}
+
+	public static GitRepositoryKind KindOf(string root, string output) {
+		string[] lines = output.Split('\n');
+		string gitDir = Normalize(root, lines[0].Trim());
+		string common = lines.Length > 1 ? lines[1].Trim() : string.Empty;
+		string superProject = lines.Length > 2 ? lines[2].Trim() : string.Empty;
+
+		if (common.Length > 0 && !string.Equals(Normalize(root, common), gitDir, StringComparison.OrdinalIgnoreCase)) return GitRepositoryKind.Worktree;
+
+		return superProject.Length > 0 ? GitRepositoryKind.Submodule : GitRepositoryKind.Repository;
+
+		static string Normalize(string root, string path) => Path.GetFullPath(Path.IsPathRooted(path) ? path : Path.Combine(root, path)).TrimEnd(Path.DirectorySeparatorChar);
+	}
 
 	public int GetAhead() => _snapshot.Ahead;
 
@@ -82,6 +104,8 @@ public sealed class GitRepository : IGitRepository
 	}
 
 	private void Load() {
+		_kind ??= DetectKind(_rootPath);
+
 		string? status = GitProcess.Run(_rootPath, "--no-optional-locks", "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all");
 
 		if (status is null) return;

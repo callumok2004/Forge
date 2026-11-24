@@ -20,6 +20,8 @@ public enum Codicon : ushort
 	References = 0xEB36,
 	Repo = 0xEA62,
 	RepoSelected = 0xEC69,
+	Archive = 0xEA98,
+	Worktree = 0xEC7E,
 	GoToFile = 0xEA94,
 	ArrowDown = 0xEA9A,
 	ArrowUp = 0xEAA1,

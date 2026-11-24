@@ -17,6 +17,13 @@ public enum GitFileStatus
 
 public readonly record struct GitEntry(string Path, GitFileStatus Status);
 
+public enum GitRepositoryKind
+{
+	Repository,
+	Submodule,
+	Worktree,
+}
+
 public enum GitChangeKind
 {
 	Added,

@@ -153,7 +153,10 @@ public sealed class RepositoryHeader : Panel
 
 	public override void OnCursorExited() => Repaint();
 
-	public override bool OnMousePressed(MouseButton button, float x, float y) => true;
+	public override bool OnMousePressed(MouseButton button, float x, float y) {
+		_view.RepositoryFocused?.Invoke(_repository);
+		return true;
+	}
 
 	public override bool OnMouseReleased(MouseButton button, float x, float y) {
 		if (button != MouseButton.Left || x < 0f || y < 0f || x >= Wide || y >= Tall) return true;
@@ -184,7 +187,11 @@ public sealed class RepositoryHeader : Panel
 
 		if (_section is { } section) painter.DrawIcon(section.Expanded ? Codicon.ChevronDown : Codicon.ChevronRight, ScreenX + (TwistieWidth * scale / 2f), centreY, iconSize, Theme.Foreground);
 
-		bool selectedIcon = _view.ShowsSelectedIcon && _view.IsVisible(_repository);
-		painter.DrawIcon(selectedIcon ? Codicon.RepoSelected : Codicon.Repo, ScreenX + (Indent * scale) + (iconSize / 2f), centreY, iconSize, Theme.Foreground);
+		Codicon icon = _repository.Kind switch {
+			GitRepositoryKind.Submodule => Codicon.Archive,
+			GitRepositoryKind.Worktree => Codicon.Worktree,
+			_ => _view.ShowsSelectedIcon && _view.IsVisible(_repository) ? Codicon.RepoSelected : Codicon.Repo,
+		};
+		painter.DrawIcon(icon,ScreenX + (Indent * scale) + (iconSize / 2f), centreY, iconSize, Theme.Foreground);
 	}
 }
