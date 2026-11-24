@@ -15,7 +15,7 @@ public sealed class WebviewHost(nint window, ICompositionHost composition, strin
 {
 	private const string BrowserArguments =
 		"--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,Translate " +
-		"--enable-features=NetworkServiceInProcess2 --in-process-gpu " +
+		"--enable-features=NetworkServiceInProcess2 " +
 		"--renderer-process-limit=1 --disable-background-timer-throttling --enable-low-end-device-mode " +
 		"--js-flags=--max-old-space-size=192";
 
