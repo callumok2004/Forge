@@ -42,7 +42,7 @@ public sealed class TypingAssist(IEditorHost workbench, UiQueue ui)
 
 		DocumentEdits.Apply(document.GetBuffer(), edits, out int earliest, out int delta);
 
-		if (earliest != int.MaxValue) view.ExternalEdit(earliest, delta);
+		if (earliest != int.MaxValue) view.ExternalEdit(earliest);
 
 		if (caretInEdit < 0 || edits.Count != 1) return;
 

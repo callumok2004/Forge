@@ -31,7 +31,7 @@ public sealed class WorkspaceEditApplier(Workbench workbench)
 			bool wasClean = !document.IsDirty();
 			DocumentEdits.Apply(document.Buffer, edits, out int earliest, out int delta);
 
-			if (earliest != int.MaxValue) workbench.ViewAt(index).ExternalEdit(earliest, delta);
+			if (earliest != int.MaxValue) workbench.ViewAt(index).ExternalEdit(earliest);
 
 			workbench.Publish(document);
 

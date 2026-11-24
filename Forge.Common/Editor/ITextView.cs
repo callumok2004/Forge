@@ -22,7 +22,11 @@ public interface ITextView
 	int VisualColumnAt(int line, int offset);
 
 	void MoveTo(int offset, bool extend);
-	void ExternalEdit(int changedOffset, int delta);
+	void ExternalEdit(int changedOffset);
+
+	int GetSelectionAnchor();
+
+	void Select(int anchor, int caret);
 
 	(float X, float Y) PointForOffset(ITextFont font, int offset, float viewportX, float viewportY);
 }

@@ -388,6 +388,20 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 
 		window.Events.PlacementChanged += () => window.CaptureState().Save(UserData.WindowStatePath);
 
+		bool confirmedExit = false;
+
+		window.Events.CloseRequested = () => {
+			if (confirmedExit || !workbench.HasUnsaved()) return true;
+
+			workbench.ConfirmUnsaved([.. workbench.Documents], () => {
+				confirmedExit = true;
+				window.CloseWindow();
+			});
+
+			window.Invalidate();
+			return false;
+		};
+
 		window.Events.AppActivated += active => {
 			if (active || Workbench.AutoSaveMode is not ("onWindowChange" or "onFocusChange")) return;
 
@@ -890,14 +904,14 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		};
 
 		workbench.Tabs.Closed = index => {
-			workbench.Close(index);
+			workbench.CloseEditor(index);
 			Refresh();
 		};
 
 		workbench.Tabs.ContextMenu = (index, x, y) => {
 			string? path = index < workbench.Documents.Count && workbench.FindPaneAt(index) is null ? workbench.Documents[index].Path : null;
 			Menu menu = new();
-			menu.Add(new MenuItem("Close", "workbench.action.closeActiveEditor", () => workbench.Close(index)));
+			menu.Add(new MenuItem("Close", "workbench.action.closeActiveEditor", () => workbench.CloseEditor(index)));
 			menu.Add(new MenuItem("Close Others", "workbench.action.closeOtherEditors", () => workbench.CloseOthers(index)));
 			menu.Add(new MenuItem("Close to the Right", "workbench.action.closeEditorsToTheRight", index < workbench.Documents.Count - 1 ? () => workbench.CloseToTheRight(index) : null));
 			menu.Add(new MenuItem("Close Saved", "workbench.action.closeUnmodifiedEditors", workbench.CloseSaved));

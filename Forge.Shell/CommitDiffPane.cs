@@ -376,7 +376,54 @@ public sealed class CommitDiffPane : EditorPane
 		SetThinking(true);
 	}
 
+	private const float AutoScrollSeconds = 0.03f;
+	private const float MaximumOvershoot = 100f;
+
+	private TextView? _scrollbarView;
+	private float _dragX;
+	private float _dragY;
+	private float _autoScrollElapsed;
+
+	private void AutoScroll(float deltaSeconds) {
+		if (_diff is null || Ui is null) return;
+
+		_autoScrollElapsed += deltaSeconds;
+
+		if (_autoScrollElapsed < AutoScrollSeconds) return;
+
+		_autoScrollElapsed = 0f;
+
+		TextView view = _diff.Focused;
+		ITextFont font = Ui.GetFonts().GetCode();
+		float left = ContentLeft + (ReferenceEquals(view, _diff.Original) ? 0f : _diff.ModifiedLeft);
+		float right = ReferenceEquals(view, _diff.Original) ? ContentLeft + _diff.ModifiedLeft : Wide;
+		float lines = Overshoot(_dragY, DiffTop, Tall) / font.GetLineHeight();
+		float columns = Overshoot(_dragX, left, right) / font.GetCellWidth();
+
+		if (lines == 0f && columns == 0f) return;
+
+		if (lines != 0f) {
+			_diff.Modified.ScrollByLines(lines, font.GetLineHeight(), Tall - DiffTop);
+
+			if (ReferenceEquals(view, _diff.Original)) _diff.Original.SetScrollY(_diff.Modified.ScrollY);
+		}
+
+		if (columns != 0f) view.ScrollByColumns(columns, font.GetCellWidth());
+
+		(float absX, float absY) = GetAbsPos();
+		view.MoveTo(OffsetAt(view, absX + Math.Clamp(_dragX, left, right - 1f), absY + Math.Clamp(_dragY, DiffTop, Tall - 1f)), extend: true);
+		Repaint();
+	}
+
+	private static float Overshoot(float value, float low, float high) {
+		if (value < low) return -Math.Min(low - value, MaximumOvershoot);
+
+		return value > high ? Math.Min(value - high, MaximumOvershoot) : 0f;
+	}
+
 	public override void OnThink(float deltaSeconds) {
+		if (_selecting) AutoScroll(deltaSeconds);
+
 		if (_loaded is var loaded and >= 0 && loaded == _selectedFile && _prefetched.TryRemove(loaded, out (string Original, string Modified) texts)) {
 			_loaded = -1;
 			Remember(loaded, texts);
@@ -389,7 +436,7 @@ public sealed class CommitDiffPane : EditorPane
 		}
 
 		if (_searchDue == 0 || Environment.TickCount64 < _searchDue) {
-			if (_searchDue == 0 && _searchStatus is not "Searching…" && _texts.ContainsKey(_selectedFile)) SetThinking(false);
+			if (_searchDue == 0 && !_selecting && _searchStatus is not "Searching…" && _texts.ContainsKey(_selectedFile)) SetThinking(false);
 
 			return;
 		}
@@ -588,7 +635,18 @@ public sealed class CommitDiffPane : EditorPane
 			return;
 		}
 
+		if (_scrollbarView is { } bar && _diff is not null) {
+			bar.DragScrollbar(absX + x, absY + y);
+
+			if (ReferenceEquals(bar, _diff.Original)) _diff.Modified.SetScrollY(bar.ScrollY);
+
+			Repaint();
+			return;
+		}
+
 		if (_selecting && _diff is not null) {
+			_dragX = x;
+			_dragY = y;
 			TextView target = _diff.Focused;
 			target.MoveTo(OffsetAt(target, absX + x, absY + y), extend: true);
 			Repaint();
@@ -615,6 +673,19 @@ public sealed class CommitDiffPane : EditorPane
 		}
 
 		if (_diff is not null && x > ContentLeft && y > DiffTop) {
+			bool overScrollbar = false;
+
+			foreach (TextView candidate in (TextView[])[_diff.Original, _diff.Modified]) {
+				if (candidate.HoverScrollbar(absX + x, absY + y)) Repaint();
+
+				overScrollbar |= candidate.ScrollbarHovered != TextView.ScrollbarPart.None;
+			}
+
+			if (overScrollbar) {
+				Cursor = CursorCode.Arrow;
+				return;
+			}
+
 			if (_diff.Hover(absX + x, absY + y)) Repaint();
 
 			Cursor = _diff.Cursor ?? (_diff.IsInModified(absX + x) || _diff.IsInOriginal(absX + x) ? CursorCode.IBeam : CursorCode.Arrow);
@@ -680,6 +751,18 @@ public sealed class CommitDiffPane : EditorPane
 			return true;
 		}
 
+		foreach (TextView candidate in (TextView[])[_diff.Original, _diff.Modified]) {
+			if (!candidate.BeginScrollbarDrag(px, py)) continue;
+
+			_scrollbarView = candidate;
+
+			if (ReferenceEquals(candidate, _diff.Original)) _diff.Modified.SetScrollY(candidate.ScrollY);
+
+			Ui?.SetMouseCapture(this);
+			Repaint();
+			return true;
+		}
+
 		if (_diff.Press(Ui!.GetFonts().GetCode(), px, py, clicks, Tall - DiffTop)) {
 			Repaint();
 			return true;
@@ -695,6 +778,10 @@ public sealed class CommitDiffPane : EditorPane
 		else view.MoveTo(offset, extend: (Ui.GetModifiers() & KeyModifiers.Shift) != 0);
 
 		_selecting = true;
+		_dragX = x;
+		_dragY = y;
+		_autoScrollElapsed = 0f;
+		SetThinking(true);
 		Ui.SetMouseCapture(this);
 		Repaint();
 		return true;
@@ -710,6 +797,8 @@ public sealed class CommitDiffPane : EditorPane
 	private void StopDragging() {
 		_sashDragging = false;
 		_selecting = false;
+		_scrollbarView?.EndScrollbarDrag();
+		_scrollbarView = null;
 
 		if (_diffSashDragging && _diff is not null) _diff.SashDragging = false;
 

@@ -302,6 +302,14 @@ public sealed class Settings
 	public bool? GetBoolean(string key) =>
 		_effective[key] is JsonValue value && value.TryGetValue(out bool flag) ? flag : null;
 
+	public bool? GetBoolean(string key, string? language) =>
+		Override(key, language) is JsonValue value && value.TryGetValue(out bool flag) ? flag : GetBoolean(key);
+
+	public string? GetString(string key, string? language) =>
+		Override(key, language) is JsonValue value && value.TryGetValue(out string? text) ? text : GetString(key);
+
+	private JsonNode? Override(string key, string? language) => language is { Length: > 0 } && _effective[$"[{language}]"] is JsonObject scope ? scope[key] : null;
+
 	public int? GetInt32(string key) =>
 		_effective[key] is JsonValue value && value.TryGetValue(out double number) ? (int)number : null;
 

@@ -270,7 +270,7 @@ public sealed class FindWidget : Panel
 
 		view.PushUndoStop();
 		view.Buffer.Replace(match.Start, match.Length, replacement);
-		view.ExternalEdit(match.Start, replacement.Length - match.Length);
+		view.ExternalEdit(match.Start);
 		view.MoveTo(match.Start + replacement.Length, extend: false);
 		view.PushUndoStop();
 
@@ -307,7 +307,7 @@ public sealed class FindWidget : Panel
 		}
 
 		view.Buffer.EndEdit();
-		view.ExternalEdit(matches[0].Start, delta);
+		view.ExternalEdit(matches[0].Start);
 		view.PushUndoStop();
 
 		if (_scope is { } scope) _scope = (scope.Start, scope.End + delta);

@@ -138,7 +138,7 @@ public sealed class ExtensionHostSync
 		return document.VirtualUri is { } key && _virtualUris.TryGetValue(key, out JsonObject? uri) ? (JsonObject)uri.DeepClone() : null;
 	}
 
-	private static string LanguageOf(Document document) {
+	internal static string LanguageOf(Document document) {
 		string extension = Path.GetExtension(document.Path ?? document.Name);
 
 		return extension.Length > 1 ? extension[1..].ToLowerInvariant() switch {
@@ -373,6 +373,18 @@ public sealed class ExtensionHostSync
 
 	#region Requests
 
+	private async Task<JsonNode?> SaveDocumentAsync(JsonNode? parameters) {
+		Task<bool>? saving = null;
+
+		await OnUi(() => {
+			if (FindDocument(parameters?["uri"]) is { } document) saving = _workbench.SaveExplicit(document, participants: true);
+
+			return null;
+		}).ConfigureAwait(false);
+
+		return saving is not null && await saving.ConfigureAwait(false);
+	}
+
 	private Task<JsonNode?> OnUi(Func<JsonNode?> action) {
 		TaskCompletionSource<JsonNode?> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -393,7 +405,7 @@ public sealed class ExtensionHostSync
 
 	private Task<JsonNode?>? OnRequest(string method, JsonNode? parameters) => method switch {
 		"documents/open" => OnUi(() => OpenDocument(parameters)),
-		"documents/save" => OnUi(() => FindDocument(parameters?["uri"]) is { } document && _workbench.Save(document)),
+		"documents/save" => SaveDocumentAsync(parameters),
 		"window/showTextDocument" => OnUi(() => ShowTextDocument(parameters)),
 		"window/openDiff" => OnUi(() => OpenDiff(parameters)),
 		"window/closeTabs" => OnUi(() => CloseTabs(parameters)),

@@ -29,7 +29,11 @@ public static class WorkbenchCommands
 		});
 
 		Add("workbench.action.newWindow", "New Window", "File", () => Launch(Environment.ProcessPath!), "Ctrl+Shift+N");
-		Add("workbench.action.files.save", "Save", "File", () => workbench.SaveActive(), "Ctrl+S");
+		Add("workbench.action.files.save", "Save", "File", () => workbench.SaveExplicit(participants: true), "Ctrl+S");
+		Add("editor.action.formatDocument", "Format Document", "Editor", workbench.FormatActive, "Shift+Alt+F");
+		Add("workbench.action.files.saveWithoutFormatting", "Save without Formatting", "File", () => workbench.SaveExplicit(participants: false), "Ctrl+K Ctrl+Shift+S");
+
+		workbench.SaveUntitled = document => FileDialog.SaveFile(context.Window.Handle, document.Name) is { } target && document.SaveAs(target);
 
 		Add("workbench.action.files.saveAs", "Save As...", "File", () => {
 			if (workbench.ActiveDocument is { } document && FileDialog.SaveFile(context.Window.Handle, document.Name) is { } target) document.SaveAs(target);
@@ -138,6 +142,13 @@ public static class WorkbenchCommands
 			workbench.ShowSidebar = true;
 			workbench.Sidebar.Search.Focus(seed);
 		}, "Ctrl+Shift+F");
+
+		Add("workbench.action.replaceInFiles", "Search: Replace in Files", "Search", () => {
+			string? seed = workbench.ActiveView is { HasSelection: true } view && view.GetSelectedText() is { } selected && !selected.Contains('\n') ? selected : null;
+			workbench.Views?.ShowContainer(Sidebar.SearchId);
+			workbench.ShowSidebar = true;
+			workbench.Sidebar.Search.FocusReplace(seed);
+		}, "Ctrl+Shift+H");
 
 		Add("workbench.view.search", "Show Search", "View", () => {
 			workbench.Views?.ShowContainer(Sidebar.SearchId);

@@ -163,7 +163,7 @@ public sealed class ScmTree : Panel
 			}
 
 			if (hiddenUnder is not null) {
-				previous = string.Empty;
+				previous = hiddenUnder;
 				continue;
 			}
 

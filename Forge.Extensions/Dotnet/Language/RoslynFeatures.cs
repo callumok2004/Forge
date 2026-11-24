@@ -168,6 +168,20 @@ public sealed class RoslynFeatures(RoslynLanguageClient server, DotnetSettings s
 		return new LanguageTriggers(triggers.Suggest, triggers.Signature, triggers.SignatureRetrigger, settings.FormatOnType ? triggers.OnTypeFormatting : string.Empty, triggers.AutoInsert);
 	}
 
+	public bool FormatsDocuments => true;
+
+	public bool FormatsRanges => true;
+
+	public async Task<IReadOnlyList<HostTextEdit>> FormatDocumentAsync(string path) => Host(path, await server.Formatting.DocumentAsync(path, settings.TabSize, settings.InsertSpaces).ConfigureAwait(false));
+
+	public async Task<IReadOnlyList<HostTextEdit>> FormatRangeAsync(string path, int startLine, int startColumn, int endLine, int endColumn) => Host(path, await server.Formatting.RangeAsync(path, startLine, startColumn, endLine, endColumn, settings.TabSize, settings.InsertSpaces).ConfigureAwait(false));
+
+	private IReadOnlyList<HostTextEdit> Host(string path, IReadOnlyList<ServerTextEdit> edits) {
+		if (edits.Count > 0 && settings.PreserveCommentIndentation && host.GetDocumentText(path) is { } text) edits = CommentIndentFilter.Apply(text, edits);
+
+		return [.. edits.Select(static edit => new HostTextEdit(edit.StartLine, edit.StartColumn, edit.EndLine, edit.EndColumn, edit.NewText))];
+	}
+
 	public async Task<IReadOnlyList<HostTextEdit>> OnTypeFormattingAsync(string path, int line, int column, char character) {
 		IReadOnlyList<ServerTextEdit> edits = await server.Typing.OnTypeFormattingAsync(path, line, column, character, settings.TabSize, settings.InsertSpaces).ConfigureAwait(false);
 

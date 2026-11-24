@@ -1226,7 +1226,101 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		SyncBreadcrumbs();
 	}
 
-	public void CloseActive() => Close(ActiveIndex);
+	public void CloseActive() {
+		if (ActiveIndex >= 0 && ActiveIndex < _documents.Count) RequestClose([_documents[ActiveIndex]], null);
+	}
+
+	public void CloseEditor(int index) {
+		if (index >= 0 && index < _documents.Count) RequestClose([_documents[index]], null);
+	}
+
+	public Func<Document, bool>? SaveUntitled { get; set; }
+
+	private const int MaxConfirmationNames = 10;
+
+	public void RequestClose(List<Document> targets, Action? after) => ConfirmUnsaved(targets, () => CloseDocuments(targets, after));
+
+	public bool HasUnsaved() {
+		for (int i = 0; i < _documents.Count; i++) {
+			if (_panes[i] is null && !_documents[i].Buffer.ReadOnly && _documents[i].IsDirty()) return true;
+		}
+
+		return false;
+	}
+
+	public void ConfirmUnsaved(List<Document> targets, Action proceed) {
+		List<Document> dirty = [];
+
+		foreach (Document document in targets) {
+			int index = _documents.IndexOf(document);
+
+			if (index >= 0 && _panes[index] is null && !document.Buffer.ReadOnly && document.IsDirty()) dirty.Add(document);
+		}
+
+		if (dirty.Count == 0) {
+			proceed();
+			return;
+		}
+
+		if (AutoSaveMode != "off" && dirty.TrueForAll(static document => document.SourcePath is not null)) {
+			foreach (Document document in dirty) Save(document);
+
+			if (dirty.TrueForAll(static document => !document.IsDirty())) {
+				proceed();
+				return;
+			}
+		}
+
+		string message = dirty.Count == 1 ? $"Do you want to save the changes you made to {dirty[0].Name}?" : $"Do you want to save the changes to the following {dirty.Count} files?";
+		string detail = dirty.Count == 1 ? "Your changes will be lost if you don't save them." : FileNames(dirty) + "\nYour changes will be lost if you don't save them.";
+
+		ConfirmDialog.Show(message, detail, dirty.Count == 1 ? "Save" : "Save All", "Don't Save", result => {
+			if (result == ConfirmDialog.Secondary) proceed();
+			else if (result == ConfirmDialog.Primary) SaveThenProceed(dirty, 0, proceed);
+		});
+	}
+
+	private static string FileNames(List<Document> documents) {
+		System.Text.StringBuilder names = new();
+
+		for (int i = 0; i < documents.Count && i < MaxConfirmationNames; i++) names.Append(documents[i].Name).Append('\n');
+
+		int hidden = documents.Count - MaxConfirmationNames;
+
+		if (hidden == 1) names.Append("...1 additional file not shown\n");
+		else if (hidden > 1) names.Append($"...{hidden} additional files not shown\n");
+
+		return names.ToString();
+	}
+
+	private void SaveThenProceed(List<Document> dirty, int next, Action proceed) {
+		if (next == dirty.Count) {
+			proceed();
+			return;
+		}
+
+		Document document = dirty[next];
+
+		if (document.Path is null && document.Source is null) {
+			if (SaveUntitled?.Invoke(document) == true) SaveThenProceed(dirty, next + 1, proceed);
+
+			return;
+		}
+
+		SaveExplicit(document, participants: true).ContinueWith(saved => Post(() => {
+			if (saved.Result) SaveThenProceed(dirty, next + 1, proceed);
+		}), TaskScheduler.Default);
+	}
+
+	private void CloseDocuments(List<Document> targets, Action? after) {
+		foreach (Document document in targets) {
+			int index = _documents.IndexOf(document);
+
+			if (index >= 0) Close(index);
+		}
+
+		after?.Invoke();
+	}
 
 	public void PathMoved(string from, string to) {
 		string prefix = from.TrimEnd(System.IO.Path.DirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;
@@ -1272,32 +1366,30 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	private readonly List<string> _recentlyClosed = [];
 
-	public void CloseAll() {
-		for (int i = _documents.Count - 1; i >= 0; i--) Close(i);
-	}
+	public void CloseAll() => RequestClose([.. Enumerable.Reverse(_documents)], null);
 
 	public void CloseOthers(int keep) {
 		if (keep < 0 || keep >= _documents.Count) return;
 
-		for (int i = _documents.Count - 1; i > keep; i--) Close(i);
+		Document kept = _documents[keep];
 
-		for (int i = keep - 1; i >= 0; i--) Close(i);
-
-		Activate(0);
+		RequestClose([.. Enumerable.Reverse(_documents).Where(document => !ReferenceEquals(document, kept))], () => Activate(_documents.IndexOf(kept)));
 	}
 
 	public void CloseToTheRight(int index) {
-		for (int i = _documents.Count - 1; i > index; i--) Close(i);
+		if (index < 0 || index >= _documents.Count) return;
 
-		Activate(Math.Min(index, _documents.Count - 1));
+		Document kept = _documents[index];
+
+		RequestClose([.. Enumerable.Reverse(_documents.Skip(index + 1))], () => Activate(_documents.IndexOf(kept)));
 	}
 
 	public void CloseToTheLeft(int index) {
 		if (index <= 0 || index >= _documents.Count) return;
 
-		for (int i = index - 1; i >= 0; i--) Close(i);
+		Document kept = _documents[index];
 
-		Activate(0);
+		RequestClose([.. Enumerable.Reverse(_documents.Take(index))], () => Activate(_documents.IndexOf(kept)));
 	}
 
 	public void CloseSaved() {
@@ -1363,7 +1455,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 			if (_panes[i] is not null || !_documents[i].IsDirty()) continue;
 
 			ActiveIndex = i;
-			SaveActive();
+			SaveExplicit(participants: true);
 		}
 
 		if (active >= 0 && active < _documents.Count) ActiveIndex = active;
@@ -1383,10 +1475,146 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	public Func<string, string?>? WillSave { get; set; }
 
-	public bool SaveActive() {
-		if (WillSave is { } willSave && ActiveDocument?.Path is not null) EditActiveDocument(willSave);
+	public bool SaveActive() => SaveActive(participants: true);
 
-		if (ActiveDocument is { } saving) DocumentSaving?.Invoke(saving);
+	public bool SaveActive(bool participants) {
+		if (participants && WillSave is { } willSave && ActiveDocument?.Path is not null) EditActiveDocument(willSave);
+
+		return CommitActive(participants);
+	}
+
+	public Task<bool> SaveExplicit(Document document, bool participants) {
+		int index = _documents.IndexOf(document);
+
+		if (index < 0) return Task.FromResult(document.Save());
+
+		int active = ActiveIndex;
+		ActiveIndex = index;
+		Task<bool> saved = SaveExplicit(participants);
+
+		if (active >= 0 && active < _documents.Count) ActiveIndex = active;
+
+		return saved;
+	}
+
+	public Task<bool> SaveExplicit(bool participants) {
+		if (ActiveDocument is not { } document) return Task.FromResult(false);
+
+		if (document.Path is null && document.Source is null) return Task.FromResult(SaveUntitled?.Invoke(document) ?? false);
+
+		if (!participants) return Task.FromResult(SaveActive(participants: false));
+
+		if (_formatting.TryGetValue(document, out TaskCompletionSource<bool>? pending)) return pending.Task;
+
+		if (WillSave is { } willSave && document.Path is not null) EditActiveDocument(willSave);
+
+		return FormatBeforeSave(document) is { } formatting ? formatting : Task.FromResult(CommitActive(participants: true));
+	}
+
+	private readonly Dictionary<Document, TaskCompletionSource<bool>> _formatting = [];
+
+	private Task<bool>? FormatBeforeSave(Document document) {
+		if (document.Path is not { } path) return null;
+
+		string language = ExtensionHostSync.LanguageOf(document);
+
+		if (Settings.Current.GetBoolean("editor.formatOnSave", language) != true || IntelliSense?.FeaturesFor(path) is not { FormatsDocuments: true } features) return null;
+
+		string mode = Settings.Current.GetString("editor.formatOnSaveMode", language) ?? "file";
+
+		if (mode != "file" && !features.FormatsRanges) return null;
+
+		string? root = mode == "file" ? null : Repository?.GetRootPath();
+		string text = document.Buffer.GetText();
+		int version = document.Buffer.Version;
+		TaskCompletionSource<bool> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		_formatting[document] = completion;
+		Publish(document);
+
+		_ = Task.Run(async () => {
+			IReadOnlyList<HostTextEdit> edits = [];
+
+			try {
+				edits = mode == "file" ? await features.FormatDocumentAsync(path).ConfigureAwait(false) : await FormatModifiedAsync(features, path, root, text, mode == "modificationsIfAvailable").ConfigureAwait(false);
+			}
+			catch (Exception exception) when (exception is not OutOfMemoryException) {
+				Post(() => Panel.Output.Append($"Format on save failed for {System.IO.Path.GetFileName(path)}: {exception.Message}"));
+			}
+
+			Post(() => completion.TrySetResult(FinishFormatBeforeSave(document, version, edits)));
+		});
+
+		return completion.Task;
+	}
+
+	private static async Task<IReadOnlyList<HostTextEdit>> FormatModifiedAsync(ILanguageFeatures features, string path, string? root, string text, bool wholeFileFallback) {
+		string original = root is null ? string.Empty : GitText(root, ":" + System.IO.Path.GetRelativePath(root, path).Replace('\\', '/'));
+
+		if (original.Length == 0) return wholeFileFallback ? await features.FormatDocumentAsync(path).ConfigureAwait(false) : [];
+
+		List<ModifiedRange> ranges = ModifiedRanges.Compute(original, text);
+
+		if (ranges.Count == 0) return [];
+
+		return await RangeFormatting.ComputeAsync(ranges, range => features.FormatRangeAsync(path, range.StartLine, 1, range.EndLine, range.EndColumn)).ConfigureAwait(false);
+	}
+
+	private bool FinishFormatBeforeSave(Document document, int version, IReadOnlyList<HostTextEdit> edits) {
+		_formatting.Remove(document);
+
+		int index = _documents.IndexOf(document);
+
+		if (index < 0 || _panes[index] is not null) return document.Save();
+
+		if (edits.Count > 0 && document.Buffer.Version == version) ApplyFormatting(index, edits);
+
+		int active = ActiveIndex;
+		ActiveIndex = index;
+		bool saved = CommitActive(participants: true);
+
+		if (active >= 0 && active < _documents.Count) ActiveIndex = active;
+
+		return saved;
+	}
+
+	public void FormatActive() {
+		if (ActiveDocument is not { Path: { } path } document || IntelliSense?.FeaturesFor(path) is not { FormatsDocuments: true } features) return;
+
+		int version = document.Buffer.Version;
+		Publish(document);
+
+		_ = Task.Run(async () => {
+			IReadOnlyList<HostTextEdit> edits = await features.FormatDocumentAsync(path).ConfigureAwait(false);
+
+			Post(() => {
+				int index = _documents.IndexOf(document);
+
+				if (index >= 0 && _panes[index] is null && document.Buffer.Version == version && edits.Count > 0) ApplyFormatting(index, edits);
+			});
+		});
+	}
+
+	public void ApplyFormatting(int index, IReadOnlyList<HostTextEdit> edits) {
+		Document document = _documents[index];
+		TextView view = _views[index];
+		float caretTop = view.CaretViewportTop();
+		Span<int> tracked = [view.SelectionAnchor, view.CaretOffset];
+
+		document.Buffer.PushStackElement();
+		DocumentEdits.Apply(document.Buffer, edits, tracked, minimal: true, out int earliest, out _);
+		document.Buffer.PushStackElement();
+
+		if (earliest == int.MaxValue) return;
+
+		view.ExternalEdit(earliest);
+		view.Select(tracked[0], tracked[1]);
+		view.RestoreCaretViewportTop(caretTop);
+		Publish(document);
+	}
+
+	private bool CommitActive(bool participants) {
+		if (participants && ActiveDocument is { } saving) DocumentSaving?.Invoke(saving);
 
 		if (ActiveDocument is not { } document || !document.Save()) return false;
 

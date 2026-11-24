@@ -18,7 +18,6 @@ public sealed class DotnetExtension : ForgeExtension
 	private readonly RoslynLanguageClient _server = new();
 	private readonly ProjectContextStatus _contexts;
 	private readonly ServerLifecycle _lifecycle;
-	private readonly EditorCommands _editor;
 	private readonly WorkspaceCommands _workspaceCommands;
 	private readonly BuildTasks _build;
 	private readonly SolutionGrouping _grouping;
@@ -33,7 +32,6 @@ public sealed class DotnetExtension : ForgeExtension
 		_contexts = new ProjectContextStatus(_server, _workspace, defines, diagnostics, _output);
 		_workspaceCommands = new WorkspaceCommands(_server, diagnostics, _output);
 		_lifecycle = new ServerLifecycle(_server, _workspace, diagnostics, _contexts, _workspaceCommands, new CodeActionRunner(_server, _output), _output, _settings);
-		_editor = new EditorCommands(_server, _output, _settings);
 		_grouping = new SolutionGrouping(_workspace, _output);
 		ProblemMatchers.Register(MsCompileMatcherRun.Name, host => new MsCompileMatcherRun(diagnostics, host));
 		_build = new BuildTasks(_workspace, _output, diagnostics) { Started = () => _server.Workspace.RefreshSourceGenerators(force: false), Finished = () => _server.Workspace.RefreshSourceGenerators(force: false) };
@@ -63,7 +61,6 @@ public sealed class DotnetExtension : ForgeExtension
 		commands.Register(new Command("dotnet.openSolution", "Open Solution...", ".NET", OpenSolution));
 
 		_contexts.Register(commands);
-		_editor.Register(commands);
 		_workspaceCommands.Register(commands);
 		_lifecycle.Register(commands);
 	}

@@ -184,6 +184,23 @@ public sealed class SearchView : Panel
 		_find.SelectAll();
 	}
 
+	public void FocusReplace(string? seed) {
+		if (!_replaceVisible) {
+			_replaceVisible = true;
+			InvalidateLayout();
+			Repaint();
+		}
+
+		if (seed is not { Length: > 0 }) {
+			Focus(null);
+			return;
+		}
+
+		_find.SetText(seed);
+		_replace.RequestFocus();
+		_replace.SelectAll();
+	}
+
 	private InputToggle Toggle(TextEntry host, Codicon icon, string title) {
 		InputToggle toggle = new(icon, title) { Changed = _ => SearchNow() };
 		host.AddChild(toggle);

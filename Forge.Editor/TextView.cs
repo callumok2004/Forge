@@ -181,6 +181,14 @@ public sealed class TextView : ITextView
 		ScrollY = MathF.Max(0f, TopOf(stable.Line, lineHeight) + stable.Delta);
 	}
 
+	public float CaretViewportTop() => TopOf(CaretLine, LastLineHeight) - ScrollY;
+
+	public void RestoreCaretViewportTop(float top) {
+		if (LastLineHeight <= 0f) return;
+
+		ScrollY = MathF.Max(0f, TopOf(CaretLine, LastLineHeight) - top);
+	}
+
 	private void ApplyCodeLenses(ReadOnlySpan<LensLine> lines, float rowHeight) {
 		int previous = _lensRows.Count;
 		Span<bool> kept = previous <= 256 ? stackalloc bool[previous] : new bool[previous];
@@ -675,13 +683,8 @@ public sealed class TextView : ITextView
 		Highlighter.InvalidateFrom(Snapshot.GetLineAt(Math.Clamp(changedOffset, 0, Snapshot.Length)));
 	}
 
-	public void ExternalEdit(int changedOffset, int delta) {
+	public void ExternalEdit(int changedOffset) {
 		SyncSnapshot(changedOffset);
-
-		if (delta != 0 && changedOffset <= CaretOffset) {
-			CaretOffset += delta;
-			SelectionAnchor += delta;
-		}
 
 		CaretOffset = Math.Clamp(CaretOffset, 0, Snapshot.Length);
 		SelectionAnchor = Math.Clamp(SelectionAnchor, 0, Snapshot.Length);
@@ -689,6 +692,15 @@ public sealed class TextView : ITextView
 	}
 
 	#region Caret movement
+
+	public int GetSelectionAnchor() => SelectionAnchor;
+
+	public void Select(int anchor, int caret) {
+		SelectionAnchor = Math.Clamp(anchor, 0, Snapshot.Length);
+		CaretOffset = Math.Clamp(caret, 0, Snapshot.Length);
+		_desiredColumn = -1;
+		ResetBlink();
+	}
 
 	public void MoveTo(int offset, bool extend) {
 		CaretOffset = Math.Clamp(offset, 0, Snapshot.Length);

@@ -30,6 +30,8 @@ public sealed class WindowEvents
 	public Action<nuint>? Timer;
 	public Action? Closed;
 
+	public Func<bool>? CloseRequested;
+
 	public Action? PlacementChanged;
 
 	public Action<bool>? AppActivated;
@@ -445,6 +447,8 @@ public sealed unsafe class AppWindow : IAppWindow, IDisposable
 				return 0;
 
 			case Win32.WmClose:
+				if (window.Events.CloseRequested?.Invoke() == false) return 0;
+
 				window.Events.PlacementChanged?.Invoke();
 				break;
 

@@ -24,6 +24,14 @@ public interface ILanguageFeatures
 
 	Task<IReadOnlyList<HostTextEdit>> OnTypeFormattingAsync(string path, int line, int column, char character) => Task.FromResult<IReadOnlyList<HostTextEdit>>([]);
 
+	bool FormatsDocuments => false;
+
+	bool FormatsRanges => false;
+
+	Task<IReadOnlyList<HostTextEdit>> FormatDocumentAsync(string path) => Task.FromResult<IReadOnlyList<HostTextEdit>>([]);
+
+	Task<IReadOnlyList<HostTextEdit>> FormatRangeAsync(string path, int startLine, int startColumn, int endLine, int endColumn) => Task.FromResult<IReadOnlyList<HostTextEdit>>([]);
+
 	Task<IReadOnlyList<DocumentHighlight>> DocumentHighlightsAsync(string path, int line, int column) => Task.FromResult<IReadOnlyList<DocumentHighlight>>([]);
 
 	Task<IReadOnlyList<CodeActionEntry>> CodeActionsAsync(string path, int startLine, int startColumn, int endLine, int endColumn, bool automatic) => Task.FromResult<IReadOnlyList<CodeActionEntry>>([]);

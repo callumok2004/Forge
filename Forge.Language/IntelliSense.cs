@@ -293,7 +293,7 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 		document.GetBuffer().Replace(start, end - start, insert);
 		document.GetBuffer().EndEdit();
 
-		view.ExternalEdit(start, insert.Length - (end - start));
+		view.ExternalEdit(start);
 
 		view.MoveTo(Math.Min(start + cursor, view.GetSnapshot().Length), extend: false);
 
@@ -326,7 +326,7 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 	private static void ApplyEdits(IDocument document, IReadOnlyList<HostTextEdit> edits, ITextView view) {
 		DocumentEdits.Apply(document.GetBuffer(), edits, out int earliest, out int delta);
 
-		if (earliest != int.MaxValue) view.ExternalEdit(earliest, delta);
+		if (earliest != int.MaxValue) view.ExternalEdit(earliest);
 	}
 
 	private IReadOnlyList<HostTextEdit> _resolvedEdits = [];

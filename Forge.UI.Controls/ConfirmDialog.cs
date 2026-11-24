@@ -28,15 +28,20 @@ public sealed class ConfirmDialog : Panel
 	private readonly string _detail;
 	private readonly Codicon _icon;
 	private readonly Color _iconColor;
-	private readonly Action<bool> _closed;
+	private readonly Action<int> _closed;
 	private readonly Button _primary;
+	private readonly Button? _secondary;
 	private readonly Button _cancel;
 	private readonly ActionButton _close;
 	private readonly List<string> _detailLines = [];
 	private float _wrappedWidth = -1f;
 	private bool _done;
 
-	private ConfirmDialog(string message, string detail, string primary, Codicon icon, Color iconColor, Action<bool> closed) {
+	public const int Primary = 0;
+	public const int Secondary = 1;
+	public const int Cancelled = 2;
+
+	private ConfirmDialog(string message, string detail, string primary, string? secondary, Codicon icon, Color iconColor, Action<int> closed) {
 		_message = message;
 		_detail = detail;
 		_icon = icon;
@@ -45,34 +50,45 @@ public sealed class ConfirmDialog : Panel
 		Name = "ConfirmDialog";
 		KeyboardInputEnabled = true;
 
-		_primary = new PrimaryButton { Name = "DialogPrimary", Padding = new Thickness(ButtonPadding, 0f, ButtonPadding, 0f), SizeToContents = true, Action = () => Finish(true) };
+		_primary = new PrimaryButton { Name = "DialogPrimary", Padding = new Thickness(ButtonPadding, 0f, ButtonPadding, 0f), SizeToContents = true, Action = () => Finish(Primary) };
 		_primary.SetText(primary);
 		AddChild(_primary);
 
-		_cancel = new Button {
-			Name = "DialogCancel",
-			Background = Theme.ButtonSecondaryBackground,
-			HoverBackground = Theme.ButtonSecondaryHoverBackground,
-			Foreground = Theme.ButtonSecondaryForeground,
-			Radius = Metrics.RadiusSmall,
-			Padding = new Thickness(ButtonPadding, 0f, ButtonPadding, 0f),
-			SizeToContents = true,
-			Action = () => Finish(false),
-		};
+		if (secondary is not null) {
+			_secondary = SecondaryButton("DialogSecondary", Secondary);
+			_secondary.SetText(secondary);
+			AddChild(_secondary);
+		}
+
+		_cancel = SecondaryButton("DialogCancel", Cancelled);
 		_cancel.SetText("Cancel");
 		AddChild(_cancel);
 
-		_close = new ActionButton { Name = "DialogClose", Icon = Codicon.Close, Foreground = Theme.Foreground, HoverBackground = Theme.ListHoverBackground, Radius = Metrics.RadiusSmall, Action = () => Finish(false) };
+		_close = new ActionButton { Name = "DialogClose", Icon = Codicon.Close, Foreground = Theme.Foreground, HoverBackground = Theme.ListHoverBackground, Radius = Metrics.RadiusSmall, Action = () => Finish(Cancelled) };
 		AddChild(_close);
 	}
+
+	private Button SecondaryButton(string name, int result) => new() {
+		Name = name,
+		Background = Theme.ButtonSecondaryBackground,
+		HoverBackground = Theme.ButtonSecondaryHoverBackground,
+		Foreground = Theme.ButtonSecondaryForeground,
+		Radius = Metrics.RadiusSmall,
+		Padding = new Thickness(ButtonPadding, 0f, ButtonPadding, 0f),
+		SizeToContents = true,
+		Action = () => Finish(result),
+	};
 
 	public static void Show(string message, string detail, string primary, Action confirmed, Codicon icon = Codicon.Warning) =>
 		Show(message, detail, primary, ok => {
 			if (ok) confirmed();
 		}, icon);
 
-	public static void Show(string message, string detail, string primary, Action<bool> closed, Codicon icon = Codicon.Warning) {
-		ConfirmDialog dialog = new(message, detail, primary, icon, icon == Codicon.Error ? Theme.ErrorForeground : icon == Codicon.Info ? Theme.InfoForeground : Theme.WarningForeground, closed);
+	public static void Show(string message, string detail, string primary, Action<bool> closed, Codicon icon = Codicon.Warning) =>
+		Show(message, detail, primary, null, result => closed(result == Primary), icon);
+
+	public static void Show(string message, string detail, string primary, string? secondary, Action<int> closed, Codicon icon = Codicon.Warning) {
+		ConfirmDialog dialog = new(message, detail, primary, secondary, icon, icon == Codicon.Error ? Theme.ErrorForeground : icon == Codicon.Info ? Theme.InfoForeground : Theme.WarningForeground, closed);
 		dialog.MakePopup(modal: true);
 		dialog.RequestFocus();
 	}
@@ -83,12 +99,12 @@ public sealed class ConfirmDialog : Panel
 
 	public override bool DismissOnFocusLost => false;
 
-	private void Finish(bool confirmed) {
+	private void Finish(int result) {
 		if (_done) return;
 
 		_done = true;
 		ClosePopup();
-		_closed(confirmed);
+		_closed(result);
 	}
 
 	public override bool OnKeyCodePressed(uint key, KeyModifiers modifiers) {
@@ -96,12 +112,12 @@ public sealed class ConfirmDialog : Panel
 		const uint Escape = 0x1B;
 
 		if (key == Enter) {
-			Finish(true);
+			Finish(Primary);
 			return true;
 		}
 
 		if (key == Escape) {
-			Finish(false);
+			Finish(Cancelled);
 			return true;
 		}
 
@@ -161,11 +177,19 @@ public sealed class ConfirmDialog : Panel
 
 		_primary.FitContents();
 		_cancel.FitContents();
+		_secondary?.FitContents();
 
 		float right = wide - ((BoxPadding + RowPaddingRight) * scale);
 		float top = tall - (BoxPadding * scale) - buttonHeight;
 		_cancel.SetBounds(right - _cancel.Wide, top, _cancel.Wide, buttonHeight);
-		_primary.SetBounds(right - _cancel.Wide - (ButtonGap * scale) - _primary.Wide, top, _primary.Wide, buttonHeight);
+		right -= _cancel.Wide + (ButtonGap * scale);
+
+		if (_secondary is { } secondary) {
+			secondary.SetBounds(right - secondary.Wide, top, secondary.Wide, buttonHeight);
+			right -= secondary.Wide + (ButtonGap * scale);
+		}
+
+		_primary.SetBounds(right - _primary.Wide, top, _primary.Wide, buttonHeight);
 	}
 
 	public override void PaintBackground(IPainter painter) {
