@@ -131,6 +131,10 @@ public sealed class TerminalScreen
 
 		lock (Sync) {
 			if (_lines.Count > 0 && columns != Columns) Reflow(columns, rows);
+			else if (_lines.Count > 0) {
+				Columns = columns;
+				ResizeRows(rows);
+			}
 			else {
 				Columns = columns;
 				Rows = rows;
@@ -142,6 +146,23 @@ public sealed class TerminalScreen
 			_cursorColumn = Math.Clamp(_cursorColumn, 0, columns - 1);
 			ScrollOffset = Math.Clamp(ScrollOffset, 0, ScrollbackCount);
 		}
+	}
+
+	private void ResizeRows(int rows) {
+		int cursorLine = _lines.Count - Rows + _cursorRow;
+		int remove = Rows - rows;
+
+		while (remove > 0 && _lines.Count - 1 > cursorLine && ContentLength(_lines[^1]) == 0 && !_wrapped.Contains(_lines[^1])) {
+			_fed.Remove(_lines[^1]);
+			_lines.RemoveAt(_lines.Count - 1);
+			remove--;
+		}
+
+		Rows = rows;
+
+		while (_lines.Count < rows) _lines.Add(NewLine());
+
+		_cursorRow = Math.Max(0, cursorLine - (_lines.Count - rows));
 	}
 
 	private void Reflow(int columns, int rows) {

@@ -907,14 +907,14 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		return text is ['\uFEFF', ..] ? text[1..] : text;
 	}
 
-	public bool Save(Document document) {
+	public bool Save(Document document, bool participants = true) {
 		int index = _documents.IndexOf(document);
 
 		if (index < 0) return document.Save();
 
 		int active = ActiveIndex;
 		ActiveIndex = index;
-		bool saved = SaveActive();
+		bool saved = SaveActive(participants);
 
 		if (active >= 0 && active < _documents.Count) ActiveIndex = active;
 
@@ -1011,7 +1011,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		if (existing >= 0) Close(existing);
 
 		try {
-			Open(Document.Open(path));
+			Open(DiffSource(path) ?? Document.Open(path));
 			Sidebar.SelectedPath = path;
 
 			FileOpened?.Invoke(path);
@@ -1020,6 +1020,17 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 		}
 		catch (UnauthorizedAccessException) {
 		}
+	}
+
+	private Document? DiffSource(string path) {
+		foreach (Document document in _documents) {
+			if (document.Source is { } source && string.Equals(source.Path, path, StringComparison.OrdinalIgnoreCase)) {
+				source.ReloadIfChangedOnDisk();
+				return source;
+			}
+		}
+
+		return null;
 	}
 
 	public void SetSemanticTokens(string path, IReadOnlyList<SemanticToken> tokens) {
@@ -1459,7 +1470,7 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 			if (_panes[i] is not null || (only is not null && !ReferenceEquals(document, only) && !ReferenceEquals(document.Source, only)) || !document.IsDirty() || document.SourcePath is null) continue;
 
-			Save(document);
+			Save(document, participants: false);
 		}
 	}
 
