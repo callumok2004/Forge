@@ -344,7 +344,15 @@ public sealed class IntelliSense(IEditorHost workbench, Action refresh) : IIntel
 		IReadOnlyDictionary<int, LineHint>? extension = view is not null && path is not null ? workbench.ExtensionLineHints(path) : null;
 		IReadOnlyDictionary<int, LineHint>? hints = MergeHints(language, extension);
 
+		IReadOnlyDictionary<int, Theming.Color>? backgrounds = view is not null && path is not null && Features is { } backgroundFeatures && backgroundFeatures.Handles(path) ? backgroundFeatures.LineBackgrounds(path) : null;
+
+		if (view is not null && !ReferenceEquals(view.LineBackgrounds, backgrounds)) {
+			view.LineBackgrounds = backgrounds;
+			refresh();
+		}
+
 		if (!ReferenceEquals(_hinted, view) && _hinted is not null) {
+			_hinted.LineBackgrounds = null;
 			_hinted.LineHints = null;
 			_hinted = null;
 		}

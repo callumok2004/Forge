@@ -3,6 +3,10 @@ namespace Forge.Common.Commands;
 public readonly record struct CompletionEntry(int Index, string Label, string LabelDetail, string LabelDescription, string InsertText, string Detail, string Kind, string FilterText, bool Preselect, int ReplaceLine, int ReplaceStartColumn, int ReplaceEndColumn)
 {
 	public bool ReplacesToEnd { get; init; }
+
+	public string? SortText { get; init; }
+
+	public bool Deprecated { get; init; }
 }
 
 public enum CompletionTrigger
@@ -20,7 +24,10 @@ public readonly record struct HostTextEdit(int StartLine, int StartColumn, int E
 
 public readonly record struct CompletionDetail(string Detail, string Documentation, IReadOnlyList<HostTextEdit> AdditionalEdits);
 
-public sealed record SignatureHelp(string Label, IReadOnlyList<(int Start, int Length)> Parameters, string Documentation, int ParameterIndex, int OverloadIndex, int OverloadCount);
+public sealed record SignatureHelp(string Label, IReadOnlyList<(int Start, int Length)> Parameters, string Documentation, int ParameterIndex, int OverloadIndex, int OverloadCount)
+{
+	public IReadOnlyList<SignatureHelp>? Overloads { get; init; }
+}
 
 public readonly record struct HostLocation(string Path, int Line, int Column, int EndLine, int EndColumn, string Preview);
 

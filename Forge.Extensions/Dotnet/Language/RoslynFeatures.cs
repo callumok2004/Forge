@@ -58,7 +58,7 @@ public sealed class RoslynFeatures(RoslynLanguageClient server, DotnetSettings s
 
 		if (hover is not null && EnumValues.AppendToHover(hover, server.Documents.OpenPaths().Select(server.Documents.Text).OfType<string>()) is { } valued) hover = valued;
 
-		return table is null ? hover : hover is { Length: > 0 } ? string.Concat(hover, "\n\n---\n\n", table) : table;
+		return table is null ? hover : hover is { Length: > 0 } ? string.Concat(hover, Forge.Language.HoverMarkdown.RowSeparator, table) : table;
 	}
 
 	public async Task<IReadOnlyList<WorkspaceSymbol>> WorkspaceSymbolsAsync(string query) {

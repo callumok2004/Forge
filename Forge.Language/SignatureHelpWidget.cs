@@ -33,6 +33,8 @@ public sealed class SignatureHelpWidget : Panel
 
 	public void Hide() => _help = null;
 
+	private SignatureHelp? Current => _help is { Overloads: { } overloads } && _overload < overloads.Count ? overloads[_overload] with { OverloadIndex = _overload, OverloadCount = overloads.Count } : _help;
+
 	public void Cycle(int delta) {
 		if (_help is { OverloadCount: > 1 } help) _overload = (((_overload + delta) % help.OverloadCount) + help.OverloadCount) % help.OverloadCount;
 	}
@@ -52,7 +54,7 @@ public sealed class SignatureHelpWidget : Panel
 	}
 
 	public void Place(float caretX, float caretTop, float caretHeight, float areaTop, float areaBottom, float areaRight, float originX, float originY) {
-		SignatureHelp? help = _help;
+		SignatureHelp? help = Current;
 		Visible = help is not null;
 
 		if (help is null || Ui is null) return;
@@ -72,7 +74,7 @@ public sealed class SignatureHelpWidget : Panel
 	}
 
 	public override void Paint(IPainter painter) {
-		if (_help is not { } help) return;
+		if (Current is not { } help) return;
 
 		float scale = Scale;
 		ITextFont font = painter.GetCode();

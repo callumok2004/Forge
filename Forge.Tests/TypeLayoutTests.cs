@@ -90,23 +90,18 @@ public class TypeLayoutTests
 	[Fact]
 	public async Task TableParsesIntoHeaderRowsAndRules() {
 		string table = TypeLayoutFeature.Table(await Single("struct Mixed { byte a; long b; byte c; }"));
-		List<HoverWidget.HoverLine> lines = [];
+		List<MarkdownBlock> blocks = HoverMarkdown.Parse(table);
+		MarkdownBlock parsed = blocks.First(static block => block.Kind == BlockKind.Table);
 
-		HoverWidget.Parse(table, lines);
-
-		HoverWidget.HoverLine header = lines.First(line => line.Kind == HoverWidget.LineKind.HeaderRow);
-		Assert.Equal(["bytes", "size", "field", "type"], header.Cells!);
-		Assert.Contains(lines, line => line.Kind == HoverWidget.LineKind.Rule);
-		Assert.Contains(lines, line => line.Kind == HoverWidget.LineKind.Row && line.Cells![2] == "(padding)");
-		Assert.DoesNotContain(lines, line => line.Text.StartsWith("|---", StringComparison.Ordinal));
+		Assert.Equal(["bytes", "size", "field", "type"], parsed.Rows[0].Select(HoverMarkdown.Plain));
+		Assert.Contains(blocks, static block => block.Kind == BlockKind.Rule);
+		Assert.Contains(parsed.Rows, static row => row.Count > 2 && HoverMarkdown.Plain(row[2]) == "(padding)");
 	}
 
 	[Fact]
 	public void EscapedPipesStayInCell() {
-		List<HoverWidget.HoverLine> lines = [];
+		MarkdownBlock table = HoverMarkdown.Parse("| a | b |\n|---|---|\n| `x\\|y` | z |").Single();
 
-		HoverWidget.Parse("| a | b |\n|---|---|\n| `x\\|y` | z |", lines);
-
-		Assert.Equal(["x|y", "z"], lines[1].Cells!);
+		Assert.Equal(["x|y", "z"], table.Rows[1].Select(HoverMarkdown.Plain));
 	}
 }

@@ -121,7 +121,7 @@ public sealed class SuggestWidget : Panel
 			anchor = Math.Min(anchor, entry.ReplaceStartColumn);
 		}
 
-		_scored.Sort(static (left, right) => right.Score != left.Score ? right.Score.CompareTo(left.Score) : left.Index.CompareTo(right.Index));
+		_scored.Sort((left, right) => right.Score != left.Score ? right.Score.CompareTo(left.Score) : CompareSort(_all[left.Index], _all[right.Index]) is var order and not 0 ? order : left.Index.CompareTo(right.Index));
 
 		foreach ((int index, _, int start, int count) in _scored) {
 			_highlights.Add((_matchPool.Count, count));
@@ -140,6 +140,14 @@ public sealed class SuggestWidget : Panel
 		Selected = 0;
 		_scrollRow = 0;
 		_detailFor = -1;
+	}
+
+	private static int CompareSort(in CompletionEntry left, in CompletionEntry right) {
+		if (left.SortText is not { } leftSort || right.SortText is not { } rightSort) return 0;
+
+		int order = string.Compare(leftSort, rightSort, StringComparison.OrdinalIgnoreCase);
+
+		return order != 0 ? order : string.Compare(left.Label, right.Label, StringComparison.Ordinal);
 	}
 
 	public void MoveSelection(int delta) {
@@ -279,6 +287,8 @@ public sealed class SuggestWidget : Panel
 
 			painter.PushClip(labelLeft, rowTop, labelLimit, rowHeight);
 			painter.DrawText(font, entry.Label, labelLeft, baseline, foreground);
+
+			if (entry.Deprecated) painter.FillRectangle(labelLeft, baseline - (font.GetAscent() * 0.3f), font.Measure(entry.Label), Math.Max(1f, scale), foreground);
 
 			(int matchStart, int matchCount) = _highlights[row];
 

@@ -223,6 +223,7 @@ public static class Theme
 	public static readonly Color FindRangeHighlightBackground = Color.Parse("#3a3d4166");
 	public static readonly Color TextLinkForeground = Color.Parse("#5aa8ff");
 	public static readonly Color TextLinkActiveForeground = Color.Parse("#8cc4ff");
+	public static readonly Color TextCodeBlockBackground = Color.Parse("#0a0a0a66");
 	public static readonly Color TextPreformatForeground = Color.Parse("#9aa7bb");
 	public static readonly Color TextPreformatBackground = Color.Parse("#1a2232");
 	public static readonly Color SettingsHeaderForeground = Color.Parse("#e6ebf2");

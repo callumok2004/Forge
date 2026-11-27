@@ -90,6 +90,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		using Image appIcon = new(device,
 			Path.Combine(AppContext.BaseDirectory, "Assets", "forge-icon.bgra"));
 
+		Forge.Extensions.Host.BuiltInContributions.RegisterGrammars();
+
 		using Workbench workbench = new(scale) {
 			ShowMinimap = settings.MinimapEnabled,
 			PaintBackdrop = () => ambient.Composite(device),
@@ -104,6 +106,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			var extension when extension.Equals(".gif", StringComparison.OrdinalIgnoreCase) || extension.Equals(".webp", StringComparison.OrdinalIgnoreCase) || extension.Equals(".png", StringComparison.OrdinalIgnoreCase) => AnimatedImage.Decode(device, path),
 			_ => Image.Decode(device, path),
 		};
+
+		Forge.Language.HoverMarkdownLayout.ImageLoader = workbench.ImageLoader;
 
 		ProcessTree processTree = new();
 		workbench.ProcessExplorer = new ProcessExplorer(processTree);

@@ -107,9 +107,11 @@ public sealed class SvgImage : IImage, IDisposable
 		if (svg is null) return;
 
 		Matrix3x2 previous = context.Transform;
+		context.PushAxisAlignedClip(new Vortice.Mathematics.Rect(x, y, width, height), D2D.AntialiasMode.PerPrimitive);
 		context.Transform = Matrix3x2.CreateScale(width / Width, height / Height) * Matrix3x2.CreateTranslation(x, y) * previous;
 		svg.DrawSvgDocument(_document);
 		context.Transform = previous;
+		context.PopAxisAlignedClip();
 	}
 
 	public void Dispose() {

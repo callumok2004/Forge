@@ -1709,6 +1709,8 @@ public sealed class TextView : ITextView
 				CaretMarker = (Math.Max(y, lineTop), Math.Min(y + height, lineTop + lineHeight));
 			}
 
+			if (LineBackgrounds is not null && LineBackgrounds.TryGetValue(line, out Color background)) painter.FillRectangle(x + gutterWidth, lineTop, width - gutterWidth, lineHeight, background);
+
 			if (ProblemLenses is not null && ProblemLenses.TryGetValue(line, out ProblemLens lens)) painter.FillRectangle(x + gutterWidth, lineTop, width - gutterWidth, lineHeight, LensBackground(lens.Severity));
 
 			DrawExecutionLine(painter, line, x, lineTop, width, lineHeight);
@@ -1799,6 +1801,8 @@ public sealed class TextView : ITextView
 	public const float LineHintMarginCells = 2.5f;
 
 	public IReadOnlyDictionary<int, LineHint>? LineHints { get; set; }
+
+	public IReadOnlyDictionary<int, Color>? LineBackgrounds { get; set; }
 
 	private float DrawLineHint(IPainter painter, int line, float after, float textLeft, float lineTop) {
 		ITextFont font = painter.GetCode();

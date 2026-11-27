@@ -64,5 +64,7 @@ public interface ILanguageFeatures
 
 	IReadOnlyDictionary<int, LineHint>? LineHints(string path, int version) => null;
 
+	IReadOnlyDictionary<int, Forge.Theming.Color>? LineBackgrounds(string path) => null;
+
 	Task<AutoInsertEdit?> AutoInsertAsync(string path, int line, int column, char character) => Task.FromResult<AutoInsertEdit?>(null);
 }

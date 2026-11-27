@@ -25,7 +25,7 @@ public static class WorkbenchCommands
 		}, "Ctrl+O");
 
 		Add("workbench.action.files.openFolder", "Open Folder...", "File", () => {
-			if (FileDialog.OpenFolder(context.Window.Handle) is { } folder) Launch(Environment.ProcessPath!, folder);
+			if (FileDialog.OpenFolder(context.Window.Handle) is { } folder) LaunchFolder(folder);
 		});
 
 		Add("workbench.action.newWindow", "New Window", "File", () => Launch(Environment.ProcessPath!), "Ctrl+Shift+N");
@@ -212,6 +212,12 @@ public static class WorkbenchCommands
 	private static void Zoom(ShellContext context, float delta) {
 		context.Settings.AdjustZoom(delta);
 		context.ApplyZoom();
+	}
+
+	private static void LaunchFolder(string folder) {
+		ProcessStartInfo start = new(Environment.ProcessPath!) { UseShellExecute = false, WorkingDirectory = folder };
+		start.ArgumentList.Add(folder);
+		Process.Start(start)?.Dispose();
 	}
 
 	private static void Launch(string fileName, string? arguments = null) => Process.Start(new ProcessStartInfo(fileName, arguments ?? string.Empty) { UseShellExecute = true });

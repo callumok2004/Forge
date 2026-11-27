@@ -33,15 +33,6 @@ public sealed class HoverWidget : Panel
 
 	private const float CellGap = 12f;
 
-	public enum LineKind : byte
-	{
-		Text,
-		Code,
-		Rule,
-		Row,
-		HeaderRow,
-	}
-
 	public enum QuickFixState : byte
 	{
 		None,
@@ -51,15 +42,13 @@ public sealed class HoverWidget : Panel
 		Unavailable,
 	}
 
-	public readonly record struct HoverLine(string Text, LineKind Kind, string[]? Cells = null, int Table = -1);
-
 	public readonly record struct Marker(int Line, int StartColumn, int EndColumn, string Message, DiagnosticSeverity Severity, string? Code, string? Href);
 
 	private readonly record struct Link(float X, float Y, float Width, float Height, string? Href, int Action);
 
-	private readonly List<HoverLine> _lines = [];
+	private List<List<MarkdownBlock>> _lines = [];
+	private HoverMarkdownLayout? _markdown;
 	private readonly List<Marker> _markers = [];
-	private readonly List<float[]> _tableColumns = [];
 	private readonly List<(float Top, float Height, bool Status)> _rows = [];
 	private readonly List<(float X, float Y, float Width, Color Color)> _underlines = [];
 	private readonly List<(float X, float Y, string Text, ITextFont Font, Color Color)> _labels = [];
@@ -125,7 +114,7 @@ public sealed class HoverWidget : Panel
 	public void ShowMarkers(IReadOnlyList<Marker> markers, int line, int column) {
 		if (line != Line || column != Column) return;
 
-		lock (_lines) {
+		lock (_markers) {
 			_markers.Clear();
 			_markers.AddRange(markers);
 			_markers.Sort(static (a, b) => a.Severity.CompareTo(b.Severity));
@@ -155,158 +144,17 @@ public sealed class HoverWidget : Panel
 	public void Show(string markdown, int line, int column) {
 		if (line != Line || column != Column || markdown.Length == 0) return;
 
-		lock (_lines) {
-			Parse(markdown, _lines);
+		lock (_markers) {
+			_lines = HoverMarkdown.ParseRows(markdown);
 			_dirty = true;
 			IsOpen = _markers.Count > 0 || _lines.Count > 0;
 		}
 	}
 
-	public static void Parse(string markdown, List<HoverLine> into) {
-		into.Clear();
-		bool inFence = false;
-		int table = -1;
-		bool previousRow = false;
-		ReadOnlySpan<char> rest = markdown;
-
-		while (!rest.IsEmpty) {
-			int newline = rest.IndexOf('\n');
-			ReadOnlySpan<char> raw = newline < 0 ? rest : rest[..newline];
-			rest = newline < 0 ? [] : rest[(newline + 1)..];
-			ReadOnlySpan<char> text = raw.TrimEnd('\r');
-			ReadOnlySpan<char> trimmed = text.Trim();
-
-			if (trimmed.StartsWith("```")) {
-				inFence = !inFence;
-				previousRow = false;
-				continue;
-			}
-
-			if (inFence) {
-				into.Add(new HoverLine(text.ToString(), LineKind.Code));
-				continue;
-			}
-
-			if (trimmed.Length > 1 && trimmed[0] == '|') {
-				if (IsDelimiterRow(trimmed)) {
-					if (previousRow && into[^1].Kind == LineKind.Row) into[^1] = into[^1] with { Kind = LineKind.HeaderRow };
-
-					continue;
-				}
-
-				if (!previousRow) table++;
-
-				into.Add(new HoverLine(string.Empty, LineKind.Row, Cells(trimmed), table));
-				previousRow = true;
-				continue;
-			}
-
-			previousRow = false;
-
-			if (trimmed.Length >= 3 && trimmed.IndexOfAnyExcept('-') < 0) {
-				if (into.Count > 0 && into[^1].Kind != LineKind.Rule) into.Add(new HoverLine(string.Empty, LineKind.Rule));
-
-				continue;
-			}
-
-			if (trimmed.IsEmpty && (into.Count == 0 || into[^1] is { Kind: LineKind.Text, Text.Length: 0 } or { Kind: LineKind.Rule })) continue;
-
-			into.Add(new HoverLine(Inline(text.ToString()), LineKind.Text));
-		}
-
-		while (into.Count > 0 && into[^1] is { Kind: LineKind.Rule } or { Kind: LineKind.Text, Text.Length: 0 }) into.RemoveAt(into.Count - 1);
-	}
-
-	private static bool IsDelimiterRow(ReadOnlySpan<char> row) => row.IndexOfAnyExcept("|-: \t") < 0 && row.Contains('-');
-
-	private static string[] Cells(ReadOnlySpan<char> row) {
-		row = row[1..];
-
-		if (row.EndsWith("|") && !row.EndsWith("\\|")) row = row[..^1];
-
-		List<string> cells = [];
-		Span<char> buffer = row.Length <= 512 ? stackalloc char[row.Length] : new char[row.Length];
-		int written = 0;
-
-		for (int i = 0; i <= row.Length; i++) {
-			if (i < row.Length && row[i] == '\\' && i + 1 < row.Length && row[i + 1] == '|') {
-				buffer[written++] = '|';
-				i++;
-				continue;
-			}
-
-			if (i < row.Length && row[i] != '|') {
-				buffer[written++] = row[i];
-				continue;
-			}
-
-			cells.Add(Inline(buffer[..written].Trim().ToString()));
-			written = 0;
-		}
-
-		return [.. cells];
-	}
-
-	private static readonly System.Buffers.SearchValues<char> InlineMarkers = System.Buffers.SearchValues.Create("`\\*_[&");
-
-	public static string Inline(string text) {
-		if (!text.AsSpan().ContainsAny(InlineMarkers)) return text;
-
-		char[]? rented = text.Length > 512 ? System.Buffers.ArrayPool<char>.Shared.Rent(text.Length) : null;
-		Span<char> buffer = rented ?? stackalloc char[512];
-		string result = new(buffer[..Inline(text, buffer)]);
-
-		if (rented is not null) System.Buffers.ArrayPool<char>.Shared.Return(rented);
-
-		return result;
-	}
-
-	private static int Inline(ReadOnlySpan<char> text, Span<char> destination) {
-		int written = 0;
-		bool inCode = false;
-
-		for (int i = 0; i < text.Length; i++) {
-			char c = text[i];
-
-			if (c == '`') {
-				inCode = !inCode;
-				continue;
-			}
-
-			if (inCode) {
-				destination[written++] = c;
-				continue;
-			}
-
-			if (c == '\\' && i + 1 < text.Length && !char.IsAsciiLetterOrDigit(text[i + 1]) && text[i + 1] is > ' ' and < '\x7f') {
-				destination[written++] = text[++i];
-				continue;
-			}
-
-			if (c is '*' or '_' && (c == '*' || i == 0 || !char.IsLetterOrDigit(text[i - 1]) || i + 1 >= text.Length || !char.IsLetterOrDigit(text[i + 1]))) continue;
-
-			if (c == '[' && text[i..].IndexOf("](") is int close and > 0 && text[(i + close)..].IndexOf(')') is int end and > 0) {
-				written += Inline(text.Slice(i + 1, close - 1), destination[written..]);
-				i += close + end;
-				continue;
-			}
-
-			if (c == '&' && text[i..].StartsWith("&nbsp;")) {
-				destination[written++] = ' ';
-				i += 5;
-				continue;
-			}
-
-			destination[written++] = c;
-		}
-
-		return written;
-	}
-
 	public void Hide() {
 		if (!IsOpen && _markers.Count == 0 && _lines.Count == 0) return;
 
-		lock (_lines) {
+		lock (_markers) {
 			IsOpen = false;
 			_markers.Clear();
 			_lines.Clear();
@@ -339,7 +187,7 @@ public sealed class HoverWidget : Panel
 			_dirty = false;
 			_laidOutFor = maxWidth;
 
-			lock (_lines) Layout(fonts, maxWidth - (border * 2f), scale);
+			lock (_markers) Layout(fonts, maxWidth - (border * 2f), scale);
 		}
 
 		float width = _contentWidth + (border * 2f);
@@ -369,7 +217,6 @@ public sealed class HoverWidget : Panel
 		_links.Clear();
 		_rows.Clear();
 		_underlines.Clear();
-		_tableColumns.Clear();
 		_hoveredLink = -1;
 
 		ITextFont code = fonts.GetCode();
@@ -441,68 +288,21 @@ public sealed class HoverWidget : Panel
 		}
 
 		if (_lines.Count > 0) {
-			float top = y;
-			float wrap = MathF.Min(MarkdownMaxWidth * scale, maxInner) - (padX * 2f);
-			float gap = CellGap * scale;
-			float rowY = top + padY;
-			bool first = true;
+			float wrap = MathF.Min(MarkdownMaxWidth * scale, maxInner - (padX * 2f));
+			_markdown = new HoverMarkdownLayout(fonts, scale, _selection);
+			List<string> hrefs = [];
 
-			foreach (HoverLine line in _lines) {
-				if (line.Kind is LineKind.Row or LineKind.HeaderRow) MeasureRow(ui, line);
+			foreach (List<MarkdownBlock> row in _lines) {
+				float top = y;
+				y = _markdown.Layout(row, padX, wrap, top + padY, 0f, hrefs) + padY;
+				_rows.Add((top, y - top, false));
 			}
 
-			foreach (HoverLine line in _lines) {
-				switch (line.Kind) {
-					case LineKind.Rule:
-						_labels.Add((0f, rowY + MathF.Floor(RuleHeight(scale) / 2f), string.Empty, ui, Theme.EditorHoverBorder.Transparency(0.5f)));
-						rowY += RuleHeight(scale);
-						first = true;
-						continue;
+			widest = MathF.Max(widest, _markdown.Widest);
 
-					case LineKind.Row or LineKind.HeaderRow:
-						float cellX = padX;
-						float[] columns = _tableColumns[line.Table];
-						string[] cells = line.Cells!;
-
-						for (int i = 0; i < cells.Length && i < columns.Length; i++) {
-							_selection.Add(new TextRun(cellX, rowY + ((uiLine - ui.GetLineHeight()) / 2f), cells[i], ui, Theme.EditorHoverForeground, i > 0));
-							cellX += columns[i] + gap;
-						}
-
-						widest = MathF.Max(widest, cellX - gap);
-						rowY += uiLine;
-						first = false;
-						continue;
-
-					case LineKind.Code:
-						_selection.Add(new TextRun(padX, rowY, line.Text, code, Theme.EditorHoverForeground, false));
-						widest = MathF.Max(widest, padX + code.Measure(line.Text));
-						rowY += code.GetLineHeight();
-						first = false;
-						continue;
-				}
-
-				if (line.Text.Length == 0) {
-					if (!first) rowY += ParagraphGap * scale;
-
-					continue;
-				}
-
-				pieces.Clear();
-				SuggestDetails.Wrap(ui, line.Text, wrap, pieces);
-
-				for (int i = 0; i < pieces.Count; i++) {
-					_selection.Add(new TextRun(padX, rowY + ((uiLine - ui.GetLineHeight()) / 2f), pieces[i], ui, Theme.EditorHoverForeground, i > 0));
-					widest = MathF.Max(widest, padX + ui.Measure(pieces[i]));
-					rowY += uiLine;
-				}
-
-				first = false;
-			}
-
-			y = rowY + padY;
-			_rows.Add((top, y - top, false));
+			foreach (HoverMarkdownLayout.LinkBox link in _markdown.Links) _links.Add(new Link(link.X, link.Y, link.Width, link.Height, link.Href, 0));
 		}
+		else _markdown = null;
 
 		if (_markers.Count > 0) {
 			float top = y;
@@ -572,7 +372,29 @@ public sealed class HoverWidget : Panel
 			if (i > 0) painter.FillRectangle(originX, originY + top, Wide - (border * 2f), border, separator);
 		}
 
+		if (_markdown is { } markdown) {
+			foreach (HoverMarkdownLayout.BoxDraw box in markdown.Boxes) painter.FillRoundedRectangle(originX + box.X, originY + box.Y, box.Width, box.Height, box.Radius, box.Color);
+		}
+
 		_selection.Paint(painter, originX, originY, ScreenY, ScreenY + Tall, HasFocus);
+
+		if (_markdown is { } content) {
+			string? hoveredHref = _hoveredLink >= 0 ? _links[_hoveredLink].Href : null;
+
+			foreach (HoverMarkdownLayout.LinkText link in content.LinkTexts) {
+				bool active = hoveredHref is not null && link.Href == hoveredHref;
+				painter.DrawText(link.Font, link.Text, originX + link.X, originY + link.Y + link.Font.GetBaseline(), active ? Theme.TextLinkActiveForeground : Theme.TextLinkForeground);
+			}
+
+			foreach (HoverMarkdownLayout.IconDraw icon in content.Icons) {
+				bool active = icon.Href is not null && icon.Href == hoveredHref;
+				painter.DrawIcon(icon.Icon, originX + icon.X + (icon.Size / 2f), originY + icon.Y + (icon.Size / 2f), icon.Size, active ? Theme.TextLinkActiveForeground : icon.Color);
+			}
+
+			foreach (HoverMarkdownLayout.ImageDraw image in content.Images) painter.DrawImage(image.Image, originX + image.X, originY + image.Y, image.Width, image.Height, false);
+
+			foreach (HoverMarkdownLayout.RuleDraw rule in content.Rules) painter.FillRectangle(originX, originY + rule.Y, Wide - (border * 2f), border, separator);
+		}
 
 		foreach ((float x, float y, float width, Color color) in _underlines) painter.FillRectangle(originX + x, originY + y, width, border, color);
 
@@ -736,18 +558,4 @@ public sealed class HoverWidget : Panel
 		return true;
 	}
 
-	private static float RuleHeight(float scale) => MathF.Round(9f * scale);
-
-	private void MeasureRow(ITextFont font, HoverLine line) {
-		while (_tableColumns.Count <= line.Table) _tableColumns.Add([]);
-
-		float[] columns = _tableColumns[line.Table];
-
-		if (columns.Length < line.Cells!.Length) {
-			Array.Resize(ref columns, line.Cells.Length);
-			_tableColumns[line.Table] = columns;
-		}
-
-		for (int i = 0; i < line.Cells.Length; i++) columns[i] = MathF.Max(columns[i], font.Measure(line.Cells[i]));
-	}
 }

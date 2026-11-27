@@ -1,0 +1,44 @@
+{
+	"name": "glua",
+	"publisher": "forge",
+	"displayName": "GLua Enhanced (Garry's Mod/Gmod Lua)",
+	"description": "GLua language support for Forge",
+	"license": "GNU General Public License v3.0",
+	"version": "1.0.0",
+	"activationEvents": [
+		"onLanguage:glua",
+		"onCommand:glua-enhanced."
+	],
+	"contributes": {
+		"languages": [
+			{
+				"id": "glua",
+				"aliases": [ "GLua" ],
+				"extensions": [ ".lua" ],
+				"configuration": "./resources/language-configuration.json"
+			}
+		],
+		"grammars": [
+			{ "language": "glua", "scopeName": "source.glua", "path": "./syntaxes/lua.tmLanguage.json" }
+		],
+		"iconThemes": [
+			{ "id": "glua", "label": "GLua", "path": "./resources/file-icons/icon-theme.json" }
+		],
+		"colors": [
+			{
+				"id": "glua_enhanced.typeHints.color",
+				"description": "Text color of type hints",
+				"defaults": { "dark": "#A0A0A0F0", "light": "#747474", "highContrast": "#BEBEBE" }
+			}
+		],
+		"commands": [
+			{ "command": "glua-enhanced.findGlobals", "title": "Find Globals", "category": "GLua Enhanced" },
+			{ "command": "glua-enhanced.bytecodeHeatmap", "title": "Generate Bytecode Heatmap", "category": "GLua Enhanced" },
+			{ "command": "glua-enhanced.optimizeGlobals", "title": "Localize Global Calls", "category": "GLua Enhanced" },
+			{ "command": "glua-enhanced.optimizeGlobalsWorkspace", "title": "Localize Global Calls (Workspace)", "category": "GLua Enhanced" }
+		],
+		"configurationDefaults": {
+			"files.associations": { "*.lua": "glua" }
+		}
+	}
+}

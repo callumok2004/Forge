@@ -22,6 +22,27 @@ public static class GrammarIndex
 	private static Dictionary<string, GrammarEntry>? _byId;
 	private static Dictionary<string, GrammarEntry>? _byScope;
 
+	private static readonly List<GrammarEntry> Contributed = [];
+
+	public static void Register(GrammarEntry entry) {
+		lock (Sync) {
+			Contributed.Add(entry);
+
+			if (_byExtension is null) return;
+
+			Apply(entry, _byExtension, _byId!, _byScope!);
+		}
+	}
+
+	private static void Apply(GrammarEntry entry, Dictionary<string, GrammarEntry> byExtension, Dictionary<string, GrammarEntry> byId, Dictionary<string, GrammarEntry> byScope) {
+		byScope[entry.ScopeName] = entry;
+		byId[entry.Id] = entry;
+
+		foreach (string extension in entry.Extensions) byExtension[extension] = entry;
+
+		foreach (string name in entry.FileNames) byExtension[name] = entry;
+	}
+
 	public static string Directory => Path.Combine(AppContext.BaseDirectory, "Grammars");
 
 	public static GrammarEntry? ForPath(string? path) {
@@ -77,6 +98,8 @@ public static class GrammarIndex
 
 				foreach (string name in entry.FileNames) byExtension.TryAdd(name, entry);
 			}
+
+			foreach (GrammarEntry entry in Contributed) Apply(entry, byExtension, byId, byScope);
 
 			_byScope = byScope;
 			_byId = byId;

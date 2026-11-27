@@ -35,7 +35,7 @@ public class QuickOpenBenchmarks
 	public int HoverInline() {
 		int total = 0;
 
-		for (int i = 0; i < 1000; i++) total += HoverWidget.Inline(@"(method) void System\.Collections\.Generic\.List<T>\.Add(T item) - **Adds** an `object`").Length;
+		for (int i = 0; i < 1000; i++) total += HoverMarkdown.Plain(HoverMarkdown.Inline(@"(method) void System\.Collections\.Generic\.List<T>\.Add(T item) - **Adds** an `object`")).Length;
 
 		return total;
 	}

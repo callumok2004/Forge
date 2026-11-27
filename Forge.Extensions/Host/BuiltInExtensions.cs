@@ -2,6 +2,7 @@ using Forge.Common.Extensions;
 using Forge.Extensions.Discord;
 using Forge.Extensions.Dotnet;
 using Forge.Extensions.DotnetProfiler;
+using Forge.Extensions.GLua;
 using Forge.Extensions.MergeConflict;
 using Forge.Extensions.TrailingSpaces;
 
@@ -16,6 +17,7 @@ public static class BuiltInExtensions
 		new TrailingSpacesExtension(),
 		new MergeConflictExtension(),
 		new DiscordPresenceExtension(),
+		new GLuaExtension(),
 	];
 
 	public static T Get<T>() where T : IForgeExtension => All.OfType<T>().First();

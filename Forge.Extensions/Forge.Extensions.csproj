@@ -25,6 +25,10 @@
 		<None Include="MergeConflict\package.json" CopyToOutputDirectory="PreserveNewest" Link="Extensions\MergeConflict\package.json" />
 		<None Include="IndentRainbow\package.json" CopyToOutputDirectory="PreserveNewest" Link="Extensions\IndentRainbow\package.json" />
 		<None Include="DotnetProfiler\package.json" CopyToOutputDirectory="PreserveNewest" Link="Extensions\DotnetProfiler\package.json" />
+		<None Include="GLua\package.json;GLua\LICENSE.txt" CopyToOutputDirectory="PreserveNewest" Link="Extensions\GLua\%(Filename)%(Extension)" />
+		<None Include="GLua\resources\**\*" CopyToOutputDirectory="PreserveNewest" Link="Extensions\GLua\resources\%(RecursiveDir)%(Filename)%(Extension)" />
+		<None Include="GLua\lib\*.dll" CopyToOutputDirectory="PreserveNewest" Link="Extensions\GLua\lib\%(Filename)%(Extension)" />
+		<None Include="GLua\syntaxes\*.json" CopyToOutputDirectory="PreserveNewest" Link="Extensions\GLua\syntaxes\%(Filename)%(Extension)" />
 		<None Include="Discord\discord-languages.json" CopyToOutputDirectory="PreserveNewest" Link="Extensions\Discord\discord-languages.json" />
 	</ItemGroup>
 
