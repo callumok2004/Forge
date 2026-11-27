@@ -16,6 +16,14 @@ Module._resolveFilename = function (request, ...rest) {
 const rpc = new Rpc(process.stdin, process.stdout);
 forge.connect(rpc);
 
+const guard = require("./guard.js");
+guard.install({ ask: payload => rpc.request("permissions/request", payload) });
+
+rpc.on("host/permissions", params => {
+	guard.update(params ?? {});
+	return null;
+});
+
 const log = (level, message) => rpc.notify("host/log", { level, message: String(message) });
 
 process.on("uncaughtException", error => log("error", error?.stack ?? error));

@@ -27,6 +27,8 @@ public sealed class DiscordPresenceExtension : ForgeExtension
 
 	public override string DisplayName => "Discord Presence";
 
+	public override string Description => "Shows what you are editing as your Discord activity";
+
 	public override ActivationEvent Activation => ActivationEvent.Startup;
 
 	public bool Enabled { get; set; } = true;

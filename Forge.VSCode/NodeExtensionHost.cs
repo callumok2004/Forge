@@ -26,6 +26,10 @@ public sealed class NodeExtensionHost : IDisposable
 
 	public bool IsRunning => _connection is not null;
 
+	public string? GuardPipe { get; set; }
+
+	public int? ProcessId => _connection?.ProcessId is > 0 and int id ? id : null;
+
 	public Action<string>? Log;
 
 	public Action<string, JsonNode?>? Notification;
@@ -52,6 +56,8 @@ public sealed class NodeExtensionHost : IDisposable
 			startInfo.ArgumentList.Add(BootstrapPath);
 			startInfo.Environment["FORGE_EXTENSION_HOST"] = "1";
 			startInfo.Environment["FORGE_URI_SCHEME"] = Core.Native.UriLauncher.Scheme;
+			if (GuardPipe is { } pipe) startInfo.Environment["FORGE_GUARD_PIPE"] = pipe;
+
 			startInfo.Environment["FORGE_PARENT_PID"] = Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
 			try {

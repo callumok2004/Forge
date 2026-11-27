@@ -18,6 +18,8 @@ public sealed class GLuaExtension : ForgeExtension
 
 	public override string DisplayName => "GLua Enhanced";
 
+	public override string Description => "Garry's Mod Lua: wiki completions, hovers, globals tools and bytecode heatmap";
+
 	public override ActivationEvent Activation => ActivationEvent.FileOpened | ActivationEvent.CommandInvoked;
 
 	protected override string CommandPrefix => "glua-enhanced.";

@@ -95,6 +95,10 @@ public static class WorkbenchCommands
 		Add("workbench.view.explorer", "Show Explorer", "View", () => workbench.Views?.ShowContainer(Sidebar.ExplorerId), "Ctrl+Shift+E");
 		Add("workbench.view.scm", "Show Source Control", "View", () => workbench.Views?.ShowContainer(Sidebar.SourceControlId), "Ctrl+Shift+G");
 		Add("workbench.view.debug", "Show Run and Debug", "View", () => workbench.Views?.ShowContainer(Sidebar.RunId), "Ctrl+Shift+D");
+		Add("workbench.view.extensions", "Show Extensions", "View", () => {
+			workbench.Views?.ShowContainer(Sidebar.ExtensionsId);
+			workbench.Sidebar.Extensions.FocusSearch();
+		}, "Ctrl+Shift+X");
 		Add("workbench.action.openSettings", "Open Settings", "Preferences", () => {
 			SettingsEditorPane pane = workbench.FindPane(SettingsEditorPane.PaneId) as SettingsEditorPane ?? new SettingsEditorPane(path => {
 				workbench.OpenFile(path);

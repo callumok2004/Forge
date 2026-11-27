@@ -9,6 +9,132 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 {
 	private readonly Dictionary<string, VSCodeExtension> _byCommand = [with(StringComparer.Ordinal)];
 	private readonly List<VSCodeExtension> _activated = [];
+	private readonly Dictionary<string, TimeSpan> _timings = [with(StringComparer.OrdinalIgnoreCase)];
+	private List<VSCodeExtension> _discovered = [];
+	private string[] _roots = [];
+	private string _storageRoot = string.Empty;
+	private readonly Dictionary<string, Task<(bool Allowed, bool Remembered)>> _decisions = [with(StringComparer.OrdinalIgnoreCase)];
+	private readonly CancellationTokenSource _pipeCancel = new();
+	private readonly string _pipeName = $"forge-extension-guard-{Environment.ProcessId}";
+
+	public Forge.Core.ExtensionPermissions? Permissions { get; set; }
+
+	public string? WorkspacePath { get; set; }
+
+	public void PushPermissions() {
+		if (_process is null) return;
+
+		JsonArray extensions = [];
+
+		foreach (VSCodeExtension extension in _discovered) {
+			if (!IsEnabled(extension.Identifier)) continue;
+
+			JsonObject grants = [];
+			JsonObject denied = [];
+
+			if (Permissions is { } permissions) {
+				permissions.Reconcile(extension.Identifier, extension.Version);
+
+				foreach (Forge.Core.PermissionRule rule in permissions.Rules(extension.Identifier, extension.Version)) {
+					JsonObject bucket = rule.Allowed ? grants : denied;
+
+					if (bucket[rule.Kind] is not JsonArray list) bucket[rule.Kind] = list = [];
+
+					list.Add(rule.Target);
+				}
+			}
+
+			extensions.Add(new JsonObject {
+				["id"] = extension.Identifier,
+				["name"] = extension.DisplayName,
+				["directory"] = extension.Directory,
+				["storage"] = new JsonArray(Path.Combine(_storageRoot, extension.Identifier)),
+				["grants"] = grants,
+				["denied"] = denied,
+			});
+		}
+
+		_process.NotifyHost("host/permissions", new JsonObject {
+			["extensions"] = extensions,
+			["workspaceFolders"] = WorkspacePath is { Length: > 0 } workspace ? new JsonArray(workspace) : [],
+		});
+	}
+
+	private Task<(bool Allowed, bool Remembered)> DecideAsync(JsonNode? parameters) {
+		if (parameters?["id"]?.GetValue<string>() is not { } id || parameters["kind"]?.GetValue<string>() is not { } kind || parameters["target"]?.GetValue<string>() is not { } target) return Task.FromResult((false, false));
+
+		if (_discovered.Find(item => string.Equals(item.Identifier, id, StringComparison.OrdinalIgnoreCase)) is not { } extension) return Task.FromResult((false, false));
+
+		if (Permissions?.Rules(id, extension.Version).FirstOrDefault(rule => rule.Kind == kind && string.Equals(rule.Target, target, StringComparison.OrdinalIgnoreCase)) is { } existing) return Task.FromResult((existing.Allowed, true));
+
+		string key = $"{id}\u0000{kind}\u0000{target}";
+
+		lock (_decisions) {
+			if (_decisions.TryGetValue(key, out Task<(bool Allowed, bool Remembered)>? running)) return running;
+
+			string description = parameters["description"]?.GetValue<string>() ?? $"{kind} {target}";
+			string detail = parameters["detail"]?.GetValue<string>() is { } full && !string.Equals(full, target, StringComparison.OrdinalIgnoreCase) ? $" ({full})" : string.Empty;
+			TaskCompletionSource<(bool Allowed, bool Remembered)> decision = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+			_decisions[key] = decision.Task;
+			Log($"{extension.DisplayName} is waiting for permission to {description}{detail}.");
+
+			host.ShowMessage(MessageSeverity.Warning, $"{extension.DisplayName} wants to {description}{detail}.", ["Allow", "Deny"], choice => {
+				if (choice is 0 or 1 && Permissions is { } permissions) {
+					permissions.Set(id, extension.Version, kind, target, choice == 0);
+					PushPermissions();
+				}
+
+				lock (_decisions) _decisions.Remove(key);
+
+				decision.TrySetResult((choice == 0, choice is 0 or 1));
+			});
+
+			return decision.Task;
+		}
+	}
+
+	private async Task<JsonNode?> PermissionRequestAsync(JsonNode? parameters) {
+		(bool allowed, bool remembered) = await DecideAsync(parameters).ConfigureAwait(false);
+		return new JsonObject { ["allowed"] = allowed, ["remembered"] = remembered };
+	}
+
+	private async Task ServePipeAsync() {
+		CancellationToken cancellation = _pipeCancel.Token;
+
+		while (!cancellation.IsCancellationRequested) {
+			System.IO.Pipes.NamedPipeServerStream server;
+
+			try {
+				server = new System.IO.Pipes.NamedPipeServerStream(_pipeName, System.IO.Pipes.PipeDirection.InOut, System.IO.Pipes.NamedPipeServerStream.MaxAllowedServerInstances, System.IO.Pipes.PipeTransmissionMode.Byte, System.IO.Pipes.PipeOptions.Asynchronous | System.IO.Pipes.PipeOptions.CurrentUserOnly);
+				await server.WaitForConnectionAsync(cancellation).ConfigureAwait(false);
+			}
+			catch (Exception exception) when (exception is OperationCanceledException or IOException or UnauthorizedAccessException) {
+				return;
+			}
+
+			_ = HandlePipeAsync(server);
+		}
+	}
+
+	private async Task HandlePipeAsync(System.IO.Pipes.NamedPipeServerStream server) {
+		await using (server.ConfigureAwait(false)) {
+			try {
+				using StreamReader reader = new(server, leaveOpen: true);
+				string? line = await reader.ReadLineAsync().ConfigureAwait(false);
+
+				if (line is null) return;
+
+				JsonNode? answer = await PermissionRequestAsync(JsonNode.Parse(line)).ConfigureAwait(false);
+				byte[] bytes = System.Text.Encoding.UTF8.GetBytes(answer!.ToJsonString() + "\n");
+				await server.WriteAsync(bytes).ConfigureAwait(false);
+				await server.FlushAsync().ConfigureAwait(false);
+				server.WaitForPipeDrain();
+			}
+			catch (Exception exception) when (exception is IOException or System.Text.Json.JsonException or ObjectDisposedException) {
+			}
+		}
+	}
 
 	private readonly List<WebviewViewEntry> _views = [];
 	private readonly Dictionary<string, string> _context = new(StringComparer.Ordinal);
@@ -75,8 +201,67 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 
 	public bool IsRunning => _process?.IsRunning ?? false;
 
+	public IReadOnlyList<VSCodeExtension> Discovered => _discovered;
+
+	public Func<string, bool> IsEnabled { get; set; } = static _ => true;
+
+	public Action? ExtensionsChanged { get; set; }
+
+	public TimeSpan? ActivationTime(string id) {
+		lock (_timings) return _timings.TryGetValue(id, out TimeSpan time) ? time : null;
+	}
+
+	public bool IsActive(string id) {
+		lock (_timings) return _timings.ContainsKey(id);
+	}
+
+	public long? HostMemory() {
+		if (_process?.ProcessId is not { } id) return null;
+
+		try {
+			using System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(id);
+			return process.WorkingSet64;
+		}
+		catch (Exception exception) when (exception is ArgumentException or InvalidOperationException) {
+			return null;
+		}
+	}
+
+	public void Rediscover() {
+		_discovered = VSCodeExtensions.Discover(_roots);
+		PushPermissions();
+		ExtensionsChanged?.Invoke();
+	}
+
+	public async Task<bool> EnableAsync(string id) {
+		if (_process is null || _discovered.Find(item => string.Equals(item.Identifier, id, StringComparison.OrdinalIgnoreCase)) is not { } extension) return false;
+
+		Register(extension);
+		RegisterViews(extension);
+		ViewsChanged?.Invoke();
+		PushPermissions();
+		await ActivateAllAsync([extension]).ConfigureAwait(false);
+		return true;
+	}
+
+	public async Task DisableAsync(string id) {
+		if (_process is not { } process) return;
+
+		await process.DeactivateAsync(id).ConfigureAwait(false);
+
+		lock (_timings) _timings.Remove(id);
+
+		_activated.RemoveAll(item => string.Equals(item.Identifier, id, StringComparison.OrdinalIgnoreCase));
+		_views.RemoveAll(view => string.Equals(view.ExtensionId, id, StringComparison.OrdinalIgnoreCase));
+		ViewsChanged?.Invoke();
+		ExtensionsChanged?.Invoke();
+	}
+
 	public void Start(string storageDirectory, HostState state, params string[] searchDirectories) {
-		List<VSCodeExtension> found = VSCodeExtensions.Discover(searchDirectories);
+		_roots = searchDirectories;
+		_storageRoot = storageDirectory;
+		_discovered = VSCodeExtensions.Discover(searchDirectories);
+		List<VSCodeExtension> found = _discovered.FindAll(extension => IsEnabled(extension.Identifier));
 
 		if (found.Count == 0) return;
 
@@ -90,6 +275,8 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 		process.Notification = OnNotification;
 		process.RequestHandler = OnRequest;
 		process.AsyncRequestHandler = OnDeferredRequest;
+		process.GuardPipe = @"\\.\pipe\" + _pipeName;
+		_ = Task.Run(ServePipeAsync);
 
 		if (!process.Start(state)) {
 			process.Dispose();
@@ -97,6 +284,7 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 		}
 
 		_process = process;
+		PushPermissions();
 
 		foreach (VSCodeExtension extension in found) {
 			Register(extension);
@@ -127,12 +315,15 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 	public void RaiseEvent(string name, JsonNode? value) => _process?.RaiseEvent(name, value);
 
 	public void Dispose() {
+		_pipeCancel.Cancel();
 		_process?.Dispose();
 		_process = null;
 	}
 
 	private async Task ActivateAllAsync(List<VSCodeExtension> found) {
 		foreach (VSCodeExtension extension in found) {
+			long started = System.Diagnostics.Stopwatch.GetTimestamp();
+
 			try {
 				ActivationResult? result = await (_process?.ActivateAsync(extension.Directory) ?? Task.FromResult<ActivationResult?>(null))
 					.WaitAsync(TimeSpan.FromSeconds(60)).ConfigureAwait(false);
@@ -140,6 +331,10 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 				if (result is null) continue;
 
 				_activated.Add(extension);
+
+				lock (_timings) _timings[extension.Identifier] = System.Diagnostics.Stopwatch.GetElapsedTime(started);
+
+				ExtensionsChanged?.Invoke();
 
 				foreach (string id in result.Commands) {
 					if (_byCommand.ContainsKey(id)) continue;
@@ -208,6 +403,7 @@ public sealed class VSCodeBridge(ICommandRegistry commands, ICommandHost host) :
 	private Task<JsonNode?>? OnDeferredRequest(string method, JsonNode? parameters) => method switch {
 		"window/showMessage" => ShowMessageAsync(parameters),
 		"window/showQuickPick" => ShowQuickPickAsync(parameters),
+		"permissions/request" => PermissionRequestAsync(parameters),
 		_ => WorkbenchRequest?.Invoke(method, parameters),
 	};
 

@@ -13,6 +13,7 @@ public sealed class Sidebar : Panel, IViewPart
 	public const string SourceControlId = "workbench.view.scm";
 	public const string RunId = "workbench.view.debug";
 	public const string SearchId = "workbench.view.search";
+	public const string ExtensionsId = "workbench.view.extensions";
 
 	private const float HeaderActionSize = 22f;
 	private const float HeaderPaddingRight = 8f;
@@ -42,6 +43,8 @@ public sealed class Sidebar : Panel, IViewPart
 	public RepositoriesView RepositoryList => field ??= new RepositoriesView(SourceControl);
 
 	public SearchView Search { get; } = new();
+
+	public ExtensionsView Extensions { get; } = new();
 
 	public VariablesView Variables { get; } = new();
 

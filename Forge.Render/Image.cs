@@ -53,7 +53,8 @@ public sealed class Image : IImage, IDisposable
 	public static Image? Decode(RenderDevice device, string filePath) {
 		try {
 			using Vortice.WIC.IWICImagingFactory factory = new();
-			using Vortice.WIC.IWICBitmapDecoder decoder = factory.CreateDecoderFromFileName(filePath, FileAccess.Read, Vortice.WIC.DecodeOptions.CacheOnDemand);
+			using Vortice.WIC.IWICStream stream = factory.CreateStream(File.ReadAllBytes(filePath));
+			using Vortice.WIC.IWICBitmapDecoder decoder = factory.CreateDecoderFromStream(stream, Vortice.WIC.DecodeOptions.CacheOnLoad);
 			using Vortice.WIC.IWICBitmapFrameDecode frame = decoder.GetFrame(0);
 			using Vortice.WIC.IWICFormatConverter converter = factory.CreateFormatConverter();
 

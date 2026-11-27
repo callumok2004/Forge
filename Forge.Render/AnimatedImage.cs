@@ -52,7 +52,8 @@ public sealed class AnimatedImage : IAnimatedImage, IDisposable
 
 		try {
 			factory = new WIC.IWICImagingFactory();
-			decoder = factory.CreateDecoderFromFileName(filePath, FileAccess.Read, WIC.DecodeOptions.CacheOnDemand);
+			using WIC.IWICStream stream = factory.CreateStream(new MemoryStream(File.ReadAllBytes(filePath), writable: false));
+			decoder = factory.CreateDecoderFromStream(stream, WIC.DecodeOptions.CacheOnDemand);
 
 			if (decoder.FrameCount < 2) {
 				decoder.Dispose();

@@ -18,6 +18,8 @@ public sealed class TrailingSpacesExtension : ForgeExtension
 
 	public override string DisplayName => "Trailing Spaces";
 
+	public override string Description => "Highlights and trims trailing whitespace";
+
 	public override ActivationEvent Activation => ActivationEvent.Startup;
 
 	public bool IncludeEmptyLines { get; set; } = true;

@@ -8,6 +8,8 @@ public interface IForgeExtension
 	string GetIdentifier();
 	string GetDisplayName();
 
+	string GetDescription() => string.Empty;
+
 	ActivationEvent GetActivation();
 
 	bool ActivatesIn(string? workspacePath);

@@ -56,6 +56,8 @@ public sealed class WorkspaceMemory
 
 	public Dictionary<string, ViewPaneState> ViewPanes { get; set; } = [];
 
+	public Dictionary<string, bool> ExtensionOverrides { get; set; } = [];
+
 	public static WorkspaceMemory Load(string root) {
 		string path = PathFor(root);
 

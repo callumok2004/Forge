@@ -226,6 +226,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		workbench.PeekRatio = global.PeekRatio;
 		workbench.PeekHeightInLines = global.PeekHeightInLines;
 		workbench.FileOpened += global.TouchFile;
+		workbench.Enablement = new ExtensionEnablement(global, memory);
 
 		if (memory.DebugConfiguration is { Length: > 0 } remembered) {
 			foreach (DebugConfiguration configuration in debugger.GetConfigurations()) {
@@ -539,6 +540,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		views.Register(new ViewContainer(Sidebar.SearchId, "Search", Codicon.Search, ViewLocation.Sidebar, ActivityBar.SearchOrder));
 		views.Register(new ViewContainer(Sidebar.SourceControlId, "Source Control", Codicon.SourceControl, ViewLocation.Sidebar, 20));
 		views.Register(new ViewContainer(Sidebar.RunId, "Debug", Codicon.DebugAlt, ViewLocation.Sidebar, 30));
+		views.Register(new ViewContainer(Sidebar.ExtensionsId, "Extensions", Codicon.Extensions, ViewLocation.Sidebar, ActivityBar.ExtensionsOrder));
 
 		views.AddView(new ViewDescriptor("workbench.explorer.fileView", "Folders", Sidebar.ExplorerId, () => workbench.Sidebar.Explorer) {
 			Actions = [
@@ -547,6 +549,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			],
 		});
 		views.AddView(new ViewDescriptor("workbench.view.search.view", "Search", Sidebar.SearchId, () => workbench.Sidebar.Search) { TitleControls = () => [.. workbench.Sidebar.Search.HeaderActions] });
+		views.AddView(new ViewDescriptor("workbench.extensions.installed", "Extensions", Sidebar.ExtensionsId, () => workbench.Sidebar.Extensions) { CanToggleVisibility = false, Actions = [new ViewAction("workbench.extensions.action.checkForUpdates", Codicon.Refresh, "Check All Extensions for Updates")] });
 		views.AddView(new ViewDescriptor("workbench.scm.repositories", "Repositories", Sidebar.SourceControlId, () => workbench.Sidebar.RepositoryList, -1) { HideByDefault = true });
 		views.AddView(new ViewDescriptor("workbench.scm", "Changes", Sidebar.SourceControlId, () => workbench.Sidebar.SourceControl, 0) { TitleControls = () => [.. workbench.Sidebar.SourceControl.HeaderActions] });
 		views.AddView(new ViewDescriptor("workbench.scm.history", "Graph", Sidebar.SourceControlId, () => workbench.Sidebar.Graph, 2) { Actions = [new ViewAction("workbench.scm.history.refresh", Codicon.Refresh, "Refresh")] });
@@ -562,6 +565,7 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 		nameof(ActivityView.SourceControl) => Sidebar.SourceControlId,
 		nameof(ActivityView.Search) => Sidebar.SearchId,
 		nameof(ActivityView.Run) => Sidebar.RunId,
+		nameof(ActivityView.Extensions) => Sidebar.ExtensionsId,
 		_ => saved,
 	};
 
@@ -1316,7 +1320,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 	private static void LoadExtensions(Workbench workbench, IDebug debugger, Action refresh, Action<Action> post) {
 		CommandHost host = new(workbench, refresh);
 
-		ExtensionHost extensions = new(Settings.Current, BuiltInExtensions.All) { Views = workbench.Views, Debug = debugger };
+		ExtensionEnablement enablement = workbench.Enablement ?? throw new InvalidOperationException("Extension enablement is not ready.");
+		ExtensionHost extensions = new(Settings.Current, BuiltInExtensions.All) { Views = workbench.Views, Debug = debugger, IsEnabled = enablement.IsEnabled };
 		workbench.ExtensionHost = extensions;
 
 		int built = extensions.RegisterAll(Registry);
@@ -1354,11 +1359,51 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 				$"{registry.RequiringHost().Count()} needing an extension host");
 		}
 
+		ExtensionCatalog catalog = new(enablement, extensions, host, post, !string.IsNullOrEmpty(workbench.RootPath)) { PermissionStore = Permissions };
+		workbench.Catalog = catalog;
+
+		Registry.Register(new Command("workbench.extensions.action.checkForUpdates", "Check for Extension Updates", "Extensions", _ => {
+			if (!catalog.IsCheckingAll) Task.Run(() => catalog.CheckForUpdatesAsync(null));
+		}));
+
 		StartVSCodeBridge(workbench, host, post, refresh);
+
+		post(() => {
+			catalog.Bridge = workbench.VSCode;
+			workbench.Sidebar.Extensions.ImageLoader = workbench.ImageLoader;
+			workbench.Sidebar.Extensions.Post = post;
+			workbench.Sidebar.Extensions.OpenDetails = id => OpenExtensionDetails(workbench, catalog, id, refresh, post);
+			workbench.Sidebar.Extensions.Catalog = catalog;
+			refresh();
+		});
+	}
+
+	internal static void OpenExtensionDetails(Workbench workbench, ExtensionCatalog catalog, string id, Action refresh, Action<Action> post) {
+		ExtensionEditorPane.ImageLoader ??= workbench.ImageLoader;
+
+		if (workbench.FindPane(ExtensionEditorPane.PaneId) is ExtensionEditorPane existing) existing.Show(id);
+
+		ExtensionEditorPane pane = workbench.FindPane(ExtensionEditorPane.PaneId) as ExtensionEditorPane ?? new ExtensionEditorPane(id, catalog) { OpenLink = OpenLink, Post = post };
+		workbench.OpenPane(pane);
+		refresh();
+	}
+
+	private static void OpenLink(string href) {
+		if (!Uri.TryCreate(href, UriKind.Absolute, out Uri? uri) || uri.Scheme is not ("http" or "https")) return;
+
+		try {
+			System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true })?.Dispose();
+		}
+		catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException) {
+		}
 	}
 
 	private static void StartVSCodeBridge(Workbench workbench, CommandHost host, Action<Action> post, Action refresh) {
 		VSCodeBridge bridge = new(Registry, host) { TraceWebviews = Environment.GetEnvironmentVariable("FORGE_TRACE_WEBVIEWS") == "1" };
+		if (workbench.Enablement is { } enablement) bridge.IsEnabled = enablement.IsEnabled;
+
+		bridge.Permissions = Permissions;
+		bridge.WorkspacePath = workbench.RootPath;
 		workbench.VSCode = bridge;
 
 		bridge.ViewsChanged = () => post(() => workbench.Auxiliary.SetViews(bridge.WebviewViews));
@@ -1399,6 +1444,8 @@ public sealed class ShellApplication(ForgeBuilder builder) : IForgeApplication
 			_pendingUris.Clear();
 		});
 	}
+
+	private static readonly ExtensionPermissions Permissions = new(ExtensionPermissions.DefaultPath);
 
 	private static readonly List<string> _pendingUris = [];
 	private static VSCodeBridge? _uriBridge;

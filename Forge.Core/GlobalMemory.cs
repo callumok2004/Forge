@@ -20,6 +20,8 @@ public sealed class GlobalMemory
 
 	public int PeekHeightInLines { get; set; } = 18;
 
+	public List<string> DisabledExtensions { get; set; } = [];
+
 	public static GlobalMemory Load(string path) {
 		try {
 			if (File.Exists(path) && JsonSerializer.Deserialize(File.ReadAllText(path), GlobalMemoryContext.Default.GlobalMemory) is { } loaded) {

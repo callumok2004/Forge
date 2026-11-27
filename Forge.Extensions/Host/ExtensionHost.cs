@@ -9,6 +9,14 @@ namespace Forge.Extensions.Host;
 public sealed class ExtensionHost(Settings settings, IReadOnlyList<IForgeExtension> extensions) : IExtensionHost
 {
 	private readonly Dictionary<string, ExtensionContext> _active = [with(StringComparer.Ordinal)];
+	private readonly Dictionary<string, TimeSpan> _timings = [with(StringComparer.OrdinalIgnoreCase)];
+	private readonly Dictionary<string, List<ICommand>> _commands = [with(StringComparer.OrdinalIgnoreCase)];
+
+	public Func<string, bool> IsEnabled { get; init; } = static _ => true;
+
+	public TimeSpan? ActivationTime(string identifier) => _timings.TryGetValue(identifier, out TimeSpan time) ? time : null;
+
+	public IReadOnlyList<ICommand> CommandsOf(string identifier) => _commands.TryGetValue(identifier, out List<ICommand>? found) ? found : [];
 
 	public IWorkbenchViews? Views { get; init; }
 
@@ -24,7 +32,9 @@ public sealed class ExtensionHost(Settings settings, IReadOnlyList<IForgeExtensi
 		int before = commands.All().Count;
 
 		foreach (IForgeExtension extension in extensions) {
+			int start = commands.All().Count;
 			extension.Register(commands);
+			_commands[extension.GetIdentifier()] = [.. commands.All().Skip(start)];
 
 			if (Views is { } views) extension.RegisterViews(views);
 		}
@@ -78,6 +88,8 @@ public sealed class ExtensionHost(Settings settings, IReadOnlyList<IForgeExtensi
 	public bool Unload(string identifier) {
 		if (!_active.Remove(identifier, out ExtensionContext? context)) return false;
 
+		_timings.Remove(identifier);
+
 		foreach (IForgeExtension extension in extensions) {
 			if (!string.Equals(extension.GetIdentifier(), identifier, StringComparison.OrdinalIgnoreCase)) continue;
 
@@ -96,13 +108,16 @@ public sealed class ExtensionHost(Settings settings, IReadOnlyList<IForgeExtensi
 	private bool Load(IForgeExtension extension, ICommandHost host) {
 		string identifier = extension.GetIdentifier();
 
-		if (_active.ContainsKey(identifier)) return false;
+		if (_active.ContainsKey(identifier) || !IsEnabled(identifier)) return false;
 
 		ExtensionContext context = new(identifier, host, settings) { Views = Views, Debug = Debug };
 		_active[identifier] = context;
 
+		long started = System.Diagnostics.Stopwatch.GetTimestamp();
+
 		try {
 			extension.Activate(context);
+			_timings[identifier] = System.Diagnostics.Stopwatch.GetElapsedTime(started);
 			return true;
 		}
 		catch (Exception exception) when (exception is IOException or InvalidOperationException or UnauthorizedAccessException) {

@@ -2073,7 +2073,47 @@ class FileDecoration {
 	}
 }
 
+class CodeActionKind {
+	constructor(value) {
+		this.value = value;
+	}
+
+	append(parts) {
+		return new CodeActionKind(this.value ? this.value + "." + parts : parts);
+	}
+
+	intersects(other) {
+		return this.contains(other) || other.contains(this);
+	}
+
+	contains(other) {
+		return this.value === other.value || other.value.startsWith(this.value + ".");
+	}
+}
+
+CodeActionKind.Empty = new CodeActionKind("");
+CodeActionKind.QuickFix = CodeActionKind.Empty.append("quickfix");
+CodeActionKind.Refactor = CodeActionKind.Empty.append("refactor");
+CodeActionKind.RefactorExtract = CodeActionKind.Refactor.append("extract");
+CodeActionKind.RefactorInline = CodeActionKind.Refactor.append("inline");
+CodeActionKind.RefactorMove = CodeActionKind.Refactor.append("move");
+CodeActionKind.RefactorRewrite = CodeActionKind.Refactor.append("rewrite");
+CodeActionKind.Source = CodeActionKind.Empty.append("source");
+CodeActionKind.SourceOrganizeImports = CodeActionKind.Source.append("organizeImports");
+CodeActionKind.SourceFixAll = CodeActionKind.Source.append("fixAll");
+CodeActionKind.Notebook = CodeActionKind.Empty.append("notebook");
+
+class CodeAction {
+	constructor(title, kind) {
+		this.title = title;
+		this.kind = kind;
+	}
+}
+
 const api = {
+	CodeActionKind,
+	CodeAction,
+	CodeActionTriggerKind: { Invoke: 1, Automatic: 2 },
 	version: "1.130.0",
 	Disposable,
 	EventEmitter,

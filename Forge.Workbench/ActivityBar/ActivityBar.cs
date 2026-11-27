@@ -28,7 +28,6 @@ public sealed class ActivityBar : Panel
 	public const int ExtensionsOrder = 40;
 
 	private readonly List<Entry> _entries = [];
-	private readonly ActionButton _extensions;
 	private readonly ActionButton _toggleSidebar;
 	private readonly ActionButton _togglePanel;
 	private readonly ActionButton _toggleAuxiliaryBar;
@@ -40,9 +39,6 @@ public sealed class ActivityBar : Panel
 		Name = "ActivityBar";
 		Dock = DockType.Left;
 		MouseInputEnabled = false;
-
-		_extensions = CreateBuiltIn(ActivityView.Extensions, Codicon.Extensions);
-		_entries.Add(new Entry("workbench.view.extensions", ExtensionsOrder, _extensions));
 
 		_manage = CreateControl("workbench.action.openSettings", Codicon.SettingsGear);
 		_toggleAuxiliaryBar = CreateControl("workbench.action.toggleAuxiliaryBar", Codicon.LayoutSidebarRightOff);

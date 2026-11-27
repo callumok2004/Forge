@@ -119,7 +119,15 @@ public sealed class Painter : IPainter, IDisposable
 
 		if (bitmap is null) return;
 
-		_context.DrawBitmap(bitmap, new Vortice.Mathematics.Rect(x, y, width, height), 1f, pixelated ? D2D.BitmapInterpolationMode.NearestNeighbor : D2D.BitmapInterpolationMode.Linear, new Vortice.Mathematics.Rect(0f, 0f, image.GetWidth(), image.GetHeight()));
+		Vortice.Mathematics.Rect source = new(0f, 0f, image.GetWidth(), image.GetHeight());
+
+		if (pixelated) {
+			_context.DrawBitmap(bitmap, new Vortice.Mathematics.Rect(x, y, width, height), 1f, D2D.BitmapInterpolationMode.NearestNeighbor, source);
+			return;
+		}
+
+		D2D.InterpolationMode mode = width < image.GetWidth() || height < image.GetHeight() ? D2D.InterpolationMode.HighQualityCubic : D2D.InterpolationMode.Linear;
+		_context.DrawBitmap(bitmap, new Vortice.Mathematics.Rect(x, y, width, height), 1f, mode, source, null);
 	}
 
 	void IPainter.DrawText(ITextFont font, ReadOnlySpan<char> text, float x, float baselineY, Color color) =>

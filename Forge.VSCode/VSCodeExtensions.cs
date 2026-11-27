@@ -21,7 +21,20 @@ public sealed record VSCodeExtension(
 	bool HasWebview,
 	VSCodeCommand[] Commands,
 	VSCodeViewContainer[] Containers,
-	VSCodeMenuItem[] EditorTitle);
+	VSCodeMenuItem[] EditorTitle)
+{
+	public string Publisher { get; init; } = string.Empty;
+
+	public string Version { get; init; } = string.Empty;
+
+	public string Description { get; init; } = string.Empty;
+
+	public string? Icon { get; init; }
+
+	public string? Repository { get; init; }
+
+	public string? License { get; init; }
+}
 
 public static class VSCodeExtensions
 {
@@ -37,6 +50,16 @@ public static class VSCodeExtensions
 
 			try {
 				foreach (string directory in Directory.EnumerateDirectories(root)) {
+					if (File.Exists(Path.Combine(directory, Gallery.GalleryClient.RemovalMarker)) || directory.EndsWith(".installing", StringComparison.OrdinalIgnoreCase)) {
+						try {
+							Directory.Delete(directory, recursive: true);
+						}
+						catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) {
+						}
+
+						continue;
+					}
+
 					if (Read(directory) is { } extension && seen.Add(extension.Identifier)) found.Add(extension);
 				}
 			}
@@ -75,7 +98,14 @@ public static class VSCodeExtensions
 				HasWebviewView(root),
 				ReadCommands(root),
 				ReadContainers(root),
-				ReadMenu(root, "editor/title"));
+				ReadMenu(root, "editor/title")) {
+				Publisher = publisher,
+				Version = Text(root, "version") ?? string.Empty,
+				Description = Text(root, "description") ?? string.Empty,
+				Icon = Text(root, "icon") is { } icon ? Path.GetFullPath(Path.Combine(directory, icon)) : null,
+				Repository = root.TryGetProperty("repository", out JsonElement repository) ? repository.ValueKind == JsonValueKind.String ? repository.GetString() : Text(repository, "url") : null,
+				License = Text(root, "license"),
+			};
 		}
 		catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException) {
 			return null;

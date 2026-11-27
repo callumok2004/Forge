@@ -179,6 +179,10 @@ public sealed class Workbench(float scale) : IEditorHost, IDisposable
 
 	public VSCodeBridge? VSCode { get; set; }
 
+	public Forge.Core.ExtensionEnablement? Enablement { get; set; }
+
+	public ExtensionCatalog? Catalog { get; set; }
+
 	public ExtensionHostSync? ExtensionSync { get; set; }
 
 	public void SyncEditorActions() {

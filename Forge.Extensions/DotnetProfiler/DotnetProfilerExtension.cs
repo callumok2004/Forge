@@ -22,6 +22,8 @@ public sealed class DotnetProfilerExtension : IForgeExtension
 
 	public string GetDisplayName() => ".NET Profiler";
 
+	public string GetDescription() => "CPU and memory profiling for .NET processes";
+
 	public ActivationEvent GetActivation() => ActivationEvent.Startup;
 
 	public bool ActivatesIn(string? workspacePath) => true;

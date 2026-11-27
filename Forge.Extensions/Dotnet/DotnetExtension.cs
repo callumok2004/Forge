@@ -41,6 +41,8 @@ public sealed class DotnetExtension : ForgeExtension
 
 	public override string DisplayName => ".NET";
 
+	public override string Description => "C# language support, builds, tests and debugging powered by Roslyn";
+
 	public override ActivationEvent Activation => ActivationEvent.WorkspaceContains | ActivationEvent.FileOpened | ActivationEvent.CommandInvoked;
 
 	public string? Target => _workspace.Target;

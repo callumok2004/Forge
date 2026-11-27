@@ -10,6 +10,8 @@ public sealed class MergeConflictExtension : ForgeExtension
 
 	public override string DisplayName => "Merge Conflict";
 
+	public override string Description => "Highlights and resolves merge conflict blocks";
+
 	public override ActivationEvent Activation => ActivationEvent.Startup;
 
 	protected override string CommandPrefix => "merge-conflict.";

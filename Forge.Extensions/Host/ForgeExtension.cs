@@ -12,9 +12,13 @@ public abstract class ForgeExtension : IForgeExtension
 
 	public abstract ActivationEvent Activation { get; }
 
+	public virtual string Description => string.Empty;
+
 	public string GetIdentifier() => Identifier;
 
 	public string GetDisplayName() => DisplayName;
+
+	public string GetDescription() => Description;
 
 	public ActivationEvent GetActivation() => Activation;
 
